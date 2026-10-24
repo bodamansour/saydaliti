@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+.vercel/
+*.xlsx
+*.xls
+*.csv
+*.bak
+*.mdf
