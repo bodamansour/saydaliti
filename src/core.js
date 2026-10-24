@@ -137,6 +137,46 @@ export function partnerSummary(A) {
   return [...out.values()].sort((a, b) => b.monthlySales - a.monthlySales);
 }
 
+// ---------- Ledger: bought, sold, discounts, losses, net ----------
+// sale.price = actual unit price charged (defaults to the list price); sale.discount = extra money off the line.
+export function ledger(data, rates, from = null, to = null) {
+  const inRange = (d) => (!from || d >= from) && (!to || d < to);
+  const items = new Map(data.items.map((i) => [i.code, i]));
+  const rows = new Map();
+  const row = (code) => {
+    if (!rows.has(code)) {
+      const it = items.get(code) || { code, name: code, category: 'غير محدد', owner: UNASSIGNED, cost: 0, price: 0 };
+      rows.set(code, { code, name: it.name, category: it.category, owner: it.owner || UNASSIGNED,
+        boughtQty: 0, bought: 0, soldQty: 0, listValue: 0, discount: 0, revenue: 0, cogs: 0, lostQty: 0, lost: 0, tax: 0, overhead: 0, net: 0 });
+    }
+    return rows.get(code);
+  };
+  for (const p of data.purchases || []) if (inRange(p.date)) { const r = row(p.code); r.boughtQty += p.qty; r.bought += p.qty * p.cost; }
+  for (const s of data.sales) {
+    if (!inRange(s.date)) continue;
+    const it = items.get(s.code) || { cost: 0, price: s.price ?? 0 };
+    const r = row(s.code);
+    const unit = s.price ?? it.price;
+    const list = s.qty * it.price;
+    const charged = s.qty * unit - (s.discount || 0);
+    r.soldQty += s.qty;
+    r.listValue += list;
+    r.revenue += charged;
+    r.discount += Math.max(0, list - charged);
+    r.cogs += s.qty * it.cost;
+  }
+  for (const l of data.losses || []) if (inRange(l.date)) { const it = items.get(l.code) || { cost: 0 }; const r = row(l.code); r.lostQty += l.qty; r.lost += l.qty * it.cost; }
+  const list = [...rows.values()].map((r) => {
+    r.tax = r.revenue * rates.taxRate;
+    r.overhead = r.revenue * rates.overheadRate;
+    r.net = r.revenue - r.cogs - r.tax - r.overhead - r.lost;
+    return r;
+  });
+  const sum = (k) => list.reduce((a, r) => a + r[k], 0);
+  const totals = Object.fromEntries(['bought', 'soldQty', 'listValue', 'discount', 'revenue', 'cogs', 'lost', 'tax', 'overhead', 'net'].map((k) => [k, sum(k)]));
+  return { rows: list.sort((a, b) => b.revenue - a.revenue), totals };
+}
+
 // ---------- File import helpers ----------
 const HEADERS = {
   code: ['code', 'الكود', 'كود', 'كود الصنف', 'item code', 'barcode', 'الباركود'],
@@ -148,6 +188,8 @@ const HEADERS = {
   expiry: ['expiry', 'exp', 'الصلاحية', 'تاريخ الصلاحية', 'تاريخ الانتهاء', 'expiry date', 'الصلاحيه'],
   date: ['date', 'التاريخ', 'تاريخ البيع', 'sale date'],
   owner: ['owner', 'partner', 'المالك', 'الشريك', 'صاحب البضاعة', 'صاحب البضاعه'],
+  discount: ['discount', 'الخصم', 'خصم'],
+  reason: ['reason', 'السبب', 'سبب الهالك'],
 };
 const norm = (s) => String(s ?? '').trim().toLowerCase();
 
@@ -174,20 +216,32 @@ export function toDate(v) {
   return isNaN(d) ? null : d;
 }
 
-// rows: array of plain objects (one sheet). Returns { items } or { sales }.
+// One sheet → items, sales, purchases or losses, decided by its columns:
+//   date + reason → losses (expired/damaged)   date + cost → purchases
+//   date only     → sales                      no date     → items
+export function sheetKind(row) {
+  if (row.date === undefined) return 'items';
+  if (row.reason !== undefined) return 'losses';
+  if (row.cost !== undefined) return 'purchases';
+  return 'sales';
+}
+
 export function parseSheet(rawRows) {
   const rows = rawRows.map(mapRow);
-  if (!rows.length) return { items: [], sales: [] };
-  const isSales = rows[0].date !== undefined && rows[0].cost === undefined;
-  const items = [];
-  const sales = [];
+  const out = { items: [], sales: [], purchases: [], losses: [] };
+  if (!rows.length) return out;
+  const kind = sheetKind(rows[0]);
+  const { items, sales } = out;
   for (const r of rows) {
     if (!r.code && !r.name) continue;
     const code = String(r.code || r.name).trim();
-    if (isSales) {
+    if (kind !== 'items') {
       const d = toDate(r.date);
       const q = +r.qty;
-      if (d && q) sales.push({ date: d, code, qty: q });
+      if (!d || !q) continue;
+      if (kind === 'sales') sales.push({ date: d, code, qty: q, ...(r.price !== undefined && r.price !== '' ? { price: +r.price } : {}), ...(+r.discount ? { discount: +r.discount } : {}) });
+      else if (kind === 'purchases') out.purchases.push({ date: d, code, qty: q, cost: +r.cost || 0 });
+      else out.losses.push({ date: d, code, qty: q, reason: String(r.reason || 'هالك').trim() });
     } else {
       items.push({
         code,
@@ -201,5 +255,5 @@ export function parseSheet(rawRows) {
       });
     }
   }
-  return { items, sales };
+  return out;
 }

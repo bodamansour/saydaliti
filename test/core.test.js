@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  simplifiedRate, partnerSummary, UNASSIGNED, profitAt, breakEven, targetFloor, suggestOffer, analyze, mapRow, toDate, parseSheet, DAY,
+  simplifiedRate, partnerSummary, ledger, UNASSIGNED, profitAt, breakEven, targetFloor, suggestOffer, analyze, mapRow, toDate, parseSheet, DAY,
 } from '../src/core.js';
 
 const today = new Date(2026, 9, 24); // 24 Oct 2026, local midnight
@@ -130,4 +130,37 @@ test('parseSheet reads the owner column', () => {
   const r = parseSheet([{ 'الصنف': 'x', 'سعر الشراء': 1, 'الشريك': 'محمد' }, { 'الصنف': 'y', 'سعر الشراء': 1 }]);
   assert.equal(r.items[0].owner, 'محمد');
   assert.equal(r.items[1].owner, UNASSIGNED);
+});
+
+test('parseSheet: sales with real price/discount, purchases, losses', () => {
+  const s = parseSheet([{ 'التاريخ': '20/10/2026', 'الكود': 'A', 'الكمية': 2, 'السعر': 90, 'الخصم': 5 }]);
+  assert.deepEqual([s.sales[0].price, s.sales[0].discount], [90, 5]);
+  const p = parseSheet([{ 'التاريخ': '01/10/2026', 'الكود': 'A', 'الكمية': 10, 'سعر الشراء': 70 }]);
+  assert.equal(p.purchases[0].cost, 70);
+  const l = parseSheet([{ 'التاريخ': '05/10/2026', 'الكود': 'A', 'الكمية': 1, 'السبب': 'منتهي' }]);
+  assert.equal(l.losses[0].reason, 'منتهي');
+});
+
+test('ledger: bought, sold, discount, losses, net', () => {
+  const data = {
+    items: [{ code: 'A', name: 'a', owner: 'x', cost: 70, price: 100 }],
+    purchases: [{ date: day(-20), code: 'A', qty: 10, cost: 70 }],
+    sales: [
+      { date: day(-10), code: 'A', qty: 2 }, // 200 at list price
+      { date: day(-5), code: 'A', qty: 1, price: 90 }, // 10 off
+      { date: day(-4), code: 'A', qty: 1, discount: 5 }, // 5 off
+      { date: day(-60), code: 'A', qty: 9 }, // outside the period
+    ],
+    losses: [{ date: day(-3), code: 'A', qty: 1, reason: 'منتهي' }],
+  };
+  const L = ledger(data, { taxRate: 0.01, overheadRate: 0.1 }, day(-30), today);
+  const t = L.totals;
+  assert.equal(t.bought, 700);
+  assert.equal(t.soldQty, 4);
+  assert.equal(t.listValue, 400);
+  assert.equal(t.discount, 15);
+  assert.equal(t.revenue, 385);
+  assert.equal(t.cogs, 280);
+  assert.equal(t.lost, 70);
+  near(t.net, 385 - 280 - 3.85 - 38.5 - 70); // -7.35: the expired box turned a profit into a loss
 });

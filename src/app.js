@@ -1,4 +1,4 @@
-import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf } from './core.js';
+import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger } from './core.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -47,24 +47,41 @@ function exampleData() {
       if (!rate) continue;
       const L = Math.exp(-rate); let p = 1, k = 0;
       do { k++; p *= r(); } while (p > L && k < 50); // Poisson draw
-      if (k - 1 > 0) sales.push({ date, code, qty: k - 1 });
+      if (k - 1 <= 0) continue;
+      const it = items.find((x) => x.code === code);
+      const disc = it.category !== 'دواء' && r() < 0.25 ? Math.round(it.price * (r() < 0.5 ? 0.05 : 0.1)) : 0;
+      sales.push({ date, code, qty: k - 1, ...(disc ? { price: it.price - disc } : {}) });
     }
   }
-  return { items, sales, real: false };
+  const soldBy = new Map();
+  for (const s of sales) soldBy.set(s.code, (soldBy.get(s.code) || 0) + s.qty);
+  const purchases = [];
+  for (const it of items) {
+    const total = (soldBy.get(it.code) || 0) + it.qty;
+    const first = Math.ceil(total * 0.6);
+    purchases.push({ date: addDays(TODAY, -88), code: it.code, qty: first, cost: it.cost });
+    if (total - first > 0) purchases.push({ date: addDays(TODAY, -40), code: it.code, qty: total - first, cost: it.cost });
+  }
+  const losses = [
+    { date: addDays(TODAY, -12), code: 'C003', qty: 2, reason: 'منتهي' },
+    { date: addDays(TODAY, -33), code: 'M006', qty: 3, reason: 'منتهي' },
+    { date: addDays(TODAY, -6), code: 'S006', qty: 1, reason: 'تالف' },
+  ];
+  return { items, sales, purchases, losses, real: false };
 }
 
 async function readFiles(files) {
   if (typeof XLSX === 'undefined') throw new Error('مكتبة قراية Excel مش محمّلة. اتأكد من النت وجرّب تاني.');
-  const items = [], sales = [];
+  const items = [], sales = [], purchases = [], losses = [];
   for (const f of files) {
     const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
     for (const name of wb.SheetNames) {
       const parsed = parseSheet(XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }));
-      items.push(...parsed.items); sales.push(...parsed.sales);
+      items.push(...parsed.items); sales.push(...parsed.sales); purchases.push(...parsed.purchases); losses.push(...parsed.losses);
     }
   }
   if (!items.length) throw new Error('ملقتش أصناف في الملف. اتأكد إن فيه أعمدة زي «الصنف» و«سعر الشراء» و«الكمية».');
-  return { items, sales, real: true };
+  return { items, sales, purchases, losses, real: true };
 }
 
 // ---------- Settings & saved prices (this device only) ----------
@@ -91,9 +108,10 @@ let DATA = exampleData();
 let CALC_CODE = null;
 let TAB = 'reorder';
 let OWNER = 'all';
+let PERIOD = 'thisMonth';
 const OFFERS = new Map(); // code -> { on, price }
 
-const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['movers', 'الأكتر سحباً'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
+const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['movers', 'الأكتر سحباً'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
 
 function taxNote(A, s) {
   if (s.taxMode === 'simplified') {
@@ -153,6 +171,8 @@ function render() {
       A.movers.map((r) => { const p = profitAt(r.price, r, A); return `<tr>${nameCell(r)}<td class="n">${fmt(r.sold)}</td><td class="n">${fmt(r.monthly, 1)}</td><td>${egp(r.revenue)}</td><td><span class="pill ${p.net < 0 ? 'crit' : p.pct < s.target ? 'warn' : 'ok'}"><span class="n">${fmt(p.net, 2)}</span> ج · <span class="n">${fmt(p.pct, 0)}%</span></span></td></tr>`; }));
   } else if (TAB === 'offers') {
     html = renderOffers(A, offerRows);
+  } else if (TAB === 'books') {
+    html = renderBooks(full, only);
   } else if (TAB === 'partners') {
     const ps = partnerSummary(full);
     const tot = ps.reduce((a, p) => ({ s: a.s + p.monthlySales, n: a.n + p.monthlyNet }), { s: 0, n: 0 });
@@ -165,6 +185,46 @@ function render() {
   $('panel').innerHTML = html;
   if (TAB === 'calc') bindCalc(A, s);
   if (TAB === 'offers') bindOffers(offerRows);
+}
+
+const PERIODS = [['thisMonth', 'الشهر ده'], ['lastMonth', 'الشهر اللي فات'], ['last90', 'آخر 3 شهور'], ['all', 'كل الفترة']];
+function periodRange(p) {
+  const y = TODAY.getFullYear(), m = TODAY.getMonth();
+  if (p === 'thisMonth') return [new Date(y, m, 1), addDays(TODAY, 1)];
+  if (p === 'lastMonth') return [new Date(y, m - 1, 1), new Date(y, m, 1)];
+  if (p === 'last90') return [addDays(TODAY, -90), addDays(TODAY, 1)];
+  return [null, null];
+}
+function renderBooks(full, only) {
+  const [from, to] = periodRange(PERIOD);
+  const L = ledger(DATA, full, from, to);
+  const rows = only(L.rows);
+  const t = rows.reduce((a, r) => { for (const k of Object.keys(a)) a[k] += r[k]; return a; }, { bought: 0, listValue: 0, discount: 0, revenue: 0, cogs: 0, lost: 0, tax: 0, overhead: 0, net: 0 });
+  const line = (label, v, cls = '') => `<div class="${cls}"><span>${label}</span><span class="n">${fmt(v, 2)}</span></div>`;
+  const noPurch = !(DATA.purchases || []).length;
+  return `<div class="row"><label class="owner">الفترة<select id="periodSel">${PERIODS.map(([id, t2]) => `<option value="${id}" ${id === PERIOD ? 'selected' : ''}>${t2}</option>`).join('')}</select></label></div>
+  <div class="calc">
+    <div class="card"><h3>الملخص</h3><div class="ledger">
+      ${line('اشتريت بضاعة بـ', t.bought)}
+      ${line('المبيعات بسعر البيع الأصلي', t.listValue)}
+      ${line('− خصومات عملتها', t.discount)}
+      ${line('= اللي دخل فعلاً', t.revenue, 'tot')}
+      ${line('− تكلفة البضاعة اللي اتباعت', t.cogs)}
+      ${line('− الضرايب', t.tax)}
+      ${line('− نصيب المصاريف', t.overhead)}
+      ${line('− خسارة هالك ومنتهي', t.lost)}
+      ${line('مكسبك الصافي', t.net, 'tot')}
+    </div></div>
+    <div class="card"><h3>اللي ضيّع فلوس</h3><div class="ledger">
+      ${line('الخصومات', t.discount)}${line('الهالك والمنتهي', t.lost)}
+      ${line('المجموع', t.discount + t.lost, 'tot')}
+    </div>
+    <p class="note">${t.revenue > 0 ? `الخصم والهالك أكلوا ${fmt((t.discount + t.lost) / (t.revenue + t.discount) * 100, 1)}% من مبيعاتك.` : 'مفيش مبيعات في الفترة دي.'}</p>
+    ${noPurch ? '<p class="note">«اشتريت بكام» محتاج ملف المشتريات (التاريخ، الكود، الكمية، سعر الشراء) من برنامج المتحدة.</p>' : ''}
+    </div>
+  </div>` + table(
+    ['الصنف', 'اشتريت', 'اتباع', 'خصومات', 'دخل فعلاً', 'هالك', 'المكسب الصافي'],
+    rows.map((r) => `<tr>${nameCell(r)}<td>${egp(r.bought)}</td><td class="n">${fmt(r.soldQty)}</td><td>${r.discount ? egp(r.discount) : '<span class="muted">—</span>'}</td><td>${egp(r.revenue)}</td><td>${r.lost ? `<span class="pill crit">${egp(r.lost)}</span>` : '<span class="muted">—</span>'}</td><td><span class="pill ${r.net < 0 ? 'crit' : 'ok'}"><span class="n">${fmt(r.net)}</span> ج</span></td></tr>`));
 }
 
 function offerState(r, A) {
@@ -275,6 +335,7 @@ function bindCalc(A, s) {
 }
 
 // ---------- Events ----------
+$('panel').addEventListener('change', (e) => { if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); } });
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) { TAB = b.dataset.tab; render(); } });
 $('panel').addEventListener('click', (e) => { const b = e.target.closest('[data-calc]'); if (b) { CALC_CODE = b.dataset.calc; TAB = 'calc'; render(); } });
