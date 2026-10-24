@@ -1,0 +1,205 @@
+// Pure calculations — no DOM. Shared by the page and the tests.
+export const DAY = 86400000;
+
+// Add calendar days (safe across daylight-saving changes, unlike adding n * 24h).
+export function addDays(d, n) {
+  const t = new Date(d);
+  t.setDate(t.getDate() + n);
+  return t;
+}
+
+export function startOfDay(d = new Date()) {
+  const t = new Date(d);
+  t.setHours(0, 0, 0, 0);
+  return t;
+}
+
+// Egypt, Law 6 of 2025 (Art. 10): tax on annual turnover for businesses up to 20M EGP.
+// Returns null above the ceiling. Eligibility must be confirmed with an accountant.
+export function simplifiedRate(annual) {
+  if (annual < 500000) return 0.004;
+  if (annual < 2000000) return 0.005;
+  if (annual < 3000000) return 0.0075;
+  if (annual < 10000000) return 0.01;
+  if (annual <= 20000000) return 0.015;
+  return null;
+}
+
+export const DEFAULT_SETTINGS = {
+  taxMode: 'unsure', // 'unsure' | 'simplified' | 'custom'
+  customTax: 1, // % of sales, when taxMode = 'custom'
+  expenses: 0, // monthly fixed costs (rent, utilities, salaries, other)
+  target: 10, // minimum net margin % the owner wants
+  expWin: 90, // flag items expiring within N days
+  lead: 3, // supplier delivery days
+  cover: 30, // order enough for N days
+  deadDays: 45, // no sale for N days = dead stock
+};
+
+export function taxRateFor(settings, monthlySales) {
+  if (settings.taxMode === 'simplified') return simplifiedRate(monthlySales * 12);
+  if (settings.taxMode === 'custom') return Math.max(0, settings.customTax) / 100;
+  return 0;
+}
+
+export function profitAt(price, item, rates) {
+  const tax = price * rates.taxRate;
+  const over = price * rates.overheadRate;
+  const net = price - item.cost - tax - over;
+  return { tax, over, net, pct: price > 0 ? (net / price) * 100 : 0 };
+}
+
+// Lowest price that covers cost + tax + share of expenses (net = 0).
+export function breakEven(item, rates) {
+  const k = 1 - rates.taxRate - rates.overheadRate;
+  return k > 0 ? item.cost / k : item.cost;
+}
+
+// Lowest price that still reaches the target margin, or null if impossible.
+export function targetFloor(item, rates, targetPct) {
+  const k = 1 - rates.taxRate - rates.overheadRate - targetPct / 100;
+  return k > 0 ? item.cost / k : null;
+}
+
+// Suggested offer price for near-expiry / dead stock.
+// Expiring within 30 days: getting the cost back beats losing it all.
+export function suggestOffer(row, rates) {
+  const urgent = row.expDays !== null && row.expDays <= 30;
+  const floor = urgent ? row.cost : breakEven(row, rates);
+  const wish = row.price * (urgent ? 0.75 : 0.85);
+  return Math.min(row.price, Math.max(Math.ceil(floor), Math.floor(wish)));
+}
+
+export function analyze(data, settings = {}, today = startOfDay()) {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  const sold = new Map();
+  const last = new Map();
+  let first = Infinity;
+  for (const x of data.sales) {
+    sold.set(x.code, (sold.get(x.code) || 0) + x.qty);
+    const t = x.date.getTime();
+    first = Math.min(first, t);
+    if (!last.has(x.code) || last.get(x.code) < t) last.set(x.code, t);
+  }
+  const periodDays = data.sales.length ? Math.max(14, Math.round((today - first) / DAY)) : 30;
+
+  const rows = data.items.map((it) => {
+    const q = sold.get(it.code) || 0;
+    const rate = q / periodDays; // units per day
+    const daysCover = rate > 0 ? it.qty / rate : Infinity;
+    const lastSale = last.has(it.code) ? Math.round((today - last.get(it.code)) / DAY) : null;
+    const expDays = it.expiry ? Math.round((startOfDay(it.expiry) - today) / DAY) : null;
+    const expectSold = rate * Math.max(0, expDays ?? 0);
+    const atRisk = expDays !== null && expDays <= s.expWin ? Math.max(0, Math.ceil(it.qty - expectSold)) : 0;
+    const order = rate > 0 && daysCover <= s.lead + 7 ? Math.max(1, Math.ceil(rate * s.cover - it.qty)) : 0;
+    const dead = it.qty > 0 && (lastSale === null || lastSale >= s.deadDays);
+    return { ...it, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk, order, dead, revenue: q * it.price };
+  });
+
+  const revenue = rows.reduce((a, r) => a + r.revenue, 0);
+  const monthlySales = (revenue / periodDays) * 30;
+  const overheadRate = monthlySales > 0 ? s.expenses / monthlySales : 0;
+  const taxRate = taxRateFor(s, monthlySales);
+  return {
+    rows,
+    periodDays,
+    monthlySales,
+    overheadRate,
+    taxRate: taxRate ?? 0,
+    aboveSimplifiedCeiling: s.taxMode === 'simplified' && taxRate === null,
+    reorder: rows.filter((r) => r.order > 0).sort((a, b) => a.daysCover - b.daysCover),
+    expiring: rows.filter((r) => r.atRisk > 0).sort((a, b) => a.expDays - b.expDays),
+    deadStock: rows.filter((r) => r.dead).sort((a, b) => b.qty * b.cost - a.qty * a.cost),
+    movers: rows.filter((r) => r.sold > 0).sort((a, b) => b.revenue - a.revenue),
+  };
+}
+
+// ---------- Partners (who owns which stock) ----------
+export const UNASSIGNED = 'من غير صاحب';
+
+export const ownersOf = (items) => [...new Set(items.map((i) => i.owner || UNASSIGNED))].sort((a, b) => a.localeCompare(b, 'ar'));
+
+// Per-owner totals. Shared expenses and tax are split by each owner's share of sales,
+// because profitAt applies them as a % of the selling price.
+export function partnerSummary(A) {
+  const out = new Map();
+  for (const r of A.rows) {
+    const k = r.owner || UNASSIGNED;
+    if (!out.has(k)) out.set(k, { owner: k, items: 0, stockVal: 0, monthlySales: 0, monthlyNet: 0, riskVal: 0, deadVal: 0 });
+    const o = out.get(k);
+    o.items += 1;
+    o.stockVal += r.qty * r.cost;
+    o.monthlySales += r.monthly * r.price;
+    o.monthlyNet += r.monthly * profitAt(r.price, r, A).net;
+    o.riskVal += r.atRisk * r.cost;
+    if (r.dead) o.deadVal += r.qty * r.cost;
+  }
+  return [...out.values()].sort((a, b) => b.monthlySales - a.monthlySales);
+}
+
+// ---------- File import helpers ----------
+const HEADERS = {
+  code: ['code', 'الكود', 'كود', 'كود الصنف', 'item code', 'barcode', 'الباركود'],
+  name: ['name', 'الصنف', 'اسم الصنف', 'الاسم', 'item', 'item name'],
+  category: ['category', 'النوع', 'التصنيف', 'الفئة', 'type'],
+  cost: ['cost', 'سعر الشراء', 'الشراء', 'purchase price', 'cost price'],
+  price: ['price', 'سعر البيع', 'البيع', 'sale price', 'selling price', 'السعر'],
+  qty: ['qty', 'quantity', 'الكمية', 'الرصيد', 'stock', 'الكميه'],
+  expiry: ['expiry', 'exp', 'الصلاحية', 'تاريخ الصلاحية', 'تاريخ الانتهاء', 'expiry date', 'الصلاحيه'],
+  date: ['date', 'التاريخ', 'تاريخ البيع', 'sale date'],
+  owner: ['owner', 'partner', 'المالك', 'الشريك', 'صاحب البضاعة', 'صاحب البضاعه'],
+};
+const norm = (s) => String(s ?? '').trim().toLowerCase();
+
+export function mapRow(row) {
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    const nk = norm(k);
+    for (const [field, names] of Object.entries(HEADERS)) if (names.includes(nk) && out[field] === undefined) out[field] = v;
+  }
+  return out;
+}
+
+export function toDate(v) {
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  if (typeof v === 'number') return new Date(Math.round((v - 25569) * DAY)); // Excel serial date
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/); // dd/mm/yyyy (Egyptian format)
+  if (m) {
+    const y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+    return new Date(y, +m[2] - 1, +m[1]);
+  }
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+// rows: array of plain objects (one sheet). Returns { items } or { sales }.
+export function parseSheet(rawRows) {
+  const rows = rawRows.map(mapRow);
+  if (!rows.length) return { items: [], sales: [] };
+  const isSales = rows[0].date !== undefined && rows[0].cost === undefined;
+  const items = [];
+  const sales = [];
+  for (const r of rows) {
+    if (!r.code && !r.name) continue;
+    const code = String(r.code || r.name).trim();
+    if (isSales) {
+      const d = toDate(r.date);
+      const q = +r.qty;
+      if (d && q) sales.push({ date: d, code, qty: q });
+    } else {
+      items.push({
+        code,
+        name: String(r.name || r.code).trim(),
+        category: String(r.category || 'غير محدد').trim(),
+        owner: String(r.owner || '').trim() || UNASSIGNED,
+        cost: +r.cost || 0,
+        price: +r.price || 0,
+        qty: +r.qty || 0,
+        expiry: toDate(r.expiry),
+      });
+    }
+  }
+  return { items, sales };
+}
