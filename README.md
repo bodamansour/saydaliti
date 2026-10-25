@@ -10,3 +10,16 @@
 npm test      # الحسابات
 npm run dev   # http://localhost:3000
 ```
+
+## الوصلة (Connector) لبرنامج الصيدلية
+
+برنامج الصيدلية بيخزّن بياناته في SQL Server. الخطوة الأولى بتشتغل على جهاز الويندوز:
+
+1. ثبّت SQL Server 2022 Express.
+2. شغّل:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\connector\restore-and-discover.ps1 -Backup "C:\Users\<you>\Downloads\<backup>.gen"
+   ```
+3. السكريبت بيرجّع نسخة منفصلة اسمها `SaydalitiCopy` (من غير ما يلمس قاعدة بيانات الصيدلية الأصلية)، ويطلّع `schema.json` فيه أسماء الجداول والأعمدة وعدد الصفوف بس، من غير أي بيانات زباين أو مبيعات.
+
+بعد ما نعرف شكل الجداول، بنكتب الـ queries اللي بتقرا المخزون والمبيعات والصلاحية، وبنطلّع تقرير الصبح (`src/report.js`).
