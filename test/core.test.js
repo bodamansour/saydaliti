@@ -207,3 +207,22 @@ test('connector export → analyze → morning report (end to end)', async () =>
   assert.match(t, /Panadol Extra/);
   assert.match(t, /Old hair oil/);
 });
+
+test('toExport → fromExport keeps the numbers (shared snapshot round trip)', async () => {
+  const { toExport, fromExport } = await import('../src/core.js');
+  const data = {
+    items: [
+      { code: 'A', name: 'a', category: 'تجميل', owner: 'x', cost: 10, price: 20, qty: 5, expiry: day(30) },
+      { code: 'B', name: 'b', category: 'دواء', owner: UNASSIGNED, cost: 5, price: 7, qty: 9, expiry: null, batches: [{ qty: 4, expiry: day(10) }, { qty: 5, expiry: day(200) }] },
+    ],
+    sales: [{ date: day(-3), code: 'A', qty: 2, price: 18 }, { date: day(-2), code: 'B', qty: 1 }, { date: day(-1), code: 'A', qty: 1, discount: 2 }],
+    purchases: [{ date: day(-20), code: 'A', qty: 8, cost: 10 }],
+    losses: [{ date: day(-5), code: 'B', qty: 1, reason: 'تالف' }],
+  };
+  const back = fromExport(JSON.parse(JSON.stringify(toExport(data))));
+  const rates = { taxRate: 0.01, overheadRate: 0.1 };
+  assert.deepEqual(ledger(back, rates).totals, ledger(data, rates).totals);
+  const a1 = analyze(data, {}, today).rows.map((r) => [r.code, r.qty, r.atRisk, r.order]);
+  const a2 = analyze(back, {}, today).rows.map((r) => [r.code, r.qty, r.atRisk, r.order]);
+  assert.deepEqual(a2, a1);
+});
