@@ -7,3 +7,6 @@ node_modules/
 *.csv
 *.bak
 *.mdf
+connector/data.json
+connector/schema.json
+connector/mapping.json

@@ -70,6 +70,34 @@ export function suggestOffer(row, rates) {
   return Math.min(row.price, Math.max(Math.ceil(floor), Math.floor(wish)));
 }
 
+// Stock per batch, earliest expiry first. Items may carry `batches: [{ qty, expiry }]`;
+// an item with a single `expiry` is one batch.
+export function batchesOf(it) {
+  const list = it.batches?.length ? it.batches : [{ qty: it.qty, expiry: it.expiry ?? null }];
+  return list.filter((b) => b.qty > 0).sort((a, b) => (a.expiry ? a.expiry.getTime() : Infinity) - (b.expiry ? b.expiry.getTime() : Infinity));
+}
+
+// Expected unsold units per batch, assuming the oldest batch is sold first (FEFO) at `rate` units/day.
+export function batchRisk(batches, rate, today, window) {
+  let before = 0; // units in earlier-expiring batches that must sell first
+  let atRisk = 0;
+  let firstRiskDays = null;
+  const detail = [];
+  for (const b of batches) {
+    const expDays = b.expiry ? Math.round((startOfDay(b.expiry) - today) / DAY) : null;
+    let risk = 0;
+    if (expDays !== null && expDays <= window) {
+      const soldOfThis = Math.min(b.qty, Math.max(0, rate * Math.max(0, expDays) - before));
+      risk = Math.max(0, Math.ceil(b.qty - soldOfThis));
+    }
+    if (risk > 0 && firstRiskDays === null) firstRiskDays = expDays;
+    atRisk += risk;
+    detail.push({ qty: b.qty, expiry: b.expiry, expDays, atRisk: risk });
+    before += b.qty;
+  }
+  return { atRisk, firstRiskDays, detail };
+}
+
 export function analyze(data, settings = {}, today = startOfDay()) {
   const s = { ...DEFAULT_SETTINGS, ...settings };
   const sold = new Map();
@@ -86,14 +114,16 @@ export function analyze(data, settings = {}, today = startOfDay()) {
   const rows = data.items.map((it) => {
     const q = sold.get(it.code) || 0;
     const rate = q / periodDays; // units per day
-    const daysCover = rate > 0 ? it.qty / rate : Infinity;
+    const batches = batchesOf(it);
+    const qty = it.batches?.length ? batches.reduce((a, b) => a + b.qty, 0) : it.qty;
+    const daysCover = rate > 0 ? qty / rate : Infinity;
     const lastSale = last.has(it.code) ? Math.round((today - last.get(it.code)) / DAY) : null;
-    const expDays = it.expiry ? Math.round((startOfDay(it.expiry) - today) / DAY) : null;
-    const expectSold = rate * Math.max(0, expDays ?? 0);
-    const atRisk = expDays !== null && expDays <= s.expWin ? Math.max(0, Math.ceil(it.qty - expectSold)) : 0;
-    const order = rate > 0 && daysCover <= s.lead + 7 ? Math.max(1, Math.ceil(rate * s.cover - it.qty)) : 0;
-    const dead = it.qty > 0 && (lastSale === null || lastSale >= s.deadDays);
-    return { ...it, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk, order, dead, revenue: q * it.price };
+    const risk = batchRisk(batches, rate, today, s.expWin);
+    const nearest = batches.find((b) => b.expiry);
+    const expDays = risk.firstRiskDays ?? (nearest ? Math.round((startOfDay(nearest.expiry) - today) / DAY) : null);
+    const order = rate > 0 && daysCover <= s.lead + 7 ? Math.max(1, Math.ceil(rate * s.cover - qty)) : 0;
+    const dead = qty > 0 && (lastSale === null || lastSale >= s.deadDays);
+    return { ...it, qty, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk: risk.atRisk, batchRisk: risk.detail, order, dead, revenue: q * it.price };
   });
 
   const revenue = rows.reduce((a, r) => a + r.revenue, 0);
@@ -112,6 +142,40 @@ export function analyze(data, settings = {}, today = startOfDay()) {
     deadStock: rows.filter((r) => r.dead).sort((a, b) => b.qty * b.cost - a.qty * a.cost),
     movers: rows.filter((r) => r.sold > 0).sort((a, b) => b.revenue - a.revenue),
   };
+}
+
+// ---------- Connector export (data.json) → analyze() input ----------
+// { items:[{code,name,category,cost,price,owner,qty,expiry}], batches:[{code,qty,expiry}], sales:[{code,date,qty,amount}] }
+export function fromExport(json) {
+  const d = (v) => (v ? toDate(v) : null);
+  const byCode = new Map();
+  for (const b of json.batches || []) {
+    const code = String(b.code).trim();
+    if (!byCode.has(code)) byCode.set(code, []);
+    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry) });
+  }
+  const items = (json.items || []).filter((i) => i.code != null).map((i) => {
+    const code = String(i.code).trim();
+    const batches = byCode.get(code);
+    return {
+      code,
+      name: String(i.name ?? code).trim(),
+      category: String(i.category ?? '').trim() || 'غير محدد',
+      owner: String(i.owner ?? '').trim() || UNASSIGNED,
+      cost: +i.cost || 0,
+      price: +i.price || 0,
+      qty: batches ? batches.reduce((a, b) => a + b.qty, 0) : +i.qty || 0,
+      expiry: d(i.expiry),
+      ...(batches ? { batches } : {}),
+    };
+  });
+  const sales = (json.sales || []).filter((x) => x.date && +x.qty).map((x) => ({
+    date: d(x.date),
+    code: String(x.code).trim(),
+    qty: +x.qty,
+    ...(x.amount != null && +x.qty > 0 ? { price: +x.amount / +x.qty } : {}),
+  }));
+  return { items, sales, purchases: [], losses: [], real: true };
 }
 
 // ---------- Partners (who owns which stock) ----------

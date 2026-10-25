@@ -164,3 +164,46 @@ test('ledger: bought, sold, discount, losses, net', () => {
   assert.equal(t.lost, 70);
   near(t.net, 385 - 280 - 3.85 - 38.5 - 70); // -7.35: the expired box turned a profit into a loss
 });
+
+test('batches: oldest sells first, risk counted per batch', () => {
+  // 1 unit/day. Batch A: 10 units expiring in 20 days → all sell. Batch B: 30 units expiring in 25 days:
+  // 25 units sell in 25 days, the first 10 from A, so 15 from B → 15 of B at risk. Batch C: far away.
+  const data = {
+    items: [{ code: 'X', name: 'x', cost: 10, price: 12, qty: 0, batches: [
+      { qty: 30, expiry: day(25) }, { qty: 10, expiry: day(20) }, { qty: 50, expiry: day(400) },
+    ] }],
+    sales: Array.from({ length: 30 }, (_, i) => ({ date: day(-30 + i), code: 'X', qty: 1 })),
+  };
+  const [x] = analyze(data, {}, today).rows;
+  assert.equal(x.qty, 90);
+  assert.equal(x.atRisk, 15);
+  assert.equal(x.expDays, 25); // first batch actually at risk
+  assert.deepEqual(x.batchRisk.map((b) => b.atRisk), [0, 15, 0]);
+});
+
+test('batches: a single expiry behaves like one batch', () => {
+  const one = { code: 'Y', name: 'y', cost: 1, price: 2, qty: 10, expiry: day(20) };
+  const two = { code: 'Y', name: 'y', cost: 1, price: 2, qty: 0, batches: [{ qty: 10, expiry: day(20) }] };
+  const sales = [{ date: day(-10), code: 'Y', qty: 7 }];
+  assert.equal(analyze({ items: [one], sales }, {}, today).rows[0].atRisk, analyze({ items: [two], sales }, {}, today).rows[0].atRisk);
+});
+
+test('connector export → analyze → morning report (end to end)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fromExport } = await import('../src/core.js');
+  const { morningReport } = await import('../src/report.js');
+  const data = fromExport(JSON.parse(readFileSync(new URL('./fixtures/export.json', import.meta.url), 'utf8')));
+  const sun = data.items.find((i) => i.code === '202');
+  assert.equal(sun.qty, 11);
+  assert.equal(sun.batches.length, 2);
+  assert.equal(data.items[0].owner, UNASSIGNED);
+  near(data.sales[0].price, 51);
+  const A = analyze(data, { expWin: 90 }, today);
+  assert.deepEqual(A.reorder.map((r) => r.code), ['101']); // 42 sold in ~14+ days, 3 left
+  assert.deepEqual(A.expiring.map((r) => r.code), ['202']); // the batch expiring end of November
+  assert.deepEqual(A.deadStock.map((r) => r.code), ['303']); // never sold
+  const t = morningReport(A, { pharmacyName: 'تجربة', date: today });
+  assert.match(t, /Sun cream SPF50/);
+  assert.match(t, /Panadol Extra/);
+  assert.match(t, /Old hair oil/);
+});
