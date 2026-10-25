@@ -1,6 +1,7 @@
 ﻿# Saydaliti connector - step 1: restore the pharmacy backup and describe its tables.
 # Run in PowerShell (as the same Windows user that installed SQL Server Express):
 #   powershell -ExecutionPolicy Bypass -File .\restore-and-discover.ps1 -Backup "C:\Users\you\Downloads\file.gen"
+#   Without -Backup it uses the newest .gen/.bak file in your Downloads folder.
 #
 # What it does:
 #   1. Copies the backup to C:\Users\Public\Documents\saydaliti (SQL Server can read there).
@@ -9,7 +10,7 @@
 #      No customer names, phones, prices or any other row data are read or saved.
 
 param(
-  [Parameter(Mandatory = $true)][string]$Backup,
+  [string]$Backup,
   [string]$Server = ".\SQLEXPRESS",
   [string]$Database = "SaydalitiCopy"
 )
@@ -42,7 +43,38 @@ function Exec($conn, [string]$sql, [int]$timeout = 3600) {
 
 Write-Host "== Saydaliti: restore and discover ==" -ForegroundColor Cyan
 
+if (-not $Backup) {
+  $dl = Join-Path $env:USERPROFILE "Downloads"
+  $latest = Get-ChildItem -LiteralPath $dl -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in ".gen", ".bak" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if (-not $latest) { throw "No .gen or .bak file found in $dl. Pass -Backup with the file path." }
+  $Backup = $latest.FullName
+  Write-Host "Using newest backup in Downloads: $Backup"
+}
 if (-not (Test-Path -LiteralPath $Backup)) { throw "Backup file not found: $Backup" }
+
+# 0) Catch an unfinished backup early: a real backup has data spread through the file,
+#    an interrupted one is mostly zeros after the first few MB.
+function Test-BackupHasData([string]$path) {
+  $len = (Get-Item -LiteralPath $path).Length
+  if ($len -lt 16MB) { return $true }  # small databases: let SQL Server judge
+  $fs = [System.IO.File]::OpenRead($path)
+  try {
+    $buf = New-Object byte[] 65536
+    $nonZero = 0
+    for ($k = 1; $k -le 16; $k++) {
+      $fs.Position = [int64](8MB + ($len - 8MB - 65536) * $k / 16)
+      $n = $fs.Read($buf, 0, $buf.Length)
+      for ($j = 0; $j -lt $n; $j += 64) { if ($buf[$j] -ne 0) { $nonZero++; break } }
+    }
+    return ($nonZero -ge 2)
+  } finally { $fs.Close() }
+}
+if (-not (Test-BackupHasData $Backup)) {
+  Write-Host "This backup file looks unfinished (almost all zeros)." -ForegroundColor Red
+  Write-Host "Make a new backup from the pharmacy program, wait until it says the backup is complete, then copy it again."
+  throw "Backup is incomplete: $Backup"
+}
 
 # 1) Connect
 try { $master = Open-Sql "master" }
@@ -58,9 +90,12 @@ Write-Host "Connected. SQL Server version: $ver"
 $work = Join-Path $env:PUBLIC "Documents\saydaliti"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 $bak = Join-Path $work "pharmacy.bak"
-if (-not (Test-Path $bak) -or ((Get-Item $bak).Length -ne (Get-Item -LiteralPath $Backup).Length)) {
+$copied = $false
+$src = Get-Item -LiteralPath $Backup
+if (-not (Test-Path $bak) -or ((Get-Item $bak).Length -ne $src.Length) -or ((Get-Item $bak).LastWriteTime -lt $src.LastWriteTime)) {
   Write-Host "Copying backup to $bak ..."
   Copy-Item -LiteralPath $Backup -Destination $bak -Force
+  $copied = $true
 }
 
 # 3) Inspect backup header
@@ -70,7 +105,7 @@ Write-Host ("Backup: database '{0}', made on {1}, SQL Server {2}.{3}.{4}" -f $h.
 
 # 4) Restore as a separate copy (skip if already restored)
 $exists = (Query $master "SELECT COUNT(*) n FROM sys.databases WHERE name = N'$Database'").Rows[0].n
-if ($exists -eq 0) {
+if ($exists -eq 0 -or $copied) {
   $files = Query $master "RESTORE FILELISTONLY FROM DISK = N'$bak'" 300
   $dataPath = (Query $master "SELECT CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(400)) p").Rows[0].p
   $moves = @()
@@ -82,11 +117,11 @@ if ($exists -eq 0) {
     $i++
   }
   Write-Host "Restoring as '$Database' (this can take a few minutes for ~1 GB) ..."
-  $sql = "RESTORE DATABASE [$Database] FROM DISK = N'$bak' WITH " + ($moves -join ", ") + ", RECOVERY, STATS = 10"
+  $sql = "RESTORE DATABASE [$Database] FROM DISK = N'$bak' WITH " + ($moves -join ", ") + ", RECOVERY, REPLACE, STATS = 10"
   Exec $master $sql 3600
   Write-Host "Restored." -ForegroundColor Green
 } else {
-  Write-Host "Database '$Database' already exists, skipping restore."
+  Write-Host "Database '$Database' already restored from this backup, skipping restore."
 }
 $master.Close()
 
