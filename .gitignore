@@ -10,3 +10,5 @@ node_modules/
 connector/data.json
 connector/schema.json
 connector/mapping.json
+connector/connector.json
+connector/connector.log

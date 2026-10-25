@@ -58,6 +58,18 @@
     <p class="note" id="settingsMsg"></p>
   </details>
 
+  <details class="help" id="connectorBox" hidden>
+    <summary>الوصلة على جهاز الكاشير (رفع البيانات كل يوم لوحده)</summary>
+    <p>الوصلة بتقرا المخزون والمبيعات من برنامج الصيدلية كل يوم الصبح، وبترفعها هنا لوحدها. محتاجة كود خاص بصيدليتك.</p>
+    <div class="row"><button class="btn primary" id="tokenBtn">اعمل كود للوصلة</button><span class="note" id="tokenMsg"></span></div>
+    <div id="tokenOut" hidden>
+      <p><b>انسخ ده واحفظه في ملف اسمه <code>connector.json</code> جنب سكريبتات الوصلة على جهاز الكاشير.</b> الكود ده بيظهر مرة واحدة بس، ولو ضاع اعمل واحد جديد (القديم بيبطل لوحده).</p>
+      <textarea id="tokenJson" readonly aria-label="ملف connector.json"></textarea>
+      <div class="row"><button class="btn" id="copyToken">انسخ</button><span class="note" id="copyTokenMsg"></span></div>
+      <p class="note">غيّر <code>database</code> لاسم قاعدة بيانات برنامج الصيدلية، ولو البرنامج بيدخل SQL Server باسم وكلمة سر، اكتبهم في <code>sqlUser</code> و<code>sqlPassword</code>. الملف ده يفضل على جهاز الكاشير بس، ومتبعتهوش لحد.</p>
+    </div>
+  </details>
+
   <details class="help">
     <summary>شكل الملفات المطلوبة من برنامج المتحدة</summary>
     <p>ملف الأصناف (Excel أو CSV) فيه الأعمدة دي، بالعربي أو الإنجليزي:

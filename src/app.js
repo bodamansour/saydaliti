@@ -1,6 +1,7 @@
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
+import { morningReport } from './report.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -119,7 +120,7 @@ let OWNER = 'all';
 let PERIOD = 'thisMonth';
 const OFFERS = new Map(); // code -> { on, price }
 
-const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['movers', 'الأكتر سحباً'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
+const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['morning', 'تقرير الصبح'], ['movers', 'الأكتر سحباً'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
 
 function taxNote(A, s) {
   if (s.taxMode === 'simplified') {
@@ -179,6 +180,12 @@ function render() {
       A.movers.map((r) => { const p = profitAt(r.price, r, A); return `<tr>${nameCell(r)}<td class="n">${fmt(r.sold)}</td><td class="n">${fmt(r.monthly, 1)}</td><td>${egp(r.revenue)}</td><td><span class="pill ${p.net < 0 ? 'crit' : p.pct < s.target ? 'warn' : 'ok'}"><span class="n">${fmt(p.net, 2)}</span> ج · <span class="n">${fmt(p.pct, 0)}%</span></span></td></tr>`; }));
   } else if (TAB === 'offers') {
     html = renderOffers(A, offerRows);
+  } else if (TAB === 'morning') {
+    const name = (SESS.mode === 'member' ? SESS.pharmacy.name : $('phName').value.trim()) || 'الصيدلية';
+    html = `<p>ملخص اليوم في رسالة واحدة: الفلوس اللي في خطر، تطلب إيه، وتعمل عرض على إيه. انسخه وابعته على واتساب لنفسك أو للشركاء${OWNER !== 'all' ? ` (ده لبضاعة ${esc(OWNER)} بس)` : ''}.</p>
+      <div class="card msg"><textarea id="morningMsg" aria-label="تقرير الصبح" style="min-height:320px">${esc(morningReport(A, { pharmacyName: name }))}</textarea>
+      <div class="row"><button class="btn primary" id="copyMorning">انسخ التقرير</button><span class="note" id="copyMorningNote"></span></div></div>
+      <p class="note">قريب: التقرير ده هيتبعت لوحده على الواتساب كل يوم الصبح.</p>`;
   } else if (TAB === 'books') {
     html = renderBooks(full, only);
   } else if (TAB === 'partners') {
@@ -392,10 +399,28 @@ async function boot() {
     $('settingsMsg').textContent = `الإعدادات بيحددها صاحب الصيدلية. إنت داخل كـ${ROLE_LABEL[SESS.role]}.`;
     document.querySelector('label[for="file"]').hidden = true;
   }
+  $('connectorBox').hidden = !isOwner();
   await loadShared();
   render();
 }
 $('logout').addEventListener('click', async () => { await signOut(); location.reload(); });
+
+function copyFrom(textarea, note) {
+  const fallback = () => { textarea.select(); note.textContent = 'حدّدتلك النص، انسخه من القائمة.'; };
+  if (!navigator.clipboard) return fallback();
+  navigator.clipboard.writeText(textarea.value).then(() => { note.textContent = 'اتنسخ.'; }, fallback);
+}
+$('panel').addEventListener('click', (e) => { if (e.target.id === 'copyMorning') copyFrom($('morningMsg'), $('copyMorningNote')); });
+$('tokenBtn').addEventListener('click', async () => {
+  $('tokenMsg').textContent = 'لحظة…';
+  const { data, error } = await SESS.client.rpc('create_connector_token', { p_pharmacy: SESS.pharmacy.id });
+  if (error) { $('tokenMsg').textContent = arabicError(error).message; return; }
+  $('tokenMsg').textContent = 'اتعمل كود جديد، وأي كود قديم بطل.';
+  $('tokenJson').value = JSON.stringify({ supabaseUrl: SESS.config.url, publishableKey: SESS.config.key, token: data,
+    server: '.\\SQLEXPRESS', database: 'SaydalitiCopy', sqlUser: '', sqlPassword: '' }, null, 2);
+  $('tokenOut').hidden = false;
+});
+$('copyToken').addEventListener('click', () => copyFrom($('tokenJson'), $('copyTokenMsg')));
 
 fields.forEach((f) => $(f).addEventListener('input', () => { store.set(SKEY, Object.fromEntries(fields.map((x) => [x, $(x).value]))); saveSettingsSoon(); render(); }));
 $('file').addEventListener('change', async (e) => {
