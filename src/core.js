@@ -174,8 +174,26 @@ export function fromExport(json) {
     code: String(x.code).trim(),
     qty: +x.qty,
     ...(x.amount != null && +x.qty > 0 ? { price: +x.amount / +x.qty } : {}),
+    ...(+x.discount ? { discount: +x.discount } : {}),
   }));
-  return { items, sales, purchases: [], losses: [], real: true };
+  const purchases = (json.purchases || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, cost: +x.cost || 0 }));
+  const losses = (json.losses || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, reason: String(x.reason || 'هالك') }));
+  return { items, sales, purchases, losses, real: true };
+}
+
+// Inverse of fromExport: app data → plain JSON (dates as yyyy-mm-dd), for saving a shared snapshot.
+export function toExport(data) {
+  const iso = (dt) => (dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}` : null);
+  const items = [], batches = [];
+  for (const i of data.items) {
+    items.push({ code: i.code, name: i.name, category: i.category, owner: i.owner, cost: i.cost, price: i.price, qty: i.qty, expiry: iso(i.expiry) });
+    for (const b of i.batches || []) batches.push({ code: i.code, qty: b.qty, expiry: iso(b.expiry) });
+  }
+  const sales = data.sales.map((x) => ({ code: x.code, date: iso(x.date), qty: x.qty,
+    amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}) }));
+  const purchases = (data.purchases || []).map((x) => ({ code: x.code, date: iso(x.date), qty: x.qty, cost: x.cost }));
+  const losses = (data.losses || []).map((x) => ({ code: x.code, date: iso(x.date), qty: x.qty, reason: x.reason }));
+  return { items, batches, sales, purchases, losses };
 }
 
 // ---------- Partners (who owns which stock) ----------

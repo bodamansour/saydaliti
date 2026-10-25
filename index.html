@@ -21,8 +21,10 @@
       <span class="chip" id="srcChip">بيانات مثال مصطنعة</span>
       <label class="btn primary" for="file" style="display:inline-block">ارفع ملفات المتحدة<input id="file" type="file" accept=".xlsx,.xls,.csv,.json" multiple hidden></label>
       <button class="btn" id="resetBtn" hidden>رجوع للمثال</button>
+      <button class="btn" id="logout" hidden>خروج</button>
     </div>
   </header>
+  <section id="auth" class="card" hidden></section>
   <p class="note" id="fileMsg">بياناتك بتتقري على جهازك بس، ومش بتترفع على أي سيرفر.</p>
 
   <label id="ownerWrap" class="owner" hidden>بضاعة مين؟<select id="ownerSel"></select></label>
@@ -53,6 +55,7 @@
       <label>عايز المخزون يكفي كام يوم<input id="cover" type="number" min="7" step="1" value="30"></label>
     </div>
     <p class="note" id="taxNote" style="margin-top:8px"></p>
+    <p class="note" id="settingsMsg"></p>
   </details>
 
   <details class="help">

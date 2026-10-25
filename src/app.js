@@ -1,4 +1,6 @@
-import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport } from './core.js';
+import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport } from './core.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
+import { arabicError } from './supabase-store.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -345,7 +347,57 @@ $('panel').addEventListener('change', (e) => { if (e.target.id === 'periodSel') 
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) { TAB = b.dataset.tab; render(); } });
 $('panel').addEventListener('click', (e) => { const b = e.target.closest('[data-calc]'); if (b) { CALC_CODE = b.dataset.calc; TAB = 'calc'; render(); } });
-fields.forEach((f) => $(f).addEventListener('input', () => { store.set(SKEY, Object.fromEntries(fields.map((x) => [x, $(x).value]))); render(); }));
+// ---------- Shared pharmacy (database) ----------
+let SESS = { mode: 'local' };
+const isOwner = () => SESS.mode !== 'member' || SESS.role === 'owner';
+let saveTimer = null;
+function saveSettingsSoon() {
+  if (SESS.mode !== 'member' || SESS.role !== 'owner') return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const { error } = await SESS.client.rpc('save_settings', { p_pharmacy: SESS.pharmacy.id, p_settings: Object.fromEntries(fields.map((x) => [x, $(x).value])) });
+    $('settingsMsg').textContent = error ? arabicError(error).message : 'الإعدادات اتحفظت، والشركاء هيشوفوها.';
+  }, 800);
+}
+async function loadShared() {
+  const { data, error } = await SESS.client.from('snapshots').select('created_at, data')
+    .eq('pharmacy_id', SESS.pharmacy.id).order('created_at', { ascending: false }).limit(1);
+  if (error) { $('fileMsg').innerHTML = `<span class="err">${esc(arabicError(error).message)}</span>`; return; }
+  if (!data.length) {
+    $('fileMsg').textContent = isOwner() ? 'لسه مفيش بيانات للصيدلية. ارفع data.json من الوصلة (أو ملفات Excel)، وهتتحفظ للشركاء. لحد كده بتشوف مثال.' : 'صاحب الصيدلية لسه مرفعش بيانات. لحد كده بتشوف مثال.';
+    return;
+  }
+  DATA = fromExport(data[0].data); OFFERS.clear();
+  const when = new Date(data[0].created_at).toLocaleString('ar-EG', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('srcChip').textContent = `${SESS.pharmacy.name}: ${DATA.items.length} صنف`; $('srcChip').classList.add('real');
+  $('fileMsg').textContent = `آخر تحديث للبيانات: ${when}.`;
+}
+async function boot() {
+  try { SESS = await getSession(); } catch (err) { $('auth').hidden = false; $('auth').textContent = err.message; return; }
+  $('logout').hidden = SESS.mode === 'local' || SESS.mode === 'signed-out';
+  if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
+  if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
+  $('auth').hidden = true;
+  if (SESS.mode !== 'member') return;
+  if (SESS.role === 'device') {
+    $('auth').hidden = false;
+    $('auth').innerHTML = '<p>الحساب ده لجهاز الصيدلية، وبيسجّل الحضور بس.</p><a class="btn primary" href="./attendance.html">افتح شاشة الحضور</a>';
+    document.querySelectorAll('.tiles, .tabs, #panel, #settingsBox, #ownerWrap, .src label').forEach((el) => { el.hidden = true; });
+    return;
+  }
+  const st = SESS.pharmacy.settings || {};
+  fields.forEach((f) => { if (st[f] !== undefined) $(f).value = st[f]; });
+  if (!isOwner()) {
+    fields.forEach((f) => { $(f).disabled = true; });
+    $('settingsMsg').textContent = `الإعدادات بيحددها صاحب الصيدلية. إنت داخل كـ${ROLE_LABEL[SESS.role]}.`;
+    document.querySelector('label[for="file"]').hidden = true;
+  }
+  await loadShared();
+  render();
+}
+$('logout').addEventListener('click', async () => { await signOut(); location.reload(); });
+
+fields.forEach((f) => $(f).addEventListener('input', () => { store.set(SKEY, Object.fromEntries(fields.map((x) => [x, $(x).value]))); saveSettingsSoon(); render(); }));
 $('file').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   if (!files.length) return;
@@ -357,6 +409,12 @@ $('file').addEventListener('change', async (e) => {
     $('srcChip').classList.add('real');
     $('resetBtn').hidden = false;
     $('fileMsg').innerHTML = DATA.sales.length ? 'اتقرت. بياناتك على جهازك بس.' : '<span class="err">اتقرت الأصناف، بس ملقتش مبيعات، فالطلبيات والراكد مش هيطلعوا صح. ارفع ملف المبيعات كمان.</span>';
+    if (SESS.mode === 'member' && SESS.role === 'owner') {
+      $('fileMsg').textContent = 'بحفظ البيانات للشركاء…';
+      const { error } = await SESS.client.rpc('save_snapshot', { p_pharmacy: SESS.pharmacy.id, p_data: toExport(DATA) });
+      $('fileMsg').innerHTML = error ? `<span class="err">اتقرت، بس محفظتش: ${esc(arabicError(error).message)}</span>` : 'اتقرت واتحفظت. الشركاء هيشوفوا نفس الأرقام.';
+      $('srcChip').textContent = `${SESS.pharmacy.name}: ${DATA.items.length} صنف`;
+    }
   } catch (err) {
     $('fileMsg').innerHTML = `<span class="err">${esc(err.message)}</span>`;
   }
@@ -374,3 +432,4 @@ $('resetBtn').addEventListener('click', () => {
 const saved = store.get(SKEY, {});
 fields.forEach((f) => { if (saved[f] !== undefined) $(f).value = saved[f]; });
 render();
+boot();
