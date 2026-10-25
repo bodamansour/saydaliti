@@ -75,7 +75,16 @@
     <p>ملف الأصناف (Excel أو CSV) فيه الأعمدة دي، بالعربي أو الإنجليزي:
       <code>الكود</code> <code>الصنف</code> <code>النوع</code> (دواء / تجميل / مستلزمات) <code>سعر الشراء</code> <code>سعر البيع</code> <code>الكمية</code> <code>الصلاحية</code>، و<code>الشريك</code> لو البضاعة ليها أكتر من صاحب.</p>
     <p>وملف المبيعات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code>، ولو موجود <code>السعر</code> اللي اتباع بيه فعلاً و<code>الخصم</code>. وملف المشتريات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>سعر الشراء</code>. وملف الهالك: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>السبب</code>. ممكن الاتنين يبقوا شيتين في ملف واحد. <b>متحطش أسماء أو أرقام زباين.</b></p>
-  </details>
+      <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+    <p><b>ربط برنامج الصيدلية:</b> بعد ما تشغّل <code>restore-and-discover.ps1</code>، ارفع ملف <code>schema.json</code> هنا، وأنا أقترح <code>mapping.json</code>.</p>
+    <label class="btn" for="schemaFile" style="display:inline-block">ارفع schema.json<input id="schemaFile" type="file" accept=".json" hidden></label>
+    <div id="mapOut" hidden>
+      <div id="mapSummary"></div>
+      <textarea id="mapJson" readonly aria-label="mapping.json" style="min-height:260px"></textarea>
+      <div class="row"><button class="btn primary" id="copyMap">انسخ mapping.json</button><span class="note" id="copyMapMsg"></span></div>
+      <p class="note">احفظه باسم <code>mapping.json</code> جنب سكريبتات الوصلة، وشغّل <code>export.ps1</code>. ولو حاجة عليها «محتاج مراجعة»، ابعتلي <code>schema.json</code> وأنا أظبطها.</p>
+    </div>
+</details>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
