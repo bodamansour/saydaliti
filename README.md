@@ -25,3 +25,10 @@ npm run dev   # http://localhost:3000
 4. انسخ `connector/mapping.example.json` لـ `mapping.json` واكتب فيه أسماء الجداول والأعمدة من `schema.json`.
 5. شغّل `connector/export.ps1`، فيطلع `data.json`: الأصناف، والمخزون بالتشغيلة والصلاحية، والمبيعات متجمّعة لكل صنف في اليوم. من غير أي بيانات زباين.
 6. تقرير الصبح: `node scripts/morning.js connector/data.json "اسم الصيدلية"`. ونفس الملف بيترفع في اللوحة.
+
+## النشر (Vercel + Supabase)
+
+- قاعدة البيانات: `supabase/migrations/` (الصيدليات، الأعضاء، الموظفين، الحضور، أكواد الدعوة). كل الصلاحيات بتتأكد جوه قاعدة البيانات (RLS).
+- متغيرين في Vercel (Project → Settings → Environment Variables): `SUPABASE_URL` و`SUPABASE_PUBLISHABLE_KEY`.
+- من غيرهم، صفحة الحضور بتشتغل كتجربة على الجهاز بس.
+- الأدوار: صاحب الصيدلية (كل حاجة)، شريك (التقرير بس)، جهاز الصيدلية (التسجيل بالكود بس). الشريك والجهاز بيدخلوا بكود دعوة من صاحب الصيدلية.
