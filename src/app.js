@@ -1,4 +1,4 @@
-import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger } from './core.js';
+import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport } from './core.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -71,6 +71,12 @@ function exampleData() {
 }
 
 async function readFiles(files) {
+  const json = files.find((f) => f.name.toLowerCase().endsWith('.json'));
+  if (json) {
+    const data = fromExport(JSON.parse((await json.text()).replace(/^\uFEFF/, '')));
+    if (!data.items.length) throw new Error('الملف ده مفيهوش أصناف. اتأكد إنه data.json اللي طلع من الوصلة.');
+    return data;
+  }
   if (typeof XLSX === 'undefined') throw new Error('مكتبة قراية Excel مش محمّلة. اتأكد من النت وجرّب تاني.');
   const items = [], sales = [], purchases = [], losses = [];
   for (const f of files) {

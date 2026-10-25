@@ -1,0 +1,29 @@
+{
+  "_help": "Copy to mapping.json. Fill table/column names from schema.json. Leave a column empty if the program does not have it. Any section can use \"sql\" instead, returning the same column names.",
+  "salesDays": 180,
+  "items": {
+    "table": "Items",
+    "code": "ItemCode",
+    "name": "ItemName",
+    "category": "",
+    "cost": "BuyPrice",
+    "price": "SellPrice",
+    "owner": "",
+    "qty": "",
+    "expiry": ""
+  },
+  "batches": {
+    "table": "ItemBatches",
+    "code": "ItemCode",
+    "qty": "Qty",
+    "expiry": "ExpDate"
+  },
+  "sales": {
+    "table": "SalesLines",
+    "code": "ItemCode",
+    "date": "InvDate",
+    "qty": "Qty",
+    "amount": "NetValue",
+    "where": ""
+  }
+}
