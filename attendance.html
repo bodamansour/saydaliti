@@ -15,10 +15,13 @@
       <h1>الحضور والانصراف</h1>
       <a class="navlink" href="./index.html">→ رجوع للوحة الصيدلية</a>
     </div>
-    <span class="chip" id="modeChip">تجربة على الجهاز ده بس</span>
+    <div class="src"><span class="chip" id="modeChip">بيحمّل…</span><button class="btn" id="logout" hidden>خروج</button></div>
   </header>
-  <p class="note" id="modeNote">لحد ما قاعدة البيانات تتعمل، التسجيل بيتحفظ على الجهاز ده بس. الموظفين اللي عليهم «(مثال)» للتجربة: كود سارة 1111 وكود محمد 2222.</p>
+  <p class="note" id="modeNote" hidden>لحد ما قاعدة البيانات تتعمل، التسجيل بيتحفظ على الجهاز ده بس. الموظفين اللي عليهم «(مثال)» للتجربة: كود سارة 1111 وكود محمد 2222.</p>
 
+  <section id="auth" class="card" hidden></section>
+
+  <div id="app" hidden>
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-tab="kiosk" aria-selected="true">تسجيل</button>
     <button class="tab" role="tab" data-tab="report" aria-selected="false">التقرير</button>
@@ -36,6 +39,7 @@
 
   <section id="report" class="panel" hidden></section>
   <section id="staff" class="panel" hidden></section>
+  </div>
 </div>
 <script type="module" src="./src/attendance-app.js"></script>
 </body>
