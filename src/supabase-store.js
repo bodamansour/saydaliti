@@ -22,7 +22,7 @@ export function createSupabaseStore(client, pharmacyId) {
     kind: 'supabase',
     async listEmployees() {
       return must(await client.from('employees')
-        .select('id, name, shift_start, shift_end, work_days, grace_minutes, active')
+        .select('id, name, shift_start, shift_end, work_days, grace_minutes, active, created_at')
         .eq('pharmacy_id', pharmacyId).order('created_at'))
         .map((e) => ({ ...e, shift_start: e.shift_start.slice(0, 5), shift_end: e.shift_end.slice(0, 5) }));
     },
