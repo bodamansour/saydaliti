@@ -1,4 +1,4 @@
-import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport } from './core.js';
+import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
@@ -97,19 +97,13 @@ async function readFiles(files) {
 // ---------- Settings & saved prices (this device only) ----------
 const SKEY = 'saydaliti-settings-v1';
 const MKEY = 'saydaliti-market-v1';
-const fields = ['phName', 'taxMode', 'customTax', 'exRent', 'exUtil', 'exSal', 'exOther', 'target', 'expWin', 'lead', 'cover'];
+const fields = ['phName', 'waNumbers', 'taxMode', 'customTax', 'exRent', 'exUtil', 'exSal', 'exOther', 'target', 'expWin', 'lead', 'cover'];
 const store = {
   get(k, fb) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? fb; } catch { return fb; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } },
 };
 const num = (id) => Math.max(0, +$(id).value || 0);
-function settings() {
-  return {
-    taxMode: $('taxMode').value, customTax: num('customTax'),
-    expenses: num('exRent') + num('exUtil') + num('exSal') + num('exOther'),
-    target: num('target'), expWin: num('expWin') || 90, lead: num('lead') || 3, cover: num('cover') || 30,
-  };
-}
+function settings() { return settingsFromSaved(Object.fromEntries(fields.map((f) => [f, $(f).value]))); }
 let MARKET = store.get(MKEY, {});
 const setMarket = (code, v) => { if (v > 0) MARKET[code] = v; else delete MARKET[code]; store.set(MKEY, MARKET); };
 

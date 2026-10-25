@@ -39,3 +39,20 @@ npm run dev   # http://localhost:3000
 - متغيرين في Vercel (Project → Settings → Environment Variables): `SUPABASE_URL` و`SUPABASE_PUBLISHABLE_KEY`.
 - من غيرهم، صفحة الحضور بتشتغل كتجربة على الجهاز بس.
 - الأدوار: صاحب الصيدلية (كل حاجة)، شريك (التقرير بس)، جهاز الصيدلية (التسجيل بالكود بس). الشريك والجهاز بيدخلوا بكود دعوة من صاحب الصيدلية.
+
+## تقرير الصبح على واتساب (جاهز، ومقفول لحد ما يتفعّل)
+
+كل يوم (`vercel.json`: الساعة 06:00 UTC، يعني 8 أو 9 الصبح في مصر) `api/morning.js` بياخد آخر نسخة بيانات لكل صيدلية ليها أرقام واتساب في الإعدادات، ويبعت ملخص على قالب واتساب، ومعاه لينك اللوحة. لو البيانات أقدم من 36 ساعة مش بيبعت.
+
+**التفعيل:**
+1. WhatsApp Business Platform (Meta): رقم للصيدلية، و`WHATSAPP_PHONE_ID`، وتوكن دائم `WHATSAPP_TOKEN`.
+2. قالب اسمه `saydaliti_morning` (لغة Arabic، نوع Utility) بالنص ده:
+   ```
+   صباح الخير {{1}}
+   فلوس في خطر النهارده: {{2}} جنيه.
+   {{3}} صنف هينتهي قبل ما يتباع، و{{4}} صنف راكد، و{{5}} صنف محتاج يتطلب.
+   التفاصيل والعروض الجاهزة: {{6}}
+   ```
+3. متغيرات Vercel: `WHATSAPP_TOKEN`، `WHATSAPP_PHONE_ID`، `CRON_SECRET`، `REPORT_SECRET` (و`WHATSAPP_TEMPLATE`/`WHATSAPP_LANG`/`SITE_URL` اختياري).
+4. في قاعدة البيانات: `insert into app_secrets (name, hash) values ('report', encode(extensions.digest('<REPORT_SECRET>', 'sha256'), 'hex'));`
+5. في اللوحة: الإعدادات ← «أرقام واتساب لتقرير الصبح».
