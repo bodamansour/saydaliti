@@ -2,6 +2,7 @@ import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, a
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
+import { suggestMapping } from './mapping.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -421,6 +422,20 @@ $('tokenBtn').addEventListener('click', async () => {
   $('tokenOut').hidden = false;
 });
 $('copyToken').addEventListener('click', () => copyFrom($('tokenJson'), $('copyTokenMsg')));
+$('copyMap').addEventListener('click', () => copyFrom($('mapJson'), $('copyMapMsg')));
+$('schemaFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const { mapping, summary, notes } = suggestMapping(JSON.parse((await f.text()).replace(/^\uFEFF/, '')));
+    const label = { items: 'الأصناف', batches: 'التشغيلات والصلاحية', sales: 'المبيعات' };
+    const cls = (c) => (c === 'متأكد' ? 'ok' : c === 'ملقتش' ? 'crit' : 'warn');
+    $('mapSummary').innerHTML = `<div class="row">${Object.entries(summary).map(([k, v]) => `<span class="pill ${cls(v.confidence)}">${label[k]}: ${esc(v.table ?? '—')} · ${esc(v.confidence)}</span>`).join('')}</div>
+      ${notes.length ? `<ul>${notes.map((n) => `<li class="note">${esc(n)}</li>`).join('')}</ul>` : ''}`;
+    $('mapJson').value = JSON.stringify(mapping, null, 2);
+    $('mapOut').hidden = false; $('mapOut').closest('details').open = true;
+  } catch { $('mapSummary').innerHTML = '<p class="err">الملف ده مش schema.json صحيح.</p>'; $('mapOut').hidden = false; }
+  e.target.value = '';
+});
 
 fields.forEach((f) => $(f).addEventListener('input', () => { store.set(SKEY, Object.fromEntries(fields.map((x) => [x, $(x).value]))); saveSettingsSoon(); render(); }));
 $('file').addEventListener('change', async (e) => {
