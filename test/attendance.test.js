@@ -39,3 +39,11 @@ test('today is not counted absent before the shift starts', () => {
   assert.equal(r.scheduledDays, 5); // the 7th not counted yet
   assert.equal(r.absent, 5);
 });
+
+test('a new employee is not absent before the day they were added', () => {
+  const newbie = { ...emp, id: 'e2', created_at: new Date(2026, 9, 6, 11, 0).toISOString() };
+  const recs = [{ employee_id: 'e2', check_in: at(6, 9, 0), check_out: at(6, 17, 0) }];
+  const [r] = attendanceReport([newbie], recs, from, to, now);
+  assert.equal(r.scheduledDays, 2); // Tue 6 and Wed 7 only
+  assert.equal(r.absent, 1); // Wed 7
+});

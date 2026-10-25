@@ -36,8 +36,15 @@ export function attendanceReport(employees, records, from, to, now = new Date())
       if (late > grace) { lateDays += 1; lateMin += late; }
     }
 
+    // Count scheduled days only from the day the employee was added
+    let start = new Date(from);
+    if (e.created_at) {
+      const c = new Date(e.created_at);
+      const cDay = new Date(c.getFullYear(), c.getMonth(), c.getDate());
+      if (cDay > start) start = cDay;
+    }
     let scheduled = 0, absent = 0;
-    for (let d = new Date(from); d < end; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
       if (!workDays.includes(d.getDay())) continue;
       // today only counts as absent once the shift has started + grace
       const isToday = d.toDateString() === now.toDateString();

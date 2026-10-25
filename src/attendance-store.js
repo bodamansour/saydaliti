@@ -31,7 +31,7 @@ export function createLocalStore({ now = () => new Date(), storage = globalThis.
       const h = await hashPin(pin);
       if (db.employees.some((e) => e.active && e.pin_hash === h)) throw new Error('الكود ده مستخدم لموظف تاني. اختار كود تاني.');
       const e = { id: `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: name.trim(), pin_hash: h,
-        shift_start: '09:00', shift_end: '17:00', work_days: [6, 0, 1, 2, 3, 4], grace_minutes: 15, active: true, ...rest };
+        shift_start: '09:00', shift_end: '17:00', work_days: [6, 0, 1, 2, 3, 4], grace_minutes: 15, active: true, created_at: now().toISOString(), ...rest };
       db.employees.push(e); save();
       return { ...e, pin_hash: undefined };
     },
@@ -69,8 +69,9 @@ export function createLocalStore({ now = () => new Date(), storage = globalThis.
     // Demo only: example employees with this month's history so the report isn't empty.
     async seedExample(today = now()) {
       if (db.employees.length) return false;
-      const a = await this.addEmployee({ name: 'سارة (مثال)', pin: '1111' });
-      const b = await this.addEmployee({ name: 'محمد (مثال)', pin: '2222', shift_start: '14:00', shift_end: '22:00' });
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
+      const a = await this.addEmployee({ name: 'سارة (مثال)', pin: '1111', created_at: monthStart });
+      const b = await this.addEmployee({ name: 'محمد (مثال)', pin: '2222', shift_start: '14:00', shift_end: '22:00', created_at: monthStart });
       let seed = 7;
       const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
       const start = new Date(today.getFullYear(), today.getMonth(), 1);
