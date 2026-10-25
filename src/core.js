@@ -36,6 +36,19 @@ export const DEFAULT_SETTINGS = {
   deadDays: 45, // no sale for N days = dead stock
 };
 
+export function settingsFromSaved(st = {}) {
+  const n = (k) => Math.max(0, +st[k] || 0);
+  return {
+    taxMode: ['unsure', 'simplified', 'custom'].includes(st.taxMode) ? st.taxMode : 'unsure',
+    customTax: n('customTax'),
+    expenses: n('exRent') + n('exUtil') + n('exSal') + n('exOther'),
+    target: st.target === undefined || st.target === '' ? DEFAULT_SETTINGS.target : n('target'),
+    expWin: n('expWin') || DEFAULT_SETTINGS.expWin,
+    lead: n('lead') || DEFAULT_SETTINGS.lead,
+    cover: n('cover') || DEFAULT_SETTINGS.cover,
+  };
+}
+
 export function taxRateFor(settings, monthlySales) {
   if (settings.taxMode === 'simplified') return simplifiedRate(monthlySales * 12);
   if (settings.taxMode === 'custom') return Math.max(0, settings.customTax) / 100;

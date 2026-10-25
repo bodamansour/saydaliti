@@ -38,3 +38,31 @@ export function morningReport(A, { pharmacyName = 'الصيدلية', date = new
   if (!A.expiring.length && !A.reorder.length && !A.deadStock.length) lines.push('', '✅ مفيش حاجة محتاجة تتعمل النهارده.');
   return lines.join('\n');
 }
+
+// ---------- WhatsApp template (business-initiated messages must use an approved template) ----------
+// Template body to submit in Meta (Arabic), 6 variables:
+//   صباح الخير {{1}}
+//   فلوس في خطر النهارده: {{2}} جنيه.
+//   {{3}} صنف هينتهي قبل ما يتباع، و{{4}} صنف راكد، و{{5}} صنف محتاج يتطلب.
+//   التفاصيل والعروض الجاهزة: {{6}}
+// Parameter values may not contain new lines, tabs or more than 4 spaces in a row.
+const oneLine = (s) => String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/ {4,}/g, '   ').trim() || '-';
+
+export function morningTemplateParams(A, { pharmacyName = 'الصيدلية', link = '' } = {}) {
+  const riskVal = A.expiring.reduce((a, r) => a + r.atRisk * r.cost, 0);
+  const deadVal = A.deadStock.reduce((a, r) => a + r.qty * r.cost, 0);
+  return [pharmacyName, fmt(riskVal + deadVal), String(A.expiring.length), String(A.deadStock.length), String(A.reorder.length), link].map(oneLine);
+}
+
+// Egyptian mobile numbers → WhatsApp format (country code, no +). Returns null for anything else.
+export function normalizeEgPhone(raw) {
+  const ar = '٠١٢٣٤٥٦٧٨٩';
+  let d = String(raw ?? '').replace(/[٠-٩]/g, (c) => ar.indexOf(c)).replace(/\D/g, '');
+  if (d.startsWith('0020')) d = d.slice(2);
+  if (d.startsWith('01') && d.length === 11) d = '2' + d;
+  return /^201[0125]\d{8}$/.test(d) ? d : null;
+}
+
+export function parsePhones(text) {
+  return [...new Set(String(text ?? '').split(/[,،;\n]+/).map(normalizeEgPhone).filter(Boolean))];
+}
