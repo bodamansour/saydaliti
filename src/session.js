@@ -42,7 +42,7 @@ export function renderSignIn(box, onDone) {
     const password = box.querySelector('#password').value;
     if (!email || password.length < 8) return msg('اكتب الإيميل وكلمة سر 8 حروف أو أكتر.');
     msg('لحظة…');
-    const { data, error } = mode === 'up' ? await client.auth.signUp({ email, password }) : await client.auth.signInWithPassword({ email, password });
+    const { data, error } = mode === 'up' ? await client.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } }) : await client.auth.signInWithPassword({ email, password });
     if (error) {
       if (/Invalid login/i.test(error.message)) return msg('الإيميل أو كلمة السر غلط.');
       if (/not confirmed/i.test(error.message)) return msg('لسه مأكدتش الإيميل. افتح الإيميل اللي جالك ودوس على لينك التأكيد.');
