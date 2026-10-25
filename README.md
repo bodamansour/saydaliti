@@ -26,6 +26,13 @@ npm run dev   # http://localhost:3000
 5. شغّل `connector/export.ps1`، فيطلع `data.json`: الأصناف، والمخزون بالتشغيلة والصلاحية، والمبيعات متجمّعة لكل صنف في اليوم. من غير أي بيانات زباين.
 6. تقرير الصبح: `node scripts/morning.js connector/data.json "اسم الصيدلية"`. ونفس الملف بيترفع في اللوحة.
 
+### تشغيل يومي أوتوماتيك
+1. من اللوحة (صاحب الصيدلية): الإعدادات ← «الوصلة على جهاز الكاشير» ← «اعمل كود للوصلة»، واحفظ اللي يظهر في `connector/connector.json` على جهاز الكاشير.
+2. في `connector.json` اكتب اسم قاعدة بيانات برنامج الصيدلية (`database`)، و`sqlUser`/`sqlPassword` لو البرنامج بيستخدم حساب SQL.
+3. `powershell -ExecutionPolicy Bypass -File .\connector\install-schedule.ps1 -At 07:00`
+   كل يوم: `export.ps1` (قراءة فقط، `ApplicationIntent=ReadOnly`) ثم `upload.ps1`، والسجل في `connector/connector.log`.
+- الكود بيتحفظ في قاعدة البيانات مشفّر (SHA-256)، وبيقدر يرفع نسخة بس، ومش بيقرا أي حاجة. عمل كود جديد بيلغي القديم.
+
 ## النشر (Vercel + Supabase)
 
 - قاعدة البيانات: `supabase/migrations/` (الصيدليات، الأعضاء، الموظفين، الحضور، أكواد الدعوة). كل الصلاحيات بتتأكد جوه قاعدة البيانات (RLS).

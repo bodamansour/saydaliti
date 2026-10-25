@@ -8,7 +8,9 @@ param(
   [string]$Server = ".\SQLEXPRESS",
   [string]$Database = "SaydalitiCopy",
   [string]$Mapping = (Join-Path $PSScriptRoot "mapping.json"),
-  [string]$Out = (Join-Path $PSScriptRoot "data.json")
+  [string]$Out = (Join-Path $PSScriptRoot "data.json"),
+  [string]$SqlUser = "",
+  [string]$SqlPassword = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,7 +28,8 @@ function Col($sec, [string]$key, [string]$cast) {
 }
 
 function Run([string]$sql) {
-  $c = New-Object System.Data.SqlClient.SqlConnection "Server=$Server;Database=$Database;Integrated Security=True;TrustServerCertificate=True"
+  $auth = if ($SqlUser) { "User ID=$SqlUser;Password=$SqlPassword" } else { "Integrated Security=True" }
+  $c = New-Object System.Data.SqlClient.SqlConnection "Server=$Server;Database=$Database;$auth;TrustServerCertificate=True;ApplicationIntent=ReadOnly"
   $c.Open()
   try {
     $cmd = $c.CreateCommand(); $cmd.CommandText = $sql; $cmd.CommandTimeout = 600

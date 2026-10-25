@@ -23,7 +23,7 @@ export async function getSession() {
   if (!mem.length) return { mode: 'no-pharmacy', client, user: session.user };
   const order = { owner: 0, partner: 1, device: 2 };
   const m = [...mem].sort((a, b) => order[a.role] - order[b.role])[0];
-  return { mode: 'member', client, user: session.user, role: m.role, pharmacy: m.pharmacies };
+  return { mode: 'member', client, user: session.user, role: m.role, pharmacy: m.pharmacies, config: cfg };
 }
 
 export async function signOut() { await client?.auth.signOut(); }
