@@ -18,7 +18,7 @@ export async function runMorning({ env, fetchFn = fetch, now = new Date() }) {
   if (!feed.ok) return { sent: 0, error: `feed ${feed.status}` };
   const rows = await feed.json();
 
-  const site = (env.SITE_URL || 'https://saydaliti-mansour19.vercel.app').replace(/\/$/, '');
+  const site = (env.SITE_URL || 'https://saydaliti-ivory.vercel.app').replace(/\/$/, '');
   const template = env.WHATSAPP_TEMPLATE || 'saydaliti_morning';
   const lang = env.WHATSAPP_LANG || 'ar';
   const results = [];
