@@ -105,10 +105,10 @@ $pw = ""
 $pwOpts = ""
 if ($BackupPassword) {
   $q = $BackupPassword -replace "'", "''"
-  $pwOpts = "PASSWORD = N'$q', MEDIAPASSWORD = N'$q'"
+  $pwOpts = "PASSWORD = N'$q'"
   $pw = " WITH $pwOpts"
 }
-$hdr = Query $master "RESTORE HEADERONLY FROM DISK = N'$bak'$pw" 300
+$hdr = Query $master "RESTORE HEADERONLY FROM DISK = N'$bak'" 300  # the header is readable without the password
 $h = $hdr.Rows[0]
 Write-Host ("Backup: database '{0}', made on {1}, SQL Server {2}.{3}.{4}" -f $h.DatabaseName, $h.BackupFinishDate, $h.SoftwareVersionMajor, $h.SoftwareVersionMinor, $h.SoftwareVersionBuild)
 
@@ -117,7 +117,10 @@ $exists = (Query $master "SELECT COUNT(*) n FROM sys.databases WHERE name = N'$D
 if ($exists -eq 0 -or $copied) {
   try { $files = Query $master "RESTORE FILELISTONLY FROM DISK = N'$bak'$pw" 300 }
   catch {
-    if ("$_" -match "password") {
+    if ("$_" -match "password" -and $BackupPassword) {
+      Write-Host ""
+      Write-Host "The password was not accepted. Check it (capital letters, spaces) and try again." -ForegroundColor Red
+    } elseif ("$_" -match "password") {
       Write-Host ""
       Write-Host "This backup is protected with a password set by the pharmacy program." -ForegroundColor Red
       Write-Host "Run again with the password:  step1-restore.bat -BackupPassword ""the-password"""
