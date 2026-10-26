@@ -27,6 +27,8 @@ npm run dev   # http://localhost:3000
 
    **برنامج Genius (قاعدة بيانات SQL Server 2000 وعلى الباك اب باسورد):** شغّل `python3 connector/genius/genius_export.py <الباك اب.gen> data.json`، فيطلع `data.json` على طول، من غير SQL Server ومن غير الباسورد. السكريبت بيرجّع صفحات الداتابيز من ملف الباك اب ويقرا منها الأصناف والرصيد والمبيعات والمشتريات بس. الرصيد بياخده من آخر لقطة يومية Genius بيسجلها بنفسه.
 
+   **عشان التقرير يتعمل لوحده كل يوم مع Genius:** حط في `connector.json` السطر `"geniusBackupDir": "C:\\مسار\\فولدر الباك اب"`، وشغّل `install-schedule.ps1`. المهمة اليومية هتاخد أحدث باك اب من الفولدر ده وترفعه. الجهاز محتاج يكون عليه Python 3.
+
 4. انسخ `connector/mapping.example.json` لـ `mapping.json` واكتب فيه أسماء الجداول والأعمدة من `schema.json`.
 5. شغّل `connector/export.ps1`، فيطلع `data.json`: الأصناف، والمخزون بالتشغيلة والصلاحية، والمبيعات متجمّعة لكل صنف في اليوم. من غير أي بيانات زباين.
 6. تقرير الصبح: `node scripts/morning.js connector/data.json "اسم الصيدلية"`. ونفس الملف بيترفع في اللوحة.
