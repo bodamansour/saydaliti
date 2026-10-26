@@ -5,6 +5,18 @@ $cfg = Get-Content (Join-Path $PSScriptRoot "connector.json") -Raw -Encoding UTF
 Start-Transcript -Path $log -Append | Out-Null
 try {
   Write-Host "=== $(Get-Date -Format s) ==="
+  if ($cfg.geniusBackupDir) {
+    # Genius: read the newest backup file directly (no SQL Server, no backup password needed)
+    $bak = Get-ChildItem -LiteralPath $cfg.geniusBackupDir -File | Where-Object { $_.Extension -in ".gen", ".bak" } |
+      Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $bak) { throw "No .gen/.bak file in $($cfg.geniusBackupDir)" }
+    Write-Host "Genius backup: $($bak.FullName) ($($bak.LastWriteTime))"
+    $py = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
+    & $py (Join-Path $PSScriptRoot "genius\genius_export.py") $bak.FullName (Join-Path $PSScriptRoot "data.json")
+    if ($LASTEXITCODE -ne 0) { throw "genius_export.py failed" }
+    & (Join-Path $PSScriptRoot "upload.ps1")
+    return
+  }
   $exportArgs = @{}
   if ($cfg.server) { $exportArgs.Server = $cfg.server }
   if ($cfg.database) { $exportArgs.Database = $cfg.database }
