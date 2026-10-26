@@ -12,3 +12,4 @@ connector/schema.json
 connector/mapping.json
 connector/connector.json
 connector/connector.log
+connector/connection.json

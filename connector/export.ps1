@@ -16,6 +16,16 @@ param(
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Data
 
+# step1-live writes connection.json when reading the pharmacy database directly (no backup)
+$connFile = Join-Path $PSScriptRoot "connection.json"
+if ((Test-Path $connFile) -and -not $PSBoundParameters.ContainsKey("Server") -and -not $PSBoundParameters.ContainsKey("Database")) {
+  $cj = Get-Content $connFile -Raw -Encoding UTF8 | ConvertFrom-Json
+  $Server = $cj.server
+  $Database = $cj.database
+  if ($cj.sqlUser -and -not $SqlUser) { $SqlUser = $cj.sqlUser }
+  Write-Host "Reading directly from '$Database' on '$Server' (from connection.json)."
+}
+
 if (-not (Test-Path $Mapping)) { throw "mapping.json not found. Copy mapping.example.json to mapping.json and fill it in." }
 $m = Get-Content $Mapping -Raw -Encoding UTF8 | ConvertFrom-Json
 
