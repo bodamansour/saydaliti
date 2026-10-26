@@ -12,7 +12,8 @@
 param(
   [string]$Backup,
   [string]$Server = ".\SQLEXPRESS",
-  [string]$Database = "SaydalitiCopy"
+  [string]$Database = "SaydalitiCopy",
+  [string]$BackupPassword
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,14 +100,31 @@ if (-not (Test-Path $bak) -or ((Get-Item $bak).Length -ne $src.Length) -or ((Get
 }
 
 # 3) Inspect backup header
-$hdr = Query $master "RESTORE HEADERONLY FROM DISK = N'$bak'" 300
+# Some pharmacy programs protect their backups with a password (WITH PASSWORD).
+$pw = ""
+$pwOpts = ""
+if ($BackupPassword) {
+  $q = $BackupPassword -replace "'", "''"
+  $pwOpts = "PASSWORD = N'$q', MEDIAPASSWORD = N'$q'"
+  $pw = " WITH $pwOpts"
+}
+$hdr = Query $master "RESTORE HEADERONLY FROM DISK = N'$bak'$pw" 300
 $h = $hdr.Rows[0]
 Write-Host ("Backup: database '{0}', made on {1}, SQL Server {2}.{3}.{4}" -f $h.DatabaseName, $h.BackupFinishDate, $h.SoftwareVersionMajor, $h.SoftwareVersionMinor, $h.SoftwareVersionBuild)
 
 # 4) Restore as a separate copy (skip if already restored)
 $exists = (Query $master "SELECT COUNT(*) n FROM sys.databases WHERE name = N'$Database'").Rows[0].n
 if ($exists -eq 0 -or $copied) {
-  $files = Query $master "RESTORE FILELISTONLY FROM DISK = N'$bak'" 300
+  try { $files = Query $master "RESTORE FILELISTONLY FROM DISK = N'$bak'$pw" 300 }
+  catch {
+    if ("$_" -match "password") {
+      Write-Host ""
+      Write-Host "This backup is protected with a password set by the pharmacy program." -ForegroundColor Red
+      Write-Host "Run again with the password:  step1-restore.bat -BackupPassword ""the-password"""
+      Write-Host "Ask the program's support for it, or look in the program's settings/config on the pharmacy PC."
+    }
+    throw
+  }
   $dataPath = (Query $master "SELECT CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(400)) p").Rows[0].p
   $moves = @()
   $i = 0
@@ -117,7 +135,7 @@ if ($exists -eq 0 -or $copied) {
     $i++
   }
   Write-Host "Restoring as '$Database' (this can take a few minutes for ~1 GB) ..."
-  $sql = "RESTORE DATABASE [$Database] FROM DISK = N'$bak' WITH " + ($moves -join ", ") + ", RECOVERY, REPLACE, STATS = 10"
+  $sql = "RESTORE DATABASE [$Database] FROM DISK = N'$bak' WITH " + ($moves -join ", ") + ", RECOVERY, REPLACE, STATS = 10" + ($(if ($pwOpts) { ", $pwOpts" } else { "" }))
   Exec $master $sql 3600
   Write-Host "Restored." -ForegroundColor Green
 } else {
