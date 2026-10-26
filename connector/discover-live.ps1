@@ -44,6 +44,7 @@ if ($Server) { $servers = @($Server) } else {
 
 # 2) Connect and find user databases, biggest first
 $found = $null
+if ($Server -and $Database) { $found = @{ server = $Server; database = $Database }; $servers = @() }
 foreach ($srv in $servers) {
   try {
     $master = Open-Sql $srv "master"
