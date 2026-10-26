@@ -115,7 +115,18 @@ Write-Host ("Backup: database '{0}', made on {1}, SQL Server {2}.{3}.{4}" -f $h.
 # 4) Restore as a separate copy (skip if already restored)
 $exists = (Query $master "SELECT COUNT(*) n FROM sys.databases WHERE name = N'$Database'").Rows[0].n
 if ($exists -eq 0 -or $copied) {
-  try { $files = Query $master "RESTORE FILELISTONLY FROM DISK = N'$bak'$pw" 300 }
+  try {
+    $files = $null
+    # The password can protect the backup set (PASSWORD), the media (MEDIAPASSWORD) or both: try each.
+    $variants = if ($BackupPassword) { @("PASSWORD = N'$q'", "MEDIAPASSWORD = N'$q'", "PASSWORD = N'$q', MEDIAPASSWORD = N'$q'") } else { @("") }
+    $lastErr = $null
+    foreach ($v in $variants) {
+      $opt = if ($v) { " WITH $v" } else { "" }
+      try { $files = Query $master "RESTORE FILELISTONLY FROM DISK = N'$bak'$opt" 300; $pwOpts = $v; break }
+      catch { $lastErr = $_ }
+    }
+    if (-not $files) { throw $lastErr }
+  }
   catch {
     if ("$_" -match "password" -and $BackupPassword) {
       Write-Host ""
