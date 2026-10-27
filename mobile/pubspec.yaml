@@ -6,14 +6,17 @@ version: 1.0.0+1
 environment:
   sdk: '>=3.4.0 <4.0.0'
 
+# Official Flutter-team plugins only, so builds keep working with new Flutter/Android releases.
 dependencies:
   flutter:
     sdk: flutter
-  flutter_inappwebview: ^6.1.5
-  url_launcher: ^6.3.0
+  webview_flutter: any
+  webview_flutter_android: any
+  file_selector: any
+  url_launcher: any
 
 dev_dependencies:
-  flutter_launcher_icons: ^0.14.1
+  flutter_launcher_icons: any
 
 flutter:
   uses-material-design: true
