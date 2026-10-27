@@ -7,7 +7,8 @@ import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
-import { kvGet, kvSet, enqueue, flush, pending, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
+import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
+import { daySummary, PAYMENTS } from './pos.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -86,7 +87,7 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
   ['stock', 'المخزون', [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
-  ['money', 'الفلوس', [['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
+  ['money', 'الفلوس', [['pos', 'مبيعات الكاشير'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -156,6 +157,7 @@ function render() {
 
   let html;
   if (TAB === 'expenses') html = renderExpenses();
+  else if (TAB === 'pos') html = renderPosSales();
   else if (TAB === 'shortages') html = renderShortages(full);
   else if (TAB === 'prices') html = renderPrices(A);
   else if (TAB === 'changes' && has) html = renderPriceChanges();
@@ -494,11 +496,51 @@ function renderPriceChanges() {
       : '<div class="tablebox"><p class="empty">مفيش أسعار اتغيرت بين آخر ملفين.</p></div>');
 }
 
+// ---------- Cashier receipts (migration 009) ----------
+let POS_SALES = [];
+let POS_READY = true;
+let POS_PERIOD = 'thisMonth';
+function renderPosSales() {
+  if (!POS_READY) return '<div class="card emptybox"><h3>مبيعات الكاشير محتاجة تحديث قاعدة البيانات</h3><p>التحديث <code>009</code> بيضيف جدول فواتير الكاشير. الكاشير نفسه بيشتغل ويحفظ الفواتير على الجهاز لحد ما التحديث يتعمل، وبعدها بترفع لوحدها.</p><a class="btn primary" href="./cashier.html">افتح الكاشير</a></div>';
+  const [from, to] = periodRange(POS_PERIOD);
+  const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
+  const list = POS_SALES.filter((x) => (bid === 'all' || (x.branch_id ?? null) === bid))
+    .filter((x) => { const d = new Date(x.sold_at); return (!from || d >= from) && (!to || d < to); })
+    .sort((a, b) => String(b.sold_at).localeCompare(String(a.sold_at)));
+  const sum = daySummary(list);
+  const pay = (k) => PAYMENTS.find(([p]) => p === k)?.[1] ?? k;
+  // Best sellers through the cashier in this period.
+  const byItem = new Map();
+  for (const x of list) for (const l of x.lines || []) {
+    const sign = x.kind === 'return' ? -1 : 1;
+    const o = byItem.get(l.code) || { name: l.name, qty: 0, value: 0 };
+    o.qty += sign * l.qty; o.value += sign * (l.price * l.qty - (l.discount || 0));
+    byItem.set(l.code, o);
+  }
+  const top = [...byItem.values()].sort((a, b) => b.value - a.value).slice(0, 10);
+  return `<div class="row" style="justify-content:space-between">${periodSelect('posPeriodSel', POS_PERIOD)}${isOwner() ? '<a class="btn primary" href="./cashier.html">افتح الكاشير</a>' : ''}</div>
+  <div class="calc">
+    <div class="card"><h3>المجموع</h3><div class="ledger">
+      <div><span>فواتير</span><span class="n">${fmt(sum.receipts)}</span></div>
+      <div><span>مبيعات</span><span class="n">${fmt(sum.sales, 2)}</span></div>
+      ${sum.returns ? `<div><span>مرتجعات (${fmt(sum.returns)})</span><span class="n">${fmt(sum.returned, 2)}</span></div>` : ''}
+      <div><span>خصومات</span><span class="n">${fmt(sum.discount, 2)}</span></div>
+      ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(pay(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('')}
+      <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div></div></div>
+    <div class="card"><h3>الأكتر بيعاً من الكاشير</h3><div class="ledger">${top.map((t) => `<div><span>${esc(t.name)} <span class="muted n">× ${fmt(t.qty)}</span></span><span class="n">${fmt(t.value, 2)}</span></div>`).join('') || '<div><span class="muted">لسه مفيش مبيعات في الفترة دي.</span><span></span></div>'}</div></div>
+  </div>
+  <p class="note">الفواتير دي من شاشة الكاشير بس. لحد ما الكاشير يبقى البرنامج الأساسي، مبيعات برنامج الصيدلية بتفضل هي اللي بتتحسب في الطلبيات والحسابات.</p>`
+  + (list.length ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>الأصناف</th><th>الإجمالي</th><th>الدفع</th></tr></thead><tbody>${list.slice(0, 300).map((x) => `<tr><td class="n">${esc(x.number)}</td>
+      <td class="n">${new Date(x.sold_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</td>
+      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}</td>
+      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n">${fmt(x.total, 2)}</td><td>${esc(pay(x.payment))}</td></tr>`).join('')}</tbody></table></div>` : '');
+}
+
 // ---------- Shortages, market prices, patient reminders (migration 008) ----------
 let FEATURES_READY = true;
 let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
-const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS };
+const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -536,6 +578,7 @@ async function loadFeatures() {
       loadTable('shortages', 'id, code, name, note, status, created_at, resolved_at'),
       loadTable('market_prices', 'id, code, price, source, seen_on, created_by, created_at', 'seen_on'),
     ]);
+    try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment', 'sold_at'); POS_READY = true; } catch (e) { if (e.missing) POS_READY = false; }
     if (isOwner()) {
       [PATIENTS, REMINDERS] = await Promise.all([
         loadTable('patients', 'id, name, phone, active, created_at'),
@@ -544,7 +587,7 @@ async function loadFeatures() {
     }
     FEATURES_READY = true;
   } catch (e) {
-    if (e.missing) FEATURES_READY = false;
+    if (e.missing) { FEATURES_READY = false; POS_READY = false; }
   }
   refreshDerived();
 }
@@ -959,7 +1002,7 @@ async function boot() {
   if (SESS.role === 'device') {
     document.querySelectorAll('#app > *:not(header)').forEach((el) => { el.hidden = true; });
     const box = document.createElement('section'); box.className = 'card';
-    box.innerHTML = '<p>الحساب ده لجهاز الصيدلية، وبيسجّل الحضور بس.</p><a class="btn primary" href="./attendance.html">افتح شاشة الحضور</a>';
+    box.innerHTML = '<p>الحساب ده لجهاز الصيدلية: الكاشير وتسجيل الحضور.</p><div class="row"><a class="btn primary" href="./cashier.html">افتح الكاشير</a><a class="btn" href="./attendance.html">شاشة الحضور</a></div>';
     $('app').append(box);
     return;
   }
@@ -974,6 +1017,7 @@ async function boot() {
     $('settingsMsg').textContent = `الإعدادات بيحددها صاحب الصيدلية. إنت داخل كـ${ROLE_LABEL[SESS.role]}.`;
   }
   $('connectorBox').hidden = !isOwner();
+  $('toCashier').hidden = !isOwner();
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   renderBranches();
@@ -987,6 +1031,7 @@ async function boot() {
 $('panel').addEventListener('change', (e) => {
   if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); }
   if (e.target.id === 'expPeriodSel') { EXP_PERIOD = e.target.value; render(); }
+  if (e.target.id === 'posPeriodSel') { POS_PERIOD = e.target.value; render(); }
   if (e.target.matches('select[data-supfor]')) chooseSupplier(e.target.dataset.supfor, e.target.value);
 });
 $('panel').addEventListener('toggle', (e) => { if (e.target.id === 'supBox') SUP_OPEN = e.target.open; }, true);
@@ -1032,7 +1077,7 @@ $('sections').addEventListener('click', (e) => {
 });
 $('logout').addEventListener('click', async () => {
   if (SESS.mode === 'member' && isOnline()) await sync();
-  const left = (await pending()).length;
+  const left = (await pending()).length + (await stuck()).length;
   const warn = left
     ? `فيه ${left} حاجة لسه ماترفعتش (مستنية النت). لو خرجت دلوقتي هتضيع. تخرج برضه؟`
     : 'الخروج هيمسح بيانات الصيدلية المحفوظة على الجهاز ده، وهتنزل تاني لما تدخل. تخرج؟';

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>صيدليتي — الكاشير</title>
+<meta name="theme-color" content="#0b6b57">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body class="pos-body">
+
+<main id="gate" class="gate">
+  <div class="brand"><img src="./icons/icon.svg" alt="" width="56" height="56"><h1>الكاشير</h1><p>صيدليتي</p></div>
+  <section id="auth" class="card authcard"><p class="note">لحظة…</p></section>
+</main>
+
+<div id="pos" class="pos" hidden>
+  <header class="pos-top">
+    <div><b id="posTitle">الكاشير</b> <span class="muted" id="posWho"></span></div>
+    <div class="row">
+      <span class="chip" id="netChip" role="status"></span>
+      <label class="owner" id="posBranchWrap" hidden>الفرع<select id="posBranch"></select></label>
+      <a class="btn" href="./index.html" id="toDashboard">اللوحة</a>
+      <button class="btn" id="logout">خروج</button>
+    </div>
+  </header>
+
+  <section class="pos-main">
+    <div class="pos-left">
+      <div class="pos-search">
+        <input id="q" type="search" autocomplete="off" placeholder="امسح الباركود أو اكتب اسم الصنف… (Enter)" aria-label="بحث عن صنف">
+        <div id="results" class="results" role="listbox" hidden></div>
+      </div>
+      <p class="note" id="posMsg" role="status"></p>
+      <div class="tablebox cart"><table>
+        <thead><tr><th>الصنف</th><th>السعر</th><th>الكمية</th><th>خصم</th><th>الإجمالي</th><th></th></tr></thead>
+        <tbody id="cart"></tbody>
+      </table><p class="empty" id="cartEmpty">امسح أول صنف عشان تبدأ الفاتورة.</p></div>
+    </div>
+
+    <aside class="pos-side card">
+      <div class="mode row"><button class="btn sel" id="modeSale" aria-pressed="true">بيع</button><button class="btn" id="modeReturn" aria-pressed="false">مرتجع</button></div>
+      <div class="ledger pos-totals">
+        <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>
+        <div><span>خصم على الفاتورة</span><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"></div>
+        <div><span>الخصم كله</span><span class="n" id="tDisc">0.00</span></div>
+        <div class="tot big"><span id="tLabel">المطلوب</span><span class="n" id="tTotal">0.00</span></div>
+      </div>
+      <div class="pay row" id="payMethods"></div>
+      <label id="paidWrap">المدفوع<input id="paid" class="n big-in" type="number" min="0" step="0.5" inputmode="decimal"></label>
+      <div class="ledger"><div class="tot"><span>الباقي للعميل</span><span class="n" id="tChange">—</span></div></div>
+      <button class="btn primary wide big-btn" id="checkout">ادفع واطبع (F2)</button>
+      <button class="btn wide" id="clearCart">فاتورة جديدة (Esc)</button>
+      <details class="help"><summary>إعدادات الطباعة على الجهاز ده</summary>
+        <div class="stack" style="margin-top:8px">
+          <label>عرض ورق الطابعة<select id="paper"><option value="80">80 مم</option><option value="58">58 مم</option></select></label>
+          <label class="checkline"><input id="autoPrint" type="checkbox" checked> اطبع الفاتورة بعد الدفع على طول</label>
+          <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
+          <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
+          <p class="note">عشان الطباعة تطلع من غير نافذة كل مرة، شغّل كروم بالاختيار <code>--kiosk-printing</code> وخلّي الطابعة الحرارية هي الافتراضية.</p>
+        </div>
+      </details>
+    </aside>
+  </section>
+
+  <section class="pos-day card">
+    <div class="row" style="justify-content:space-between"><h3>فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
+    <div class="ledger" id="daySum"></div>
+    <div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th><th>النوع</th><th>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody id="dayList"></tbody></table></div>
+  </section>
+</div>
+
+<dialog id="unknownDlg" class="card">
+  <h3>الباركود ده مش متسجل</h3>
+  <p class="note">الباركود <b class="n" id="unknownCode"></b> لسه مش مربوط بصنف. دوّر على الصنف واختاره، والبرنامج هيفتكره بعد كده.</p>
+  <input id="linkQ" type="search" autocomplete="off" placeholder="اسم الصنف…" aria-label="دوّر على الصنف">
+  <div id="linkResults" class="results static"></div>
+  <div class="row"><button class="btn" id="unknownCancel">إلغاء</button></div>
+</dialog>
+
+<div id="receipt" aria-hidden="true"></div>
+
+<script type="module" src="./src/cashier.js"></script>
+</body>
+</html>
