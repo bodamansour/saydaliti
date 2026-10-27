@@ -109,14 +109,18 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       if (LOSS_REASON[row.kind] && qty < 0) out.losses.push({ date: dayOf(row.happened_at), code: it.code, qty: -qty, reason: LOSS_REASON[row.kind] });
     } else {
       const sign = row.kind === 'return' ? -1 : 1;
-      for (const l of row.lines || []) {
+      const lines = (row.lines || []).filter((l) => +l.qty);
+      // A discount on the whole receipt is shared over its lines by their value, so reports see it.
+      const gross = lines.reduce((a, l) => a + (+l.price || 0) * +l.qty - (+l.discount || 0), 0);
+      const extra = Math.max(0, (+row.discount || 0) - lines.reduce((a, l) => a + (+l.discount || 0), 0));
+      for (const l of lines) {
         const code = String(l.code);
         const it = get(code, l);
-        const qty = +l.qty || 0;
-        if (!qty) continue;
+        const qty = +l.qty;
         if (sign > 0) takeOut(it, qty); else putBack(it, qty);
-        const each = qty ? (+l.price || 0) - (+l.discount || 0) / qty : 0;
-        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: round2(each), ...(+l.discount ? { discount: sign * +l.discount } : {}) });
+        const net = (+l.price || 0) * qty - (+l.discount || 0);
+        const off = round2((+l.discount || 0) + (gross > 0 ? (extra * net) / gross : 0));
+        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: +l.price || 0, ...(off ? { discount: sign * off } : {}) });
       }
     }
   }

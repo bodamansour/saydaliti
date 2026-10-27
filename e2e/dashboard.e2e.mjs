@@ -32,7 +32,7 @@ before(async () => {
   await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
   await ctx.route(/fonts\.(googleapis|gstatic)\.com|cdnjs\.cloudflare\.com/, (r) => r.abort());
   page = await ctx.newPage();
-  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
   page.on('dialog', (d) => d.accept());
 });
 after(async () => { await browser?.close(); server?.close(); });
@@ -62,12 +62,12 @@ test('sign-in comes first, and sign-up asks to confirm the password', async () =
   await page.waitForSelector('#app:not([hidden])');
 });
 
-test('dashboard opens with no example data, grouped in five sections', async () => {
+test('dashboard opens with no example data, grouped in sections', async () => {
   assert.equal(await text('#phTitle'), 'صيدلية أحمد منصور');
-  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'الفلوس', 'البيع', 'المرضى']);
+  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['مبيعات الكاشير', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'مبيعات الكاشير', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -399,6 +399,84 @@ test('stock count, damaged boxes, and a return to the supplier', async () => {
   assert.match(await text('#panel'), /الهالك والمنتهي/);
 });
 
+test('customers: credit and insurance at the cashier, balances, collecting, claims', async () => {
+  await page.click('[data-sec=customers]');
+  await page.click('#cuNew');
+  await page.fill('#cuName', 'شركة مصر للتأمين');
+  await page.selectOption('#cuKind', 'insurance');
+  await page.fill('#cuCov', '80');
+  await page.click('#custForm button[type=submit]');
+  assert.ok(await until(async () => (await db('customers')).length === 1));
+
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  assert.ok(await until(async () => /صنف/.test(await text('#posMsg'))));
+  // A regular customer buying on credit, added at the counter.
+  await page.fill('#q', '303'); await page.press('#q', 'Enter');   // 140
+  await page.fill('#custQ', 'أستاذ سامي');
+  await page.click('[data-newcust]');
+  await page.fill('#ncPhone', '01012345678');
+  await page.click('#custForm button[type=submit]');
+  assert.ok(await until(async () => /أستاذ سامي/.test(await text('#custName'))), 'customer added and chosen');
+  assert.equal(await text('#tCredit'), '140.00');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 140 && x.payment === 'credit')));
+  // Insurance: the company pays 80%, the patient pays the rest in cash.
+  await page.fill('#q', '303'); await page.press('#q', 'Enter');
+  await page.fill('#custQ', 'مصر');
+  await page.press('#custQ', 'Enter');
+  await page.fill('#claimNo', 'APP-1');
+  assert.equal(await text('#tCredit'), '112.00');
+  assert.equal(await text('#tNow'), '28.00');
+  await page.fill('#paid', '50');
+  assert.equal(await text('#tChange'), '22.00');
+  await shot('cashier-insurance');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 112 && x.claim_no === 'APP-1' && x.paid === 50)));
+  assert.match(await text('#daySum'), /آجل/);
+
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=customers]');
+  await page.click('[data-tab=customers]');
+  assert.ok(await until(async () => /140/.test(await text('#panel tbody'))));
+  await page.selectOption('#cpCust', { label: 'أستاذ سامي (عليه 140.00)' });
+  await page.fill('#cpAmount', '40');
+  await page.click('#cpayForm button[type=submit]');
+  assert.ok(await until(async () => (await db('customer_payments')).length === 1));
+  await page.locator('#panel tbody tr', { hasText: 'أستاذ سامي' }).locator('[data-stmt]').click();
+  assert.match(await text('#panel .card'), /كشف حساب/);
+  assert.match(await text('#panel'), /100\.00/, 'balance after paying 40');
+  await shot('customers');
+  await page.click('[data-tab=claims]');
+  assert.match(await text('#panel .card'), /شركة مصر للتأمين/);
+  assert.match(await page.inputValue('#claimMsg0'), /APP-1/);
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=profit]');
+  assert.match(await text('#panel'), /كل شهر/);
+  await shot('profit');
+});
+
+test('moving stock from one branch to another', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=adjust]');
+  await page.click('[data-adjkind=transfer]');
+  await page.fill('#adjQ', 'شاش');
+  await page.press('#adjQ', 'Enter');
+  await page.selectOption('#adjTo', 'b2');
+  await page.fill('#adjQty', '5');
+  await page.click('#adjForm button[type=submit]');
+  assert.ok(await until(async () => (await db('stock_moves')).filter((m) => m.kind === 'transfer').length === 2));
+  const [out, inn] = (await db('stock_moves')).filter((m) => m.kind === 'transfer').sort((a, b) => a.qty - b.qty);
+  assert.deepEqual([out.branch_id, out.qty, inn.branch_id, inn.qty, out.ref === inn.ref], ['b1', -5, 'b2', 5, true]);
+  await page.selectOption('#branchSel', 'b2');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  assert.match(await text('#itemsBody tr'), /\b5\b/);
+  await page.selectOption('#branchSel', 'b1');
+});
+
 test('opens offline with saved data even after the sign-in expired', async () => {
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForTimeout(800); // let the app files finish caching
@@ -416,9 +494,9 @@ test('opens offline with saved data even after the sign-in expired', async () =>
 
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const tabs = ['items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest

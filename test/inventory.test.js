@@ -136,3 +136,11 @@ test('a supplier return taken off the shelf', () => {
   assert.equal(d.items.find((i) => i.code === 'P1').qty, 11);
   assert.equal(d.losses.length, 0, 'a return is not a loss');
 });
+
+test('cashier discounts reach the books once, including a discount on the whole receipt', async () => {
+  const { ledger } = await import('../src/core.js');
+  const d = liveData(base, AT, { sales: [{ sold_at: '2026-10-21T12:00:00Z', kind: 'sale', discount: 15, lines: [
+    { code: 'P1', qty: 2, price: 50, discount: 5 }, { code: 'Z0', qty: 5, price: 12, discount: 0 }] }] });
+  const L = ledger(d, { taxRate: 0, overheadRate: 0 }, new Date(2026, 9, 21), new Date(2026, 9, 22));
+  assert.equal(Math.round(L.totals.revenue * 100) / 100, 145); // 100 + 60 − 15
+});
