@@ -1,0 +1,75 @@
+# Builds the Android app (mobile/) and publishes the APK on the "android-latest" release,
+# so it can be downloaded straight to a phone from:
+#   https://github.com/bodamansour/saydaliti/releases/tag/android-latest
+name: Android app
+
+on:
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['mobile/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # The Android project files are generated here instead of being kept in the repo.
+      - name: Create the Android project
+        run: flutter create --platforms=android --org com.saydaliti --project-name saydaliti_app .
+
+      - name: App name, internet access, versions
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="[^"]*"/android:label="صيدليتي"/' "$M"
+          grep -q 'android.permission.INTERNET' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
+          G=$(ls android/app/build.gradle* | head -1)
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' "$G"
+          echo "--- manifest"; head -20 "$M"
+
+      - run: flutter pub get
+      - name: App icon
+        run: dart run flutter_launcher_icons
+      - name: Build APK
+        run: flutter build apk --release --dart-define=SITE_URL=https://saydaliti-ivory.vercel.app
+      - name: Name the file
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../saydaliti.apk
+
+      # On a pull request the APK is only kept as a build file, to check that it builds.
+      - name: Keep the APK (pull request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: saydaliti-apk
+          path: saydaliti.apk
+
+      - name: Publish on the android-latest release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: صيدليتي — أبلكيشن أندرويد
+          body: |
+            نزّل `saydaliti.apk` على الموبايل وافتحه عشان يتسطب.
+            لو الموبايل سأل، اسمح بتسطيب التطبيقات من المتصفح أو مدير الملفات.
+            آخر تحديث: ${{ github.sha }}
+          files: saydaliti.apk
+          make_latest: true
