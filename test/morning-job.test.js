@@ -62,3 +62,19 @@ test('job sends the template to each number, skips stale data', async () => {
   assert.equal(wa[0][1].template.name, 'saydaliti_morning');
   assert.ok(!JSON.stringify(r).includes('01012345678')); // full numbers never echoed in the job result
 });
+
+test('job adds up every branch', async () => {
+  const branch2 = { items: [{ code: 'C', name: 'مرطب', cost: 30, price: 45, qty: 6 }], sales: [] };
+  const sent = [];
+  const fetchFn = async (url, init) => {
+    if (url.includes('report_feed')) {
+      return { ok: true, json: async () => [{ pharmacy_name: 'صيدلية فروع', settings: { waNumbers: '01012345678' }, snapshot_at: '2026-10-25T04:00:00Z', data: snapshot,
+        branch_data: [{ branch: 'الرئيسي', data: snapshot }, { branch: 'الجمهورية', data: branch2 }] }] };
+    }
+    sent.push(JSON.parse(init.body));
+    return { ok: true, status: 200 };
+  };
+  await runMorning({ env, fetchFn, now });
+  const params = sent[0].template.components[0].parameters.map((x) => x.text);
+  assert.equal(params[3], '2'); // شامبو (branch 1) + مرطب (branch 2) both dead stock
+});

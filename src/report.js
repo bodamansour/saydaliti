@@ -1,7 +1,7 @@
 // "Money at risk" morning report — plain text, ready for WhatsApp. Pure function over analyze() output.
 const fmt = (n) => Math.round(Number.isFinite(n) ? n : 0).toLocaleString('en-US');
 
-export function morningReport(A, { pharmacyName = 'الصيدلية', date = new Date(), top = 5 } = {}) {
+export function morningReport(A, { pharmacyName = 'الصيدلية', date = new Date(), top = 5, shortages = [] } = {}) {
   const riskVal = A.expiring.reduce((a, r) => a + r.atRisk * r.cost, 0);
   const deadVal = A.deadStock.reduce((a, r) => a + r.qty * r.cost, 0);
   const orderVal = A.reorder.reduce((a, r) => a + r.order * r.cost, 0);
@@ -28,6 +28,14 @@ export function morningReport(A, { pharmacyName = 'الصيدلية', date = new
     if (A.reorder.length > top) lines.push(`   و${A.reorder.length - top} صنف تاني في اللوحة.`);
   }
 
+  if (shortages.length) {
+    lines.push('', '🚫 ناقص في السوق (اطلب أول ما يتوفر):');
+    for (const x of shortages.slice(0, top)) {
+      const left = x.daysCover === Infinity ? 'مبيتسحبش' : x.daysCover < 1 ? 'خلص تقريباً' : `يكفي ${Math.round(x.daysCover)} يوم`;
+      lines.push(`   • ${x.row.name}: معاك ${x.qty} (${left})${x.stockUp ? ` — اطلب ${x.stockUp}` : ''}`);
+    }
+  }
+
   if (A.deadStock.length) {
     lines.push('', '🧊 أكبر رواكد (متطلبش منها تاني):');
     for (const r of A.deadStock.slice(0, Math.min(3, top))) {
@@ -35,7 +43,7 @@ export function morningReport(A, { pharmacyName = 'الصيدلية', date = new
     }
   }
 
-  if (!A.expiring.length && !A.reorder.length && !A.deadStock.length) lines.push('', '✅ مفيش حاجة محتاجة تتعمل النهارده.');
+  if (!A.expiring.length && !A.reorder.length && !A.deadStock.length && !shortages.length) lines.push('', '✅ مفيش حاجة محتاجة تتعمل النهارده.');
   return lines.join('\n');
 }
 

@@ -4,6 +4,8 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } f
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
+import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
+import { normalizeEgPhone } from './report.js';
 import { kvGet, kvSet, enqueue, flush, pending, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 
 const $ = (id) => document.getElementById(id);
@@ -42,8 +44,16 @@ const store = {
   get(k, fb) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? fb; } catch { return fb; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } },
 };
+// Cheapest price seen outside, per item: shared through the database (migration 008), else kept on this device.
 let MARKET = store.get(MKEY, {});
-const setMarket = (code, v) => { if (v > 0) MARKET[code] = v; else delete MARKET[code]; store.set(MKEY, MARKET); };
+function refreshMarket() {
+  if (!FEATURES_READY || SESS.mode !== 'member') { MARKET = store.get(MKEY, {}); return; }
+  MARKET = Object.fromEntries([...cheapestSeen(PRICES, TODAY)].map(([code, p]) => [code, +p.price]));
+}
+const setMarket = (code, v) => {
+  if (FEATURES_READY && SESS.mode === 'member') { if (v > 0) addPrice({ code, price: v, source: 'سعر شفته برا', seen_on: isoDay(TODAY) }); return; }
+  if (v > 0) MARKET[code] = v; else delete MARKET[code]; store.set(MKEY, MARKET);
+};
 
 // ---------- State ----------
 let SESS = { mode: 'local' };
@@ -72,7 +82,7 @@ function settings() {
 }
 const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id) === BRANCH)?.id ?? null);
 
-const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['morning', 'تقرير الصبح'], ['movers', 'الأكتر سحباً'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
+const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['expenses', 'المصروفات'], ['shortages', 'نواقص السوق'], ['prices', 'أسعار السوق'], ['patients', 'تذكير المرضى'], ['books', 'الحسابات'], ['morning', 'تقرير الصبح'], ['movers', 'الأكتر سحباً'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
 const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc']);
 
 function taxNote(A, s) {
@@ -84,7 +94,7 @@ function taxNote(A, s) {
   return 'الضرايب مش داخلة في الحسبة. اسأل محاسبك عن نظام صيدليتك وغيّر الاختيار.';
 }
 
-const nameCell = (r) => `<td class="name">${esc(r.name)}<span class="cat">${esc(r.category)} · ${esc(r.owner)}</span></td>`;
+const nameCell = (r, extra = '') => `<td class="name">${esc(r.name)} ${extra}<span class="cat">${esc(r.category)} · ${esc(r.owner)}</span></td>`;
 const table = (head, body) => body.length
   ? `<div class="tablebox"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body.join('')}</tbody></table></div>`
   : '<div class="tablebox"><p class="empty">مفيش أصناف هنا دلوقتي.</p></div>';
@@ -123,15 +133,18 @@ function render() {
     <div class="tile"><span class="k">مصروفات الشهر ده</span><span class="v">${fmt(monthExp?.operating ?? 0)}</span><span class="s">${monthExp?.withdrawals ? `ومسحوبات ${fmt(monthExp.withdrawals)} ج` : `${A.reorder.length} صنف محتاج يتطلب`}</span></div>`;
 
   const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length };
-  $('tabs').innerHTML = TABS.map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
+  $('tabs').innerHTML = TABS.filter(([id]) => id !== 'patients' || isOwner()).map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
 
   let html;
   if (TAB === 'expenses') html = renderExpenses();
+  else if (TAB === 'shortages') html = renderShortages(full);
+  else if (TAB === 'prices') html = renderPrices(A);
+  else if (TAB === 'patients') html = renderPatients();
   else if (!has && NEEDS_DATA.has(TAB)) html = emptyState();
   else if (TAB === 'reorder') {
     html = `<p>أصناف هتخلص خلال ${s.lead + 7} يوم أو أقل على حسب سرعة سحبها. الكمية المقترحة تكفيك ${s.cover} يوم.</p>` + table(
       ['الصنف', 'في الرف', 'بيتسحب في الشهر', 'هيخلص بعد', 'اطلب', 'التكلفة'],
-      A.reorder.map((r) => `<tr>${nameCell(r)}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td><td>${egp(r.order * r.cost)}</td></tr>`));
+      A.reorder.map((r) => `<tr>${nameCell(r, SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '')}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td><td>${egp(r.order * r.cost)}</td></tr>`));
   } else if (TAB === 'expiry') {
     html = '<p>الكمية اللي غالباً مش هتتباع قبل الصلاحية على حسب سرعة السحب. اعمل عليها عرض، أو رجّعها للمخزن لو ينفع.</p>' + table(
       ['الصنف', 'الصلاحية', 'في الرف', 'متوقع يتباع', 'في خطر', 'قيمتها', ''],
@@ -149,7 +162,7 @@ function render() {
   } else if (TAB === 'morning') {
     const name = SESS.pharmacy?.name || 'الصيدلية';
     html = `<p>ملخص اليوم في رسالة واحدة: الفلوس اللي في خطر، تطلب إيه، وتعمل عرض على إيه. انسخه وابعته على واتساب${OWNER !== 'all' ? ` (ده لبضاعة ${esc(OWNER)} بس)` : ''}${BRANCH !== 'all' && multi() ? ` (${esc(branchName(BRANCH))})` : ''}.</p>
-      <div class="card msg"><textarea id="morningMsg" aria-label="تقرير الصبح" style="min-height:320px">${esc(morningReport(A, { pharmacyName: name }))}</textarea>
+      <div class="card msg"><textarea id="morningMsg" aria-label="تقرير الصبح" style="min-height:320px">${esc(morningReport(A, { pharmacyName: name, shortages: FEATURES_READY ? shortagePlan(SHORTAGES, A.rows).filter((x) => x.found) : [] }))}</textarea>
       <div class="row"><button class="btn primary" id="copyMorning">انسخ التقرير</button><span class="note" id="copyMorningNote"></span></div></div>`;
   } else if (TAB === 'books') {
     html = renderBooks(full, only);
@@ -165,6 +178,7 @@ function render() {
   $('panel').innerHTML = html;
   if (has && TAB === 'calc') bindCalc(A, s);
   if (has && TAB === 'offers') bindOffers(offerRows);
+  if (TAB === 'patients' && isOwner() && FEATURES_READY) bindPatients();
 }
 
 const PERIODS = [['thisMonth', 'الشهر ده'], ['lastMonth', 'الشهر اللي فات'], ['last90', 'آخر 3 شهور'], ['all', 'كل الفترة']];
@@ -301,6 +315,239 @@ async function loadExpenses() {
   await saveExpenseCache();
 }
 
+// ---------- Shortages, market prices, patient reminders (migration 008) ----------
+let FEATURES_READY = true;
+let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
+let SHORT_CODES = new Set();
+const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS };
+const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
+const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
+const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
+const findItem = (name) => DATA.items.find((i) => i.name.trim() === String(name).trim());
+
+function refreshDerived() {
+  refreshMarket();
+  SHORT_CODES = new Set(SHORTAGES.filter((x) => x.status !== 'resolved').map((x) => x.code || findItem(x.name)?.code).filter(Boolean));
+}
+
+// Server rows, plus local changes still waiting in the outbox; falls back to the copy on this device.
+async function loadTable(table, cols, order = 'created_at') {
+  const q = await pending();
+  const mine = (t) => (e) => e.payload?.table === table && e.type === t;
+  const ins = q.filter(mine('insert')).map((e) => ({ ...e.payload.row, pending: true }));
+  const del = new Set(q.filter(mine('delete')).map((e) => e.payload.id));
+  const upd = q.filter(mine('update'));
+  let rows = null;
+  if (isOnline()) {
+    const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).limit(5000);
+    if (error && !/fetch|network/i.test(error.message)) throw Object.assign(new Error(error.message), { missing: true });
+    if (!error) rows = data;
+  }
+  if (!rows) rows = (await kvGet(cacheKey(table), [])).filter((r) => !r.pending);
+  rows = rows.filter((r) => !del.has(r.id));
+  for (const r of ins) if (!rows.some((x) => x.id === r.id)) rows.push(r);
+  for (const u of upd) { const r = rows.find((x) => x.id === u.payload.id); if (r) Object.assign(r, u.payload.patch); }
+  await kvSet(cacheKey(table), rows);
+  return rows;
+}
+
+async function loadFeatures() {
+  try {
+    [SHORTAGES, PRICES] = await Promise.all([
+      loadTable('shortages', 'id, code, name, note, status, created_at, resolved_at'),
+      loadTable('market_prices', 'id, code, price, source, seen_on, created_by, created_at', 'seen_on'),
+    ]);
+    if (isOwner()) {
+      [PATIENTS, REMINDERS] = await Promise.all([
+        loadTable('patients', 'id, name, phone, active, created_at'),
+        loadTable('reminders', 'id, patient_id, medicine, kind, dose_times, refill_every_days, next_refill, active, last_sent_at, created_at'),
+      ]);
+    }
+    FEATURES_READY = true;
+  } catch (e) {
+    if (e.missing) FEATURES_READY = false;
+  }
+  refreshDerived();
+}
+
+async function localInsert(table, row) {
+  const full = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, created_by: SESS.user.id, ...row };
+  LISTS[table]().push({ ...full, pending: true, created_at: new Date().toISOString() });
+  await kvSet(cacheKey(table), LISTS[table]());
+  await enqueue('insert', { table, row: full });
+  refreshDerived(); render(); sync();
+  return full;
+}
+async function localUpdate(table, id, patch) {
+  const r = LISTS[table]().find((x) => x.id === id);
+  if (r) Object.assign(r, patch);
+  await kvSet(cacheKey(table), LISTS[table]());
+  await enqueue('update', { table, id, patch });
+  refreshDerived(); render(); sync();
+}
+async function localDelete(table, id) {
+  const list = LISTS[table]();
+  const i = list.findIndex((x) => x.id === id);
+  if (i >= 0) list.splice(i, 1);
+  if (table === 'patients') REMINDERS = REMINDERS.filter((r) => r.patient_id !== id); // the database removes them too
+  await kvSet(cacheKey(table), list);
+  if (table === 'patients') await kvSet(cacheKey('reminders'), REMINDERS);
+  await enqueue('delete', { table, id });
+  refreshDerived(); render(); sync();
+}
+const savedNote = () => (isOnline() ? 'اتسجل.' : 'اتسجل على الجهاز، وهيترفع أول ما النت يرجع.');
+const pendingPill = (r) => (r.pending ? ' <span class="pill warn">مستني النت</span>' : '');
+
+// ----- Market shortages -----
+function renderShortages(full) {
+  if (!FEATURES_READY) return needUpdate();
+  const plan = shortagePlan(SHORTAGES, full.rows);
+  const resolved = SHORTAGES.filter((x) => x.status === 'resolved').length;
+  const form = isOwner() ? `<form id="shortForm" class="card stack">
+      <h3>صنف ناقص في السوق</h3>
+      <p class="note">لما صنف يختفي من المخازن، سجّله هنا. البرنامج هيقولك معاك منه كام ويكفيك قد إيه، وأول ما يتوفر تاني اطلب الكمية المقترحة عشان متتزنقش لو اختفى تاني.</p>
+      <div class="grid2"><label>الصنف<input id="shortName" list="itemList" required maxlength="160" placeholder="اكتب أو اختار من أصنافك"></label>
+      <label>ملاحظة (اختياري)<input id="shortNote" maxlength="300" placeholder="مثلاً: مش موجود عند ابن سينا والمتحدة"></label></div>
+      <div class="row"><button class="btn primary" type="submit">ضيفه للنواقص</button><span class="note" id="shortMsg" role="status"></span></div>
+      ${itemOptions()}</form>` : '';
+  const rows = plan.map((x) => `<tr><td class="name">${esc(x.found ? x.row.name : x.name)}${pendingPill(x)}${x.note ? `<span class="cat">${esc(x.note)}</span>` : ''}</td>
+    <td class="n">${x.found ? fmt(x.qty) : '<span class="muted">—</span>'}</td>
+    <td>${!x.found ? '<span class="muted">مش في أصنافك</span>' : x.daysCover === Infinity ? '<span class="muted">مبيتسحبش</span>' : `<span class="pill ${x.daysCover <= 14 ? 'crit' : x.daysCover <= 30 ? 'warn' : 'ok'}">${x.daysCover < 1 ? 'خلص تقريباً' : `${fmt(x.daysCover)} يوم`}</span>`}</td>
+    <td class="n"><b>${x.found && x.stockUp ? fmt(x.stockUp) : '—'}</b></td><td>${x.found && x.stockUp ? egp(x.cost) : '<span class="muted">—</span>'}</td>
+    ${isOwner() ? `<td><button class="btn" data-shortok="${esc(x.id)}">اتوفر</button> <button class="btn" data-shortdel="${esc(x.id)}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
+  return form + (rows.length
+    ? `<div class="tablebox"><table><thead><tr><th>الصنف</th><th>في الرف</th><th>يكفيك</th><th>اطلب لما يتوفر (يكفي شهرين)</th><th>التكلفة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+    : '<div class="tablebox"><p class="empty">مفيش نواقص متسجلة دلوقتي.</p></div>')
+    + (resolved ? `<p class="note">${fmt(resolved)} صنف اتوفر تاني واتشال من القايمة.</p>` : '')
+    + '<p class="note">الأصناف دي بتظهر عليها علامة «ناقص في السوق» في «اطلب إيه»، وفي تقرير الصبح.</p>';
+}
+async function addShortage(e) {
+  e.preventDefault();
+  const name = $('shortName').value.trim();
+  if (!name) return;
+  const it = findItem(name);
+  if (SHORTAGES.some((x) => x.status !== 'resolved' && (x.code ? x.code === it?.code : x.name === name))) { $('shortMsg').textContent = 'الصنف ده موجود في النواقص.'; return; }
+  await localInsert('shortages', { code: it?.code ?? null, name: it?.name ?? name, note: $('shortNote').value.trim() || null, status: 'active' });
+  $('shortMsg').textContent = savedNote();
+}
+
+// ----- Market prices -----
+function renderPrices(A) {
+  if (!FEATURES_READY) return needUpdate();
+  const cheapest = cheapestSeen(PRICES, TODAY);
+  const cmp = priceCompare(A.rows, cheapest);
+  const form = `<form id="priceForm" class="card stack">
+      <h3>سجّل سعر شفته برا</h3>
+      <p class="note">أسعار التجميل والمستلزمات حرة. سجّل السعر اللي شفته في صيدلية تانية أو موقع، وكل الشركاء هيشوفوه. البرنامج بياخد أرخص سعر في آخر 45 يوم.</p>
+      <div class="grid2"><label>الصنف<input id="priceName" list="itemList" required placeholder="اختار من أصنافك"></label>
+      <label>السعر (جنيه)<input id="priceVal" type="number" inputmode="decimal" min="0.01" step="0.01" required></label>
+      <label>فين؟<input id="priceSrc" maxlength="80" placeholder="مثلاً: صيدلية العزبي، أو موقع"></label>
+      <label>إمتى؟<input id="priceDate" type="date" value="${isoDay(TODAY)}" max="${isoDay(TODAY)}" required></label></div>
+      <div class="row"><button class="btn primary" type="submit">احفظ السعر</button><span class="note" id="priceMsg" role="status"></span></div>
+      ${itemOptions()}</form>`;
+  const rows = cmp.map((r) => `<tr>${nameCell(r)}<td class="n">${fmt(r.price, 2)}</td><td class="n">${fmt(r.market, 2)}</td>
+    <td class="muted">${esc(r.source || '—')} · <span class="n">${esc(String(r.seenOn).slice(0, 10))}</span></td>
+    <td>${r.diff > 0.009 ? `<span class="pill warn">أغلى بـ <span class="n">${fmt(r.pct, 0)}%</span></span>` : r.diff < -0.009 ? '<span class="pill ok">أرخص</span>' : '<span class="pill ok">زيه</span>'}</td>
+    <td><button class="btn" data-calc="${esc(r.code)}">احسب</button></td></tr>`);
+  const recent = [...PRICES].sort((a, b) => String(b.seen_on).localeCompare(String(a.seen_on)) || String(b.created_at).localeCompare(String(a.created_at))).slice(0, 15);
+  const names = new Map(DATA.items.map((i) => [i.code, i.name]));
+  const hist = recent.map((p) => `<tr><td>${esc(names.get(p.code) || p.code)}${pendingPill(p)}</td><td class="n">${fmt(+p.price, 2)}</td><td class="muted">${esc(p.source || '—')}</td><td class="n">${esc(String(p.seen_on).slice(0, 10))}</td>
+    <td>${isOwner() || p.created_by === SESS.user.id ? `<button class="btn" data-pricedel="${esc(p.id)}" aria-label="امسح">امسح</button>` : ''}</td></tr>`);
+  return form
+    + (rows.length ? `<h3>سعرك قصاد السوق</h3><div class="tablebox"><table><thead><tr><th>الصنف</th><th>سعرك</th><th>أرخص سعر برا</th><th>فين وإمتى</th><th></th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<div class="tablebox"><p class="empty">لسه مفيش أسعار متسجلة لأصنافك.</p></div>')
+    + (hist.length ? `<details class="help"><summary>آخر الأسعار المتسجلة</summary><div class="tablebox" style="margin-top:8px"><table><tbody>${hist.join('')}</tbody></table></div></details>` : '')
+    + '<p class="note">الأدوية ليها تسعيرة جبرية، فالمقارنة دي للتجميل والمستلزمات أساساً.</p>';
+}
+async function addPrice(row) {
+  await localInsert('market_prices', row);
+}
+async function submitPrice(e) {
+  e.preventDefault();
+  const it = findItem($('priceName').value);
+  if (!it) { $('priceMsg').textContent = 'اختار الصنف من أصنافك.'; return; }
+  const price = Math.round((+$('priceVal').value || 0) * 100) / 100;
+  if (!(price > 0)) { $('priceMsg').textContent = 'اكتب السعر.'; return; }
+  await addPrice({ code: it.code, price, source: $('priceSrc').value.trim() || null, seen_on: $('priceDate').value || isoDay(TODAY) });
+  $('priceMsg').textContent = savedNote();
+}
+
+// ----- Patient reminders (owner only) -----
+function renderPatients() {
+  if (!isOwner()) return '<p class="note">تذكير المرضى بيشوفه صاحب الصيدلية بس.</p>';
+  if (!FEATURES_READY) return needUpdate();
+  const pOpts = PATIENTS.filter((p) => p.active !== false).map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (…${esc(String(p.phone).slice(-4))})</option>`).join('');
+  const next30 = isoDay(addDays(TODAY, 30));
+  const form = `<form id="remForm" class="card stack">
+    <h3>تذكير جديد على الواتساب</h3>
+    <p class="note">البرنامج بيبعت للمريض رسالة في ميعاد الجرعة، أو قبل ما الدوا يخلص بيوم عشان يجدد من عندك.</p>
+    <div class="grid2">
+      <label>المريض<select id="remPatient"><option value="new">مريض جديد</option>${pOpts}</select></label>
+      <span></span>
+      <label class="newp">اسم المريض<input id="remName" maxlength="120" placeholder="مثلاً: أم محمد"></label>
+      <label class="newp">رقم الواتساب<input id="remPhone" type="tel" inputmode="tel" placeholder="01xxxxxxxxx"></label>
+      <label class="newp span2 checkline"><input id="remConsent" type="checkbox"> المريض وافق إنه يستقبل تذكير على الواتساب من الصيدلية</label>
+      <label>الدوا<input id="remMed" maxlength="120" required list="itemList" placeholder="مثلاً: جلوكوفاج 1000"></label>
+      <label>نوع التذكير<select id="remKind"><option value="dose">مواعيد الجرعات</option><option value="refill">تجديد الدوا قبل ما يخلص</option></select></label>
+      <label class="kdose">مواعيد الجرعات<input id="remTimes" placeholder="مثلاً: 9 ص، 9 م"></label>
+      <label class="krefill" hidden>العلبة بتكفي كام يوم<input id="remEvery" type="number" min="1" max="365" value="30"></label>
+      <label class="krefill" hidden>هيخلص يوم<input id="remNext" type="date" value="${next30}" min="${isoDay(TODAY)}"></label>
+    </div>
+    <div class="row"><button class="btn primary" type="submit">احفظ التذكير</button><span class="note" id="remMsg" role="status"></span></div>
+    ${itemOptions()}</form>`;
+  const pName = new Map(PATIENTS.map((p) => [p.id, p.name]));
+  const rows = [...REMINDERS].sort((a, b) => String(pName.get(a.patient_id)).localeCompare(String(pName.get(b.patient_id)), 'ar')).map((r) => `<tr class="${r.active === false ? 'off' : ''}">
+    <td>${esc(pName.get(r.patient_id) || '—')}${pendingPill(r)}</td><td>${esc(r.medicine)}</td>
+    <td>${r.kind === 'dose' ? `الجرعات: <span class="n">${esc((r.dose_times || []).join('، '))}</span>` : `تجديد كل ${fmt(r.refill_every_days)} يوم · الجاي <span class="n">${esc(r.next_refill)}</span>`}</td>
+    <td class="muted">${r.last_sent_at ? new Date(r.last_sent_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'لسه'}</td>
+    <td><button class="btn" data-remtoggle="${esc(r.id)}">${r.active === false ? 'شغّل' : 'وقّف'}</button> <button class="btn" data-remdel="${esc(r.id)}" aria-label="امسح">امسح</button></td></tr>`);
+  const plist = PATIENTS.map((p) => `<li>${esc(p.name)} <span class="muted n">…${esc(String(p.phone).slice(-4))}</span> <button class="linkbtn" data-patdel="${esc(p.id)}">امسح المريض وتذكيراته</button></li>`).join('');
+  return form
+    + (rows.length ? `<div class="tablebox"><table><thead><tr><th>المريض</th><th>الدوا</th><th>التذكير</th><th>آخر رسالة</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<div class="tablebox"><p class="empty">لسه مفيش تذكيرات.</p></div>')
+    + (PATIENTS.length ? `<details class="help"><summary>المرضى (${fmt(PATIENTS.length)})</summary><ul class="blist">${plist}</ul></details>` : '')
+    + `<p class="note">بيانات المرضى بيشوفها صاحب الصيدلية بس، ومتتحفظش غير بموافقة المريض. الرسايل بتتبعت لما يتفعّل واتساب بيزنس للصيدلية (التفاصيل في README).</p>`;
+}
+function bindPatients() {
+  const sync2 = () => {
+    const isNew = $('remPatient').value === 'new';
+    document.querySelectorAll('#remForm .newp').forEach((el) => { el.hidden = !isNew; });
+    const dose = $('remKind').value === 'dose';
+    document.querySelectorAll('#remForm .kdose').forEach((el) => { el.hidden = !dose; });
+    document.querySelectorAll('#remForm .krefill').forEach((el) => { el.hidden = dose; });
+  };
+  $('remPatient').addEventListener('change', sync2);
+  $('remKind').addEventListener('change', sync2);
+  sync2();
+}
+async function addReminder(e) {
+  e.preventDefault();
+  const msg = (t) => { $('remMsg').textContent = t; };
+  let patientId = $('remPatient').value;
+  const kind = $('remKind').value;
+  const medicine = $('remMed').value.trim();
+  if (!medicine) return msg('اكتب اسم الدوا.');
+  const row = { kind, medicine, active: true };
+  if (kind === 'dose') {
+    const times = parseTimes($('remTimes').value);
+    if (!times.length) return msg('اكتب مواعيد الجرعات، مثلاً: 9 ص، 9 م');
+    row.dose_times = times;
+  } else {
+    row.refill_every_days = Math.max(1, Math.min(365, Math.round(+$('remEvery').value || 30)));
+    row.next_refill = $('remNext').value;
+    if (!row.next_refill) return msg('اختار اليوم اللي الدوا هيخلص فيه.');
+  }
+  if (patientId === 'new') {
+    const name = $('remName').value.trim();
+    const phone = normalizeEgPhone($('remPhone').value);
+    if (!name) return msg('اكتب اسم المريض.');
+    if (!phone) return msg('رقم الواتساب لازم يبقى رقم موبايل مصري صحيح.');
+    if (!$('remConsent').checked) return msg('لازم المريض يوافق الأول على استقبال الرسايل.');
+    const existing = PATIENTS.find((p) => p.phone === phone);
+    patientId = existing ? existing.id : (await localInsert('patients', { name, phone, consent: true, active: true })).id;
+  }
+  await localInsert('reminders', { ...row, patient_id: patientId });
+  msg(savedNote());
+}
+
 // ---------- Offers & calculator ----------
 function offerState(r, A) {
   if (!OFFERS.has(r.code)) OFFERS.set(r.code, { on: r.category !== 'دواء', price: suggestOffer(r, A) });
@@ -400,7 +647,8 @@ function bindCalc(A, s) {
   };
   $('calcItem').addEventListener('change', (e) => { CALC_CODE = e.target.value; render(); });
   $('calcPrice').addEventListener('input', update);
-  $('market').addEventListener('input', () => { setMarket(it.code, +$('market').value); update(); });
+  $('market').addEventListener('input', update);
+  $('market').addEventListener('change', () => { setMarket(it.code, +$('market').value); });
   update();
 }
 
@@ -471,12 +719,23 @@ async function sync() {
     $('fileMsg').innerHTML = `<span class="err">ماترفعش ${entry.type === 'expense' ? 'مصروف' : entry.type === 'snapshot' ? 'ملف البيانات' : 'تعديل'}: ${esc(err.message)}</span>`;
     if (entry.type === 'expense') { EXPENSES = EXPENSES.filter((e) => e.id !== entry.payload.id); saveExpenseCache(); }
     if (entry.type === 'snapshot') { const k = key(entry.payload.p_branch ?? null); SNAP.delete(k); kvSet(snapKey(k), null); }
+    if (entry.type === 'insert' && LISTS[entry.payload.table]) {
+      const list = LISTS[entry.payload.table](); const i = list.findIndex((x) => x.id === entry.payload.row.id);
+      if (i >= 0) list.splice(i, 1);
+      kvSet(cacheKey(entry.payload.table), list);
+    }
   });
   // Uploaded items are no longer pending.
   const q = await pending();
   const waiting = new Set(q.filter((e) => e.type === 'expense').map((e) => e.payload.id));
   let changed = false;
   for (const e of EXPENSES) if (e.pending && !waiting.has(e.id)) { e.pending = false; changed = true; }
+  const waitingRows = new Set(q.filter((e) => e.type === 'insert').map((e) => e.payload.row.id));
+  for (const [table, get] of Object.entries(LISTS)) {
+    let touched = false;
+    for (const r of get()) if (r.pending && !waitingRows.has(r.id)) { r.pending = false; touched = true; }
+    if (touched) { changed = true; await kvSet(cacheKey(table), get()); }
+  }
   for (const [k, s] of SNAP) {
     if (s.pending && !q.some((e) => e.type === 'snapshot' && key(e.payload.p_branch ?? null) === k)) {
       s.pending = false; changed = true;
@@ -531,7 +790,7 @@ async function boot() {
 
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses()]);
+  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures()]);
   renderBranches(); setView(); render();
   sync();
 }
@@ -541,10 +800,22 @@ $('panel').addEventListener('change', (e) => {
   if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); }
   if (e.target.id === 'expPeriodSel') { EXP_PERIOD = e.target.value; render(); }
 });
-$('panel').addEventListener('submit', (e) => { if (e.target.id === 'expForm') addExpense(e); });
+$('panel').addEventListener('submit', (e) => {
+  if (e.target.id === 'expForm') addExpense(e);
+  if (e.target.id === 'shortForm') addShortage(e);
+  if (e.target.id === 'priceForm') submitPrice(e);
+  if (e.target.id === 'remForm') addReminder(e);
+});
 $('panel').addEventListener('click', (e) => {
   const c = e.target.closest('[data-calc]'); if (c) { CALC_CODE = c.dataset.calc; TAB = 'calc'; render(); }
   const d = e.target.closest('[data-delexp]'); if (d) deleteExpense(d.dataset.delexp);
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  if (t('shortok')) localUpdate('shortages', t('shortok'), { status: 'resolved', resolved_at: new Date().toISOString() });
+  if (t('shortdel') && confirm('تمسح الصنف ده من النواقص؟')) localDelete('shortages', t('shortdel'));
+  if (t('pricedel') && confirm('تمسح السعر ده؟')) localDelete('market_prices', t('pricedel'));
+  if (t('remtoggle')) { const r = REMINDERS.find((x) => x.id === t('remtoggle')); if (r) localUpdate('reminders', r.id, { active: r.active === false }); }
+  if (t('remdel') && confirm('تمسح التذكير ده؟')) localDelete('reminders', t('remdel'));
+  if (t('patdel') && confirm('تمسح المريض ده وكل تذكيراته؟')) localDelete('patients', t('patdel'));
   if (e.target.id === 'copyMorning') copyFrom($('morningMsg'), $('copyMorningNote'));
 });
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
