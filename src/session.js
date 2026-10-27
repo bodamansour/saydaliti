@@ -1,6 +1,7 @@
 // Shared sign-in for every page: config from /api/config, Supabase session, pharmacy membership and branches.
 // The last good config and membership are kept on the device so the app still opens with no connection.
 import { arabicError } from './supabase-store.js';
+import { clearLocal } from './offline.js';
 
 export const ROLE_LABEL = { owner: 'صاحب الصيدلية', partner: 'شريك', device: 'جهاز الصيدلية' };
 let client = null;
@@ -11,7 +12,7 @@ const cache = {
 };
 const CFG = 'saydaliti-config-v1';
 const MEM = 'saydaliti-member-v1';
-const netError = (e) => /fetch|network|Load failed/i.test(String(e?.message ?? e));
+const netError = (e) => e?.name === 'AuthRetryableFetchError' || /fetch|network|Load failed/i.test(String(e?.message ?? e));
 
 async function loadConfig() {
   try {
@@ -21,7 +22,7 @@ async function loadConfig() {
   return cache.get(CFG) || { configured: false };
 }
 
-async function loadMembership(userId) {
+async function loadMembership(userId, email) {
   // Branches arrived with migration 007; before it is applied the query falls back to one implicit branch.
   let res = await client.from('members').select('role, pharmacies(id, name, settings, branches(id, name, created_at))');
   if (res.error && !netError(res.error)) res = await client.from('members').select('role, pharmacies(id, name, settings)');
@@ -32,7 +33,7 @@ async function loadMembership(userId) {
   const m = [...mem].sort((a, b) => order[a.role] - order[b.role])[0];
   const ph = m.pharmacies;
   const branches = (ph.branches || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const out = { userId, role: m.role, pharmacy: { id: ph.id, name: ph.name, settings: ph.settings || {} }, branches, branchesReady: Array.isArray(ph.branches) };
+  const out = { userId, email, role: m.role, pharmacy: { id: ph.id, name: ph.name, settings: ph.settings || {} }, branches, branchesReady: Array.isArray(ph.branches) };
   cache.set(MEM, out);
   return out;
 }
@@ -48,11 +49,18 @@ export async function getSession() {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
     client = createClient(cfg.url, cfg.key);
   }
-  const { data: { session } } = await client.auth.getSession();
-  if (!session) return { mode: 'signed-out', client };
+  const { data: { session }, error: authError } = await client.auth.getSession();
+  const saved = cache.get(MEM);
+  if (!session) {
+    // The sign-in token lasts about an hour and can only be renewed online. With no connection,
+    // open with what was saved on this device; the token is renewed once the connection is back.
+    if (saved && (netError(authError) || !navigator.onLine)) {
+      return { mode: 'member', client, user: { id: saved.userId, email: saved.email }, config: cfg, offline: true, ...saved };
+    }
+    return { mode: 'signed-out', client };
+  }
   let m;
-  try { m = await loadMembership(session.user.id); } catch (err) {
-    const saved = cache.get(MEM);
+  try { m = await loadMembership(session.user.id, session.user.email); } catch (err) {
     if (netError(err) && saved?.userId === session.user.id) return { mode: 'member', client, user: session.user, config: cfg, offline: true, ...saved };
     throw arabicError(err);
   }
@@ -60,9 +68,15 @@ export async function getSession() {
   return { mode: 'member', client, user: session.user, config: cfg, offline: false, ...m };
 }
 
+// Signs out and removes everything this app saved on the device (data, patients, queued changes).
+// Works with no connection too: the library keeps the session when it can't reach the server,
+// so the saved sign-in is removed here directly.
 export async function signOut() {
   cache.set(MEM, null);
-  await client?.auth.signOut();
+  try { await client?.auth.signOut(); } catch { /* offline */ }
+  const k = client?.auth?.storageKey;
+  if (k) for (const suffix of ['', '-code-verifier', '-user']) { try { localStorage.removeItem(k + suffix); } catch { /* blocked */ } }
+  await clearLocal();
 }
 
 const PW_MIN = 8;
