@@ -138,6 +138,25 @@ test('backup to a file and back', async () => {
   assert.ok(await until(async () => /15/.test(await text('#itemsBody tr'))));
 });
 
+test('a United (Genius) backup file is read straight away', async () => {
+  const { backup } = await import('../test/fixtures/genius-backup.js');
+  const { writeFile, mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const file = join(await mkdtemp(join(tmpdir(), 'sd-')), 'genius_db_202610241600.Gen');
+  await writeFile(file, backup());
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.setInputFiles('#file', file);
+  assert.ok(await until(async () => /باك اب المتحدة/.test(await text('#fileMsg'))), 'saved from the backup');
+  assert.match(await text('#fileMsg'), /3 صنف/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'بانادول');
+  assert.match(await text('#itemsBody tr'), /12/);
+  await page.fill('#itemsQ', 'رصيده صفر');
+  assert.match(await text('#itemsBody tr'), /خلصان/, 'items with no stock are in the list too');
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });

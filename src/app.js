@@ -7,6 +7,7 @@ import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
+import { isGeniusBackup } from './genius.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
@@ -20,7 +21,22 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const EMPTY = () => ({ items: [], sales: [], purchases: [], losses: [], real: true });
 
-async function readFiles(files) {
+async function readFiles(files, say = () => {}) {
+  // A backup of the United program (Genius, .Gen / .bak): read straight from the file.
+  for (const f of files) {
+    const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+    if (!/\.(gen|bak)$/i.test(f.name) && !isGeniusBackup(head)) continue;
+    if (!isGeniusBackup(head)) throw new Error('الملف ده مش باك اب من برنامج المتحدة.');
+    const { readGeniusFile } = await import('./genius.js');
+    const json = await readGeniusFile(f, {
+      onProgress: (x) => say(`بقرا باك اب المتحدة… ${Math.round(x * 100)}%`),
+      onStep: (s) => say(`بقرا باك اب المتحدة: ${s}…`),
+    });
+    const data = fromExport(json);
+    if (!data.items.length) throw new Error('ملقتش أصناف في الباك اب ده.');
+    data.fromBackup = { stockDay: json.stockDay, file: f.name };
+    return data;
+  }
   const json = files.find((f) => f.name.toLowerCase().endsWith('.json'));
   if (json) {
     const data = fromExport(JSON.parse((await json.text()).replace(/^﻿/, '')));
@@ -1856,7 +1872,7 @@ $('file').addEventListener('change', async (e) => {
   if (entered && !confirm(`الملف الجديد هيبقى هو الرصيد من دلوقتي. فيه ${entered} حاجة اتسجلت هنا بعد آخر رفع (طلبيات ومبيعات كاشير وتعديلات)، والبرنامج هيعتبر إنها موجودة في الملف ده. لو الملف من برنامج مبطلتش تستخدمه، دوس «إلغاء». ترفعه برضه؟`)) { $('fileMsg').textContent = ''; return; }
   $('fileMsg').textContent = 'بقرا الملفات…';
   try {
-    const data = await readFiles(files);
+    const data = await readFiles(files, (t) => { $('fileMsg').textContent = t; });
     const raw = toExport(data);
     const at = new Date().toISOString();
     const before = await kvGet(snapKey(k));
@@ -1870,7 +1886,8 @@ $('file').addEventListener('change', async (e) => {
     if (!data.sales.length) $('fileMsg').innerHTML = '<span class="err">اتقرت الأصناف، بس ملقتش مبيعات، فالطلبيات والراكد مش هيطلعوا صح. ارفع ملف المبيعات كمان.</span>';
     else $('fileMsg').textContent = isOnline() ? 'اتقرت وبتتحفظ… الشركاء هيشوفوا نفس الأرقام.' : 'اتقرت واتحفظت على الجهاز، وهتترفع أول ما النت يرجع.';
     await sync();
-    if (data.sales.length && isOnline() && !SNAP.get(k)?.pending) $('fileMsg').textContent = `اتحفظت${multi() ? ` في «${branchName(k)}»` : ''} (${data.items.length} صنف). الشركاء هيشوفوا نفس الأرقام.`;
+    const fromB = data.fromBackup ? ` من باك اب المتحدة (رصيد يوم ${String(data.fromBackup.stockDay || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$3/$2/$1')})، منهم ${data.items.filter((i) => i.qty > 0).length} صنف عليهم رصيد` : '';
+    if (data.sales.length && isOnline() && !SNAP.get(k)?.pending) $('fileMsg').textContent = `اتحفظت${multi() ? ` في «${branchName(k)}»` : ''} (${data.items.length} صنف${fromB}). الشركاء هيشوفوا نفس الأرقام.`;
   } catch (err) {
     $('fileMsg').innerHTML = `<span class="err">${esc(err.message)}</span>`;
   }
