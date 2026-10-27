@@ -7,6 +7,9 @@ const MESSAGES = {
   'not allowed': 'الحساب ده ملوش صلاحية للخطوة دي.',
   'invalid code': 'كود الدعوة غلط أو اتستخدم أو انتهى.',
   'not signed in': 'لازم تسجّل دخول الأول.',
+  'unknown branch': 'الفرع ده مش موجود في الصيدلية.',
+  'row-level security': 'الحساب ده ملوش صلاحية للخطوة دي.',
+  'snapshot too large': 'الملف كبير أوي. ارفع فترة أقصر من المبيعات.',
 };
 export function arabicError(err) {
   const m = String(err?.message ?? err ?? '');

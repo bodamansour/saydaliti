@@ -107,3 +107,32 @@ tr.off td { opacity: .5; }
 .days input { width: auto; }
 .inline { display: flex; gap: 6px; align-items: center; }
 .inline input { width: 120px; }
+/* ---------- Sign-in gate ---------- */
+.gate { min-height: 100dvh; display: grid; place-content: center; gap: 18px; padding: max(24px, env(safe-area-inset-top, 0px)) 16px 32px; justify-items: center; }
+.brand { display: grid; justify-items: center; gap: 4px; text-align: center; }
+.brand h1 { font-size: 1.9rem; }
+.brand p { margin: 0; color: var(--muted); }
+.authcard { width: min(100vw - 32px, 400px); padding: 20px; gap: 12px; }
+.authcard h2 { font-size: 1.2rem; }
+.authcard hr, details.help hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.stack { display: grid; gap: 12px; }
+.btn.wide { width: 100%; padding-block: 11px; }
+.linkbtn { font: inherit; font-weight: 600; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; text-decoration: underline; }
+.switch { margin: 0; text-align: center; font-size: .9rem; color: var(--muted); }
+input { min-height: 40px; }
+/* ---------- Dashboard extras ---------- */
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.bar label.btn { display: inline-block; }
+.emptybox { justify-items: start; padding: 22px; }
+.emptybox p { margin: 0; color: var(--muted); max-width: 60ch; }
+.blist { margin: 8px 0 0; padding-inline-start: 20px; }
+.span2 { grid-column: 1 / -1; }
+tr.pend td { background: var(--warn-soft); }
+@media (max-width: 720px) {
+  header.top { align-items: flex-start; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .tab { white-space: nowrap; padding: 10px 12px; }
+  .bar .owner { max-width: none; flex: 1 1 100%; }
+  .bar label.btn { flex: 1 1 100%; text-align: center; padding-block: 11px; }
+  .btn { min-height: 40px; }
+}

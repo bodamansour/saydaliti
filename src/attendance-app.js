@@ -168,7 +168,6 @@ async function boot() {
     store = createLocalStore(); ROLE = 'owner';
     $('modeChip').textContent = 'تجربة على الجهاز ده بس'; $('modeNote').hidden = false;
     $('auth').hidden = true; $('app').hidden = false;
-    await store.seedExample().catch(() => {});
     show(TAB); return;
   }
   $('app').hidden = true;

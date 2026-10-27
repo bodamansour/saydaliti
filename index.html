@@ -4,37 +4,61 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي</title>
+<meta name="theme-color" content="#0b6b57">
+<meta name="description" content="لوحة صاحب الصيدلية: الطلبيات، الصلاحية، الراكد، المصروفات، والمكسب الصافي لكل فرع.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="صيدليتي">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./src/style.css">
-
 </head>
 <body>
-<div class="wrap">
+
+<!-- Sign-in comes first; the dashboard stays hidden until the account is linked to a pharmacy. -->
+<main id="gate" class="gate">
+  <div class="brand"><img src="./icons/icon.svg" alt="" width="56" height="56"><h1>صيدليتي</h1><p>لوحة صاحب الصيدلية</p></div>
+  <section id="auth" class="card authcard"><p class="note">لحظة…</p></section>
+</main>
+
+<div class="wrap" id="app" hidden>
   <header class="top">
     <div>
-      <h1>صيدليتي</h1>
-      <a class="navlink" href="./attendance.html">الحضور والانصراف ←</a>
-      <p>إيه اللي بيتسحب، اطلب إيه، إيه اللي قرب ينتهي، وكسبان كام في كل علبة.</p>
+      <h1 id="phTitle">صيدليتي</h1>
+      <p id="whoLine" class="muted"></p>
     </div>
     <div class="src">
-      <span class="chip" id="srcChip">بيانات مثال مصطنعة</span>
-      <label class="btn primary" for="file" style="display:inline-block">ارفع ملفات المتحدة<input id="file" type="file" accept=".xlsx,.xls,.csv,.json" multiple hidden></label>
-      <button class="btn" id="resetBtn" hidden>رجوع للمثال</button>
-      <button class="btn" id="logout" hidden>خروج</button>
+      <span class="chip" id="netChip" role="status"></span>
+      <button class="btn" id="installBtn" hidden>نزّل الأبلكيشن</button>
+      <button class="btn" id="logout">خروج</button>
     </div>
   </header>
-  <section id="auth" class="card" hidden></section>
-  <p class="note" id="fileMsg">بياناتك بتتقري على جهازك بس، ومش بتترفع على أي سيرفر.</p>
 
-  <label id="ownerWrap" class="owner" hidden>بضاعة مين؟<select id="ownerSel"></select></label>
+  <div class="bar">
+    <label class="owner" id="branchWrap">الفرع<select id="branchSel"></select></label>
+    <label class="owner" id="ownerWrap" hidden>بضاعة مين؟<select id="ownerSel"></select></label>
+    <label class="btn primary" for="file" id="uploadBtn">ارفع بيانات الفرع<input id="file" type="file" accept=".xlsx,.xls,.csv,.json" multiple hidden></label>
+  </div>
+  <p class="note" id="fileMsg" role="status"></p>
+
   <section class="tiles" id="tiles" aria-label="ملخص"></section>
-
   <nav class="tabs" role="tablist" id="tabs"></nav>
   <section id="panel" class="panel"></section>
 
-  <details class="help" id="settingsBox" open>
-    <summary>الإعدادات (ضرايب، مصاريف، طلبيات)</summary>
+  <details class="help" id="branchBox">
+    <summary>الفروع</summary>
+    <div id="branchList"></div>
+    <form id="branchForm" class="row" style="margin-top:10px">
+      <label style="flex:1">اسم فرع جديد<input id="branchName" maxlength="80" placeholder="فرع شارع الجمهورية"></label>
+      <button class="btn primary" type="submit">ضيف الفرع</button>
+    </form>
+    <p class="note" id="branchMsg" role="status"></p>
+  </details>
+
+  <details class="help" id="settingsBox">
+    <summary>الإعدادات (ضرايب، تقدير المصاريف، طلبيات)</summary>
     <div class="grid2" style="margin-top:10px">
       <label>نظام الضرايب
         <select id="taxMode">
@@ -44,10 +68,6 @@
         </select>
       </label>
       <label id="customTaxWrap" hidden>نسبة الضريبة من المبيعات %<input id="customTax" type="number" min="0" step="0.1" value="1"></label>
-      <label>الإيجار في الشهر<input id="exRent" type="number" min="0" step="100" placeholder="0"></label>
-      <label>الكهربا والمية في الشهر<input id="exUtil" type="number" min="0" step="100" placeholder="0"></label>
-      <label>المرتبات في الشهر<input id="exSal" type="number" min="0" step="100" placeholder="0"></label>
-      <label>مصاريف تانية في الشهر<input id="exOther" type="number" min="0" step="100" placeholder="0"></label>
       <label>اسم الصيدلية (للعروض)<input id="phName" type="text" placeholder="صيدلية أحمد منصور"></label>
       <label>أرقام واتساب لتقرير الصبح<input id="waNumbers" type="text" inputmode="tel" placeholder="01xxxxxxxxx، 01yyyyyyyyy"></label>
       <label>المكسب اللي عايزه على الأقل %<input id="target" type="number" min="0" step="1" value="10"></label>
@@ -55,16 +75,23 @@
       <label>المخزن بيوصّل بعد كام يوم<input id="lead" type="number" min="1" step="1" value="3"></label>
       <label>عايز المخزون يكفي كام يوم<input id="cover" type="number" min="7" step="1" value="30"></label>
     </div>
+    <p class="note" style="margin-top:14px"><b>تقدير المصاريف في الشهر:</b> بيتحسب في مكسب كل علبة لحد ما تسجّل مصروفات فعلية في تبويب «المصروفات». بعدها البرنامج بياخد متوسط اللي سجلته.</p>
+    <div class="grid2">
+      <label>الإيجار في الشهر<input id="exRent" type="number" min="0" step="100" placeholder="0"></label>
+      <label>الكهربا والمية في الشهر<input id="exUtil" type="number" min="0" step="100" placeholder="0"></label>
+      <label>المرتبات في الشهر<input id="exSal" type="number" min="0" step="100" placeholder="0"></label>
+      <label>مصاريف تانية في الشهر<input id="exOther" type="number" min="0" step="100" placeholder="0"></label>
+    </div>
     <p class="note" id="taxNote" style="margin-top:8px"></p>
-    <p class="note" id="settingsMsg"></p>
+    <p class="note" id="settingsMsg" role="status"></p>
   </details>
 
   <details class="help" id="connectorBox" hidden>
-    <summary>الوصلة على جهاز الكاشير (رفع البيانات كل يوم لوحده)</summary>
-    <p>الوصلة بتقرا المخزون والمبيعات من برنامج الصيدلية كل يوم الصبح، وبترفعها هنا لوحدها. محتاجة كود خاص بصيدليتك.</p>
-    <div class="row"><button class="btn primary" id="tokenBtn">اعمل كود للوصلة</button><span class="note" id="tokenMsg"></span></div>
+    <summary>الوصلة على جهاز الكاشير (رفع البيانات كل يوم لوحدها)</summary>
+    <p>الوصلة بتقرا المخزون والمبيعات من برنامج الصيدلية كل يوم الصبح، وبترفعها هنا لوحدها. كل فرع ليه كود خاص بيه.</p>
+    <div class="row"><label class="owner">كود لفرع<select id="tokenBranch"></select></label><button class="btn primary" id="tokenBtn">اعمل كود للوصلة</button><span class="note" id="tokenMsg"></span></div>
     <div id="tokenOut" hidden>
-      <p><b>انسخ ده واحفظه في ملف اسمه <code>connector.json</code> جنب سكريبتات الوصلة على جهاز الكاشير.</b> الكود ده بيظهر مرة واحدة بس، ولو ضاع اعمل واحد جديد (القديم بيبطل لوحده).</p>
+      <p><b>انسخ ده واحفظه في ملف اسمه <code>connector.json</code> جنب سكريبتات الوصلة على جهاز الكاشير بتاع الفرع ده.</b> الكود ده بيظهر مرة واحدة بس، ولو ضاع اعمل واحد جديد (القديم بيبطل لوحده).</p>
       <textarea id="tokenJson" readonly aria-label="ملف connector.json"></textarea>
       <div class="row"><button class="btn" id="copyToken">انسخ</button><span class="note" id="copyTokenMsg"></span></div>
       <p class="note">غيّر <code>database</code> لاسم قاعدة بيانات برنامج الصيدلية، ولو البرنامج بيدخل SQL Server باسم وكلمة سر، اكتبهم في <code>sqlUser</code> و<code>sqlPassword</code>. الملف ده يفضل على جهاز الكاشير بس، ومتبعتهوش لحد.</p>
@@ -72,23 +99,25 @@
   </details>
 
   <details class="help">
-    <summary>شكل الملفات المطلوبة من برنامج المتحدة</summary>
+    <summary>شكل الملفات المطلوبة من برنامج الصيدلية</summary>
     <p>ملف الأصناف (Excel أو CSV) فيه الأعمدة دي، بالعربي أو الإنجليزي:
       <code>الكود</code> <code>الصنف</code> <code>النوع</code> (دواء / تجميل / مستلزمات) <code>سعر الشراء</code> <code>سعر البيع</code> <code>الكمية</code> <code>الصلاحية</code>، و<code>الشريك</code> لو البضاعة ليها أكتر من صاحب.</p>
-    <p>وملف المبيعات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code>، ولو موجود <code>السعر</code> اللي اتباع بيه فعلاً و<code>الخصم</code>. وملف المشتريات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>سعر الشراء</code>. وملف الهالك: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>السبب</code>. ممكن الاتنين يبقوا شيتين في ملف واحد. <b>متحطش أسماء أو أرقام زباين.</b></p>
-      <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+    <p>وملف المبيعات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code>، ولو موجود <code>السعر</code> اللي اتباع بيه فعلاً و<code>الخصم</code>. وملف المشتريات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>سعر الشراء</code>. وملف الهالك: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>السبب</code>. ممكن يبقوا شيتات في ملف واحد. <b>متحطش أسماء أو أرقام زباين.</b></p>
+    <hr>
     <p><b>ربط برنامج الصيدلية:</b> بعد ما تشغّل <code>restore-and-discover.ps1</code>، ارفع ملف <code>schema.json</code> هنا، وأنا أقترح <code>mapping.json</code>.</p>
     <label class="btn" for="schemaFile" style="display:inline-block">ارفع schema.json<input id="schemaFile" type="file" accept=".json" hidden></label>
     <div id="mapOut" hidden>
       <div id="mapSummary"></div>
       <textarea id="mapJson" readonly aria-label="mapping.json" style="min-height:260px"></textarea>
       <div class="row"><button class="btn primary" id="copyMap">انسخ mapping.json</button><span class="note" id="copyMapMsg"></span></div>
-      <p class="note">احفظه باسم <code>mapping.json</code> جنب سكريبتات الوصلة، وشغّل <code>export.ps1</code>. ولو حاجة عليها «محتاج مراجعة»، ابعتلي <code>schema.json</code> وأنا أظبطها.</p>
+      <p class="note">احفظه باسم <code>mapping.json</code> جنب سكريبتات الوصلة، وشغّل <code>export.ps1</code>.</p>
     </div>
-</details>
+  </details>
+
+  <p class="note"><a class="navlink" href="./attendance.html">الحضور والانصراف ←</a></p>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <script type="module" src="./src/app.js"></script>
 </body>
 </html>
