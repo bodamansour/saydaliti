@@ -75,6 +75,18 @@
       <span class="note" id="backupMsg" role="status"></span></div>
   </details>
 
+  <details class="help" id="exportBox">
+    <summary>تصدير البيانات (Excel، CSV، PDF…)</summary>
+    <p>بيصدّر اللي ظاهر في اللوحة دلوقتي: الفرع المختار، أو كل الفروع.</p>
+    <div class="row"><button class="btn primary" type="button" data-export="xlsx">Excel (كل حاجة في ملف واحد)</button>
+      <button class="btn" type="button" data-export="json">ملف صيدليتي (JSON يترفع تاني)</button></div>
+    <div class="row" style="margin-top:8px"><label class="owner">جدول<select id="exportWhich">
+      <option>الأصناف</option><option>الصلاحيات</option><option>المبيعات</option><option>المشتريات</option><option>فواتير الكاشير</option><option>الموردين</option><option>العملاء</option><option>المصروفات</option><option>جرد وتعديلات</option></select></label>
+      <button class="btn" type="button" data-export="csv">CSV</button><button class="btn" type="button" data-export="print">اطبع / PDF</button></div>
+    <p class="note" id="exportMsg" role="status"></p>
+    <p class="note">ملف الباك اب بتاع المتحدة (<code>.Gen</code>) ميتعملش من برا برنامج المتحدة: ده نسخة كاملة من قاعدة بياناته بالباسورد بتاعها، والمتحدة بس اللي يقدر يعمله ويرجّعه. لو المتحدة فيه شاشة «استيراد أصناف من Excel»، ملف Excel هنا فيه الكود والاسم والأسعار والرصيد والصلاحية، وقولّي الأعمدة اللي بيطلبها وأظبطها عليها.</p>
+  </details>
+
   <details class="help" id="settingsBox">
     <summary>الإعدادات (ضرايب، تقدير المصاريف، طلبيات)</summary>
     <div class="grid2" style="margin-top:10px">

@@ -33,7 +33,7 @@ function createWindow() {
   win.loadURL(HOME);
   // WhatsApp and other links open in the normal browser; the app's own pages stay inside.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('app://')) return { action: 'allow' };
+    if (url.startsWith('app://') || url === 'about:blank' || url === '') return { action: 'allow' }; // the app's pages, and print views
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });

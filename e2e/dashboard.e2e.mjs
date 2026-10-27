@@ -27,10 +27,13 @@ before(async () => {
   base = `http://localhost:${server.address().port}/`;
   const stub = await readFile(join(ROOT, 'e2e/supabase-stub.js'), 'utf8');
   browser = await chromium.launch();
-  ctx = await browser.newContext({ locale: 'ar-EG', viewport: { width: 1200, height: 900 } });
+  ctx = await browser.newContext({ locale: 'ar-EG', viewport: { width: 1200, height: 900 }, acceptDownloads: true });
   await ctx.route('**/api/config', (r) => r.fulfill({ json: { configured: true, url: 'https://stub.supabase.test', key: 'pk_test' } }));
   await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
-  await ctx.route(/fonts\.(googleapis|gstatic)\.com|cdnjs\.cloudflare\.com/, (r) => r.abort());
+  // The Excel library comes from the local copy; fonts are skipped.
+  const xlsx = await readFile(join(ROOT, 'node_modules/xlsx/dist/xlsx.full.min.js'), 'utf8');
+  await ctx.route(/cdnjs\.cloudflare\.com\/ajax\/libs\/xlsx\//, (r) => r.fulfill({ contentType: 'text/javascript', body: xlsx }));
+  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
   page.on('dialog', (d) => d.accept());
@@ -475,6 +478,54 @@ test('moving stock from one branch to another', async () => {
   await page.fill('#itemsQ', 'شاش');
   assert.match(await text('#itemsBody tr'), /\b5\b/);
   await page.selectOption('#branchSel', 'b1');
+});
+
+test('editing an item: quantity and expiry per batch; editing a purchase invoice', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  const before = await text('#itemsBody tr');
+  assert.match(before, /\b15\b/);
+  await page.click('#itemsBody [data-edititem]');
+  assert.equal(await page.inputValue('[data-bq="0"]'), '15');
+  await page.fill('[data-bq="0"]', '12');
+  await page.fill('[data-be="0"]', '2027-03-01');
+  await page.fill('#itPrice', '16');
+  await page.click('#itemForm button[type=submit]');
+  assert.ok(await until(async () => (await db('stock_moves')).filter((m) => m.note === 'تعديل يدوي').length === 2));
+  await page.fill('#itemsQ', 'شاش');
+  const row = await text('#itemsBody tr');
+  assert.match(row, /\b12\b/); assert.match(row, /16\.00/); assert.match(row, /2027|٢٠٢٧/);
+
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=invoices]');
+  await page.click('#panel details summary');
+  await page.click('[data-editpurchase]');
+  assert.equal(await page.inputValue('[data-l="0"][data-f="qty"]'), '10');
+  await page.fill('[data-l="0"][data-f="qty"]', '8');
+  await page.click('#rcvForm button[type=submit]');
+  assert.ok(await until(async () => { const p = await db('purchases'); return p.length === 1 && p[0].lines[0].qty === 8; }), 'the same invoice, edited');
+  assert.match(await text('#rcvMsg'), /اتعدلت الفاتورة/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  assert.match(await text('#itemsBody tr'), /\b10\b/, 'two fewer received');
+});
+
+test('export: Excel with every table, CSV, and the Saydaliti file', async () => {
+  await page.click('#exportBox summary');
+  const [x] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=xlsx]')]);
+  assert.match(x.suggestedFilename(), /^saydaliti-.*\.xlsx$/);
+  const xbytes = await readFile(await x.path());
+  assert.equal(xbytes.subarray(0, 2).toString(), 'PK', 'a real Excel file');
+  await page.selectOption('#exportWhich', 'الأصناف');
+  const [c] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=csv]')]);
+  const csv = (await readFile(await c.path(), 'utf8')).replace(/^﻿/, '');
+  assert.match(csv.split('\r\n')[0], /^الكود,الصنف,النوع,الباركود,سعر الشراء,سعر البيع,الرصيد/);
+  assert.match(csv, /شاش طبي/);
+  const [j] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=json]')]);
+  const json = JSON.parse(await readFile(await j.path(), 'utf8'));
+  assert.ok(json.items.some((i) => i.name === 'شاش طبي'));
 });
 
 test('opens offline with saved data even after the sign-in expired', async () => {

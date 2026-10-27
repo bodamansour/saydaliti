@@ -35,10 +35,15 @@ function settle(it) {
   delete it.short;
 }
 
-function takeOut(it, qty) {
+// Takes stock off the shelf: from the batch with the given expiry first (a correction of one
+// batch), then from the earliest expiry.
+function takeOut(it, qty, expiry) {
   const list = sortBatches(batchesFor(it));
   let left = qty;
-  for (const b of list) {
+  // Same day: dates from a file and dates typed here can differ by the time zone (a few hours).
+  const sameDay = (x, y) => (x && y ? Math.abs(x.getTime() - y.getTime()) < 12 * 3600000 : !x && !y);
+  const first = expiry === undefined ? [] : list.filter((b) => sameDay(b.expiry, expiry));
+  for (const b of [...first, ...list.filter((x) => !first.includes(x))]) {
     const n = Math.min(b.qty, left);
     b.qty -= n; left -= n;
     if (!left) break;
@@ -51,7 +56,7 @@ function putBack(it, qty, expiry = null) {
   let n = qty;
   if (it.short) { const pay = Math.min(it.short, n); it.short -= pay; n -= pay; }
   if (!n) return;
-  const same = list.find((b) => (b.expiry?.getTime() ?? null) === (expiry?.getTime() ?? null));
+  const same = list.find((b) => (b.expiry && expiry ? Math.abs(b.expiry.getTime() - expiry.getTime()) < 12 * 3600000 : !b.expiry && !expiry));
   if (same) same.qty += n; else list.push({ qty: n, expiry });
 }
 
@@ -105,7 +110,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       const it = get(String(row.code), row);
       const qty = +row.qty || 0;
       if (qty > 0) putBack(it, qty, fromIsoDay(row.expiry));
-      else if (qty < 0) takeOut(it, -qty);
+      else if (qty < 0) takeOut(it, -qty, row.expiry === undefined ? undefined : fromIsoDay(row.expiry));
       if (LOSS_REASON[row.kind] && qty < 0) out.losses.push({ date: dayOf(row.happened_at), code: it.code, qty: -qty, reason: LOSS_REASON[row.kind] });
     } else {
       const sign = row.kind === 'return' ? -1 : 1;
@@ -195,4 +200,16 @@ export function expiredOnShelf(items, today) {
     if (qty > 0) out.push({ code: it.code, name: it.name, qty, cost: it.cost, expiry: list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).sort((a, b) => a.expiry - b.expiry)[0].expiry });
   }
   return out.sort((a, b) => b.qty * b.cost - a.qty * a.cost);
+}
+
+// ---------- Editing an item's stock by hand ----------
+// Before: the item's batches [{ qty, expiry: Date|null }]. After: what the owner typed
+// [{ qty, expiry: 'yyyy-mm-dd'|null }]. Returns the adjustments that turn one into the other.
+export function stockEdits(before, after) {
+  const day = (d) => (d ? (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : String(d).slice(0, 10)) : null);
+  const total = new Map(); // expiry -> change
+  const add = (e, q) => { if (q) total.set(e, round2((total.get(e) || 0) + q)); };
+  for (const b of before) add(day(b.expiry), -(+b.qty || 0));
+  for (const b of after) add(day(b.expiry), +b.qty || 0);
+  return [...total].filter(([, q]) => q).map(([expiry, qty]) => ({ qty, expiry })).sort((a, b) => a.qty - b.qty);
 }

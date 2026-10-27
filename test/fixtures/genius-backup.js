@@ -48,6 +48,7 @@ const TABLES = {
   Item_Catalog: [101, [['itm_id', 106, 9, 0, 1, 4], ['itm_name_ar', 231, 200, 0, 2, -1], ['itm_ismedicine', 56, 4, 0, 3, 13], ['itm_def_pharm_price', 60, 8, 4, 4, 17], ['itm_def_sell_price', 60, 8, 4, 5, 25], ['itm_active', 175, 1, 0, 6, 33]]],
   Item_Daily_Stock: [102, [['ids_day', 56, 4, 0, 1, 4], ['ids_itm_id', 56, 4, 0, 2, 8], ['ids_qty', 106, 9, 2, 3, 12], ['ids_purchasePrice', 106, 9, 3, 4, 21], ['ids_sellPrice', 106, 9, 2, 5, 30]]],
   Item_Class_Store: [103, [['itm_id', 106, 9, 0, 1, 4], ['itm_qty', 106, 9, 2, 2, 13], ['itm_expiry_date', 61, 8, 3, 3, 22], ['pharm_price', 60, 8, 4, 4, 30], ['sell_price', 60, 8, 4, 5, 38]]],
+  pur_trans_d: [105, [['pth_id', 106, 9, 0, 1, 4], ['itm_id', 106, 9, 0, 2, 13], ['qnty', 62, 8, 0, 3, 22], ['bonus', 62, 8, 0, 4, 30], ['itm_cost', 60, 8, 4, 5, 38], ['sec_insert_date', 61, 8, 3, 6, 46]]],
   sales_trans_d: [104, [['sth_id', 106, 9, 0, 1, 4], ['itm_id', 106, 9, 0, 2, 13], ['itm_unit', 56, 4, 0, 3, 22], ['qnty', 62, 8, 0, 4, 26], ['itm_sell', 60, 8, 4, 5, 34], ['itm_dis_mon', 60, 8, 4, 6, 42], ['sec_insert_date', 61, 8, 3, 7, 50]]],
 };
 
@@ -68,6 +69,9 @@ export function backup() {
   pages.push(page(pid++, 103, [ics(5001, 5, '2026-12-01T00:00:00'), ics(5001, 10, '2027-06-01T00:00:00'), ics(5002, 3, '2027-02-01T00:00:00')]));
   const sd = (h, id, unit, q, sell, disc, when) => record(cat(dec(h, 0), dec(id, 0), fixed(4, (v) => v.setInt32(0, unit, true)), fixed(8, (v) => v.setFloat64(0, q, true)), money(sell), money(disc), dt(when)), 7);
   pages.push(page(pid++, 104, [sd(1, 5001, 1, 2, 50, 5, '2026-10-20T10:00:00'), sd(2, 5001, 1, 1, 52, 0, '2026-10-24T11:00:00'), sd(3, 5002, 1, 1, 420, 0, '2026-10-24T12:00:00'), sd(4, 5001, 1, 1, 50, 0, '2020-01-01T09:00:00')]));
+  const pd = (h, id, q, bonus, cost, when) => record(cat(dec(h, 0), dec(id, 0), fixed(8, (v) => v.setFloat64(0, q, true)), fixed(8, (v) => v.setFloat64(0, bonus, true)), money(cost), dt(when)), 6);
+  // Two deliveries of the same item on one day, at different prices.
+  pages.push(page(pid++, 105, [pd(1, 5001, 10, 2, 40, '2026-10-22T09:00:00'), pd(2, 5001, 30, 0, 44, '2026-10-22T15:00:00')]));
   const head = new Uint8Array(1024); head.set([0x54, 0x41, 0x50, 0x45]);
   return cat(head, ...pages);
 }
