@@ -9,7 +9,8 @@ import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features
 import { normalizeEgPhone } from './report.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
-import { liveData, purchaseTotal, supplierBalances, newItemCode } from './inventory.js';
+import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
+import { liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -87,9 +88,10 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
-  ['stock', 'المخزون', [['items', 'كل الأصناف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
+  ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
-  ['money', 'الفلوس', [['pos', 'مبيعات الكاشير'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
+  ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
+  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'مبيعات الكاشير'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -159,6 +161,10 @@ function render() {
 
   let html;
   if (TAB === 'items') html = renderItems();
+  else if (TAB === 'adjust') html = renderAdjust();
+  else if (TAB === 'customers') html = renderCustomers();
+  else if (TAB === 'claims') html = renderClaims();
+  else if (TAB === 'profit') html = renderProfit();
   else if (TAB === 'receive') html = renderReceive();
   else if (TAB === 'invoices') html = renderInvoices();
   else if (TAB === 'supaccounts') html = renderSupplierAccounts();
@@ -548,6 +554,7 @@ let FEATURES_READY = true;
 let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
 const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
+  customers: () => CUSTOMERS, customer_payments: () => CUST_PAYMENTS,
   catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
@@ -593,7 +600,10 @@ async function loadFeatures() {
       loadTable('shortages', 'id, code, name, note, status, created_at, resolved_at'),
       loadTable('market_prices', 'id, code, price, source, seen_on, created_by, created_at', 'seen_on'),
     ]);
-    try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment', 'sold_at'); POS_READY = true; } catch (e) { if (e.missing) POS_READY = false; }
+    // Customer columns arrived with 011; an older database is read without them.
+    try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment, customer_id, credit, claim_no', 'sold_at'); POS_READY = true; } catch (e) {
+      try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment', 'sold_at'); POS_READY = true; } catch (e2) { if (e2.missing) POS_READY = false; }
+    }
     if (isOwner()) {
       [PATIENTS, REMINDERS] = await Promise.all([
         loadTable('patients', 'id, name, phone, active, created_at'),
@@ -1151,6 +1161,184 @@ async function savePayment(e) {
   $('payMsg') && ($('payMsg').textContent = savedNote());
 }
 
+// ----- Stock count, damaged / expired, returns to the supplier -----
+const CKEY = 'saydaliti-count-draft-v1';
+let COUNTS = store.get(CKEY, {});       // code -> boxes counted on the shelf (kept until saved)
+let COUNT_Q = '';
+let ADJ = { code: null, kind: 'damaged', qty: '', supplier: '', cost: '', note: '' };
+let ADJ_NOTE = '';
+const viewItem = (code) => DATA.items.find((i) => i.code === code);
+const needBranch = () => multi() && BRANCH === 'all';
+
+function adjustForm() {
+  const it = ADJ.code ? viewItem(ADJ.code) : null;
+  const sup = SUPPLIERS();
+  const kinds = MOVE_KINDS.filter(([k]) => k !== 'count' && (k !== 'transfer' || multi()));
+  const here = BRANCH === 'all' ? key(mainBranchId()) : BRANCH;
+  return `<form id="adjForm" class="card stack" novalidate>
+    <h3>شيل بضاعة من الرصيد${multi() ? ' أو حوّلها لفرع تاني' : ''}</h3>
+    <div class="row">${kinds.map(([k, t]) => `<button type="button" class="btn ${ADJ.kind === k ? 'sel' : ''}" data-adjkind="${k}" aria-pressed="${ADJ.kind === k}">${t}</button>`).join('')}</div>
+    ${it ? `<div class="row" style="justify-content:space-between"><b>${esc(it.name)}</b><span class="muted">الرصيد دلوقتي <b class="n">${fmt(it.qty)}</b></span><button type="button" class="btn" id="adjChange">صنف تاني</button></div>`
+      : `<div class="pos-search"><input id="adjQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه…" aria-label="الصنف"><div id="adjResults" class="results" hidden></div></div>`}
+    <div class="grid2">
+      <label>الكمية<input id="adjQty" type="number" min="1" step="1" inputmode="numeric" value="${esc(ADJ.qty)}"></label>
+      ${ADJ.kind === 'transfer' ? `<label>حوّلها لفرع<select id="adjTo">${BRANCHES.filter((b) => key(b.id) !== here).map((b) => `<option value="${esc(key(b.id))}">${esc(b.name)}</option>`).join('')}</select></label>` : ''}
+      ${ADJ.kind === 'supplier_return' ? `<label>رجّعتها لمين<select id="adjSup">${sup.map((x) => `<option value="${esc(x.id)}" ${x.id === ADJ.supplier ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label>سعر الشراء للعلبة (بيتخصم من حساب المورد)<input id="adjCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(ADJ.cost || it?.cost || '')}"></label>` : ''}
+      <label>ملاحظة (اختياري)<input id="adjNote" maxlength="300" value="${esc(ADJ.note)}"></label>
+    </div>
+    ${ADJ.kind === 'supplier_return' && !sup.length ? '<p class="note">ضيف الموردين الأول من «اطلب إيه».</p>' : ''}
+    <div class="row"><button class="btn primary" type="submit">سجّل</button><span class="note" id="adjMsg" role="status">${esc(ADJ_NOTE)}</span></div>
+  </form>`;
+}
+
+function countRows() {
+  const list = itemMatches(COUNT_Q);
+  return list.slice(0, 120).map((i) => {
+    const v = COUNTS[i.code] ?? '';
+    const diff = v === '' ? null : +v - i.qty;
+    return `<tr><td class="name">${esc(i.name)}<span class="cat n">${esc(i.code)}</span></td><td class="n">${fmt(i.qty)}</td>
+      <td><input class="disc n" type="number" min="0" step="1" inputmode="numeric" data-count="${esc(i.code)}" value="${esc(v)}" aria-label="العدد على الرف"></td>
+      <td class="n" data-diff="${esc(i.code)}">${diff === null ? '' : diff === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${diff < 0 ? 'crit' : 'warn'}">${diff > 0 ? '+' : ''}${fmt(diff)}</span>`}</td></tr>`;
+  }).join('') + (list.length > 120 ? `<tr><td colspan="4" class="muted">ظاهر أول 120 من ${fmt(list.length)}. دوّر عشان تلاقي الباقي.</td></tr>` : '');
+}
+const countedN = () => Object.values(COUNTS).filter((v) => v !== '' && v !== null).length;
+
+function renderAdjust() {
+  if (!INV_READY) return needInv();
+  if (needBranch()) return '<div class="card emptybox"><h3>اختار الفرع من فوق الأول</h3><p>الجرد والتالف بيتسجلوا على فرع معين.</p></div>';
+  const expired = expiredOnShelf(DATA.items, TODAY);
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const hist = MOVES.filter(inBranch({ id: bid })).sort((a, b) => String(b.happened_at).localeCompare(String(a.happened_at))).slice(0, 100);
+  const exp = expired.length ? `<div class="card"><h3>علب منتهية لسه في الرصيد (${fmt(expired.length)} صنف)</h3>
+    <p class="note">لو شلتها من الرف فعلاً، دوس «شيلها» وهتتسجل خسارة منتهي الصلاحية.</p>
+    ${table(['الصنف', 'منتهي من', 'الكمية', 'قيمتها', ''], expired.map((x) => `<tr><td class="name">${esc(x.name)}</td><td>${expText(x.expiry)}</td><td class="n">${fmt(x.qty)}</td><td>${egp(x.qty * x.cost)}</td><td>${isOwner() ? `<button class="btn" type="button" data-expout="${esc(x.code)}" data-expqty="${x.qty}">شيلها</button>` : ''}</td></tr>`))}</div>` : '';
+  const count = `<details class="help" id="countBox" ${countedN() || COUNT_Q ? 'open' : ''}><summary>جرد الرف (اكتب العدد الفعلي لكل صنف)</summary>
+    <p class="note">اكتب اللي لقيته على الرف قدام كل صنف، حتى لو صفر. اللي بتكتبه بيتحفظ على الجهاز لحد ما تسجّل الجرد، فتقدر تجرد على كذا مرة.</p>
+    <input id="countQ" type="search" autocomplete="off" placeholder="دوّر على صنف…" value="${esc(COUNT_Q)}" aria-label="دوّر في الجرد">
+    <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الرصيد المسجل</th><th>لقيت على الرف</th><th>الفرق</th></tr></thead><tbody id="countBody">${countRows()}</tbody></table></div>
+    ${isOwner() ? `<div class="row"><button class="btn primary" type="button" id="countSave">سجّل الجرد (<span id="countN">${countedN()}</span> صنف)</button><button class="btn" type="button" id="countClear">امسح اللي كتبته</button><span class="note" id="countMsg" role="status"></span></div>` : ''}
+  </details>`;
+  const history = hist.length ? `<h3>آخر التعديلات</h3>` + table(['يوم', 'الصنف', 'النوع', 'الكمية', 'ملاحظة', ''],
+    hist.map((m) => `<tr><td>${dayText(m.happened_at)}</td><td class="name">${esc(viewItem(m.code)?.name ?? m.code)}</td><td>${moveLabel(m.kind)}</td>
+      <td class="n"><span class="pill ${+m.qty < 0 ? 'crit' : 'ok'}">${+m.qty > 0 ? '+' : ''}${fmt(+m.qty)}</span></td><td>${esc(m.note || '')}</td>
+      <td>${isOwner() ? `<button class="btn" type="button" data-delmove="${esc(m.id)}">امسح</button>` : ''}${pendingPill(m)}</td></tr>`)) : '';
+  return `<p>الجرد بيظبط الرصيد على اللي موجود فعلاً، والتالف والمنتهي بيتشالوا من الرصيد ويتحسبوا خسارة في «الحسابات»، والمرتجع للمورد بيتخصم من حسابه.</p>
+    ${isOwner() ? adjustForm() : ''}${exp}${count}${history}`;
+}
+
+function adjustSearch(enter) {
+  const q = $('adjQ').value;
+  const box = $('adjResults');
+  if (!q.trim()) { box.hidden = true; return; }
+  const r = lookup(q, DATA.items, barcodeMap());
+  const list = r.item ? [r.item] : r.matches.slice(0, 8);
+  if (enter && list.length) { pickAdjust(list[0].code); return; }
+  box.hidden = !list.length;
+  box.innerHTML = list.map((it, i) => `<button type="button" class="res ${i === 0 ? 'first' : ''}" data-adjpick="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">رصيد ${fmt(it.qty)}</span></button>`).join('');
+}
+function pickAdjust(code) {
+  ADJ.code = code; ADJ.cost = ''; ADJ_NOTE = '';
+  render();
+  $('adjQty')?.focus();
+}
+
+async function saveAdjust(e) {
+  e.preventDefault();
+  const m = (t) => { ADJ_NOTE = ''; $('adjMsg').textContent = t; };
+  const it = ADJ.code && viewItem(ADJ.code);
+  if (!it) return m('اختار الصنف الأول.');
+  const qty = Math.round(+$('adjQty').value || 0);
+  if (qty <= 0) return m('اكتب الكمية.');
+  const note = $('adjNote').value.trim();
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const row = { code: it.code, qty: -qty, kind: ADJ.kind, branch_id: bid, happened_at: new Date().toISOString(), note: note || null };
+  if (ADJ.kind === 'transfer') {
+    const to = BRANCHES.find((b) => key(b.id) === $('adjTo')?.value);
+    if (!to) return m('اختار الفرع اللي هتحوّل له.');
+    if (qty > it.qty && !confirm(`رصيد «${it.name}» هنا ${fmt(it.qty)} بس. تحوّل ${qty} برضه؟`)) return;
+    const ref = crypto.randomUUID();
+    const expiry = it.batches?.find((b) => b.expiry && b.qty > 0)?.expiry ?? it.expiry;
+    const from = BRANCHES.find((b) => b.id === bid)?.name ?? '';
+    await localInsert('stock_moves', { ...row, ref, cost: it.cost || null, note: [`لـ${to.name}`, note].filter(Boolean).join(' · ') });
+    await localInsert('stock_moves', { code: it.code, qty, kind: 'transfer', branch_id: to.id, ref, cost: it.cost || null, expiry: expiry ? isoDay(expiry) : null, happened_at: row.happened_at, note: [`من ${from}`, note].filter(Boolean).join(' · ') });
+    ADJ_NOTE = `اتحوّل ${qty} من «${it.name}» لـ«${to.name}».${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+    ADJ = { ...ADJ, code: null, qty: '', note: '' };
+    render();
+    return;
+  }
+  if (ADJ.kind === 'supplier_return') {
+    const s = SUPPLIERS().find((x) => x.id === $('adjSup')?.value);
+    if (!s) return m('اختار المورد.');
+    const cost = Math.max(0, +$('adjCost').value || 0);
+    const pay = cost > 0 ? await localInsert('supplier_payments', { supplier_id: s.id, supplier_name: s.name, amount: Math.round(qty * cost * 100) / 100, paid_on: isoDay(TODAY), note: `مرتجع بضاعة: ${qty} × ${it.name}` }) : null;
+    Object.assign(row, { cost, note: [`لـ${s.name}`, note].filter(Boolean).join(' · '), ...(pay ? { ref: pay.id } : {}) });
+  } else row.cost = it.cost || null;
+  await localInsert('stock_moves', row);
+  ADJ_NOTE = `اتسجل: ${moveLabel(ADJ.kind)} ${qty} من «${it.name}».${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+  ADJ = { code: null, kind: ADJ.kind, qty: '', supplier: ADJ.supplier, cost: '', note: '' };
+  render();
+  $('adjQ')?.focus();
+}
+
+async function saveCount() {
+  const list = countDifferences(COUNTS, DATA.items);
+  if (!countedN()) { $('countMsg').textContent = 'اكتب العدد قدام الأصناف اللي جردتها.'; return; }
+  if (list.length && !confirm(`هيتعدل رصيد ${list.length} صنف على حسب الجرد. تكمّل؟`)) return;
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const at = new Date().toISOString();
+  for (const x of list) await localInsert('stock_moves', { code: x.code, qty: x.qty, kind: 'count', branch_id: bid, happened_at: at, note: `جرد: كان ${fmt(x.was)} ولقيت ${fmt(x.counted)}` });
+  const n = countedN();
+  COUNTS = {}; store.set(CKEY, COUNTS); COUNT_Q = '';
+  render();
+  $('countBox').open = true;
+  $('countMsg').textContent = `اتسجل جرد ${n} صنف: ${list.length ? `${list.length} صنف رصيده اتظبط` : 'كله مظبوط'}.`;
+}
+
+$('panel').addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'adjQ') adjustSearch(false);
+  if (t.id === 'adjQty') ADJ.qty = t.value;
+  if (t.id === 'adjNote') ADJ.note = t.value;
+  if (t.id === 'adjCost') ADJ.cost = t.value;
+  if (t.id === 'countQ') { COUNT_Q = t.value; $('countBody').innerHTML = countRows(); }
+  if (t.dataset.count !== undefined) {
+    if (t.value === '') delete COUNTS[t.dataset.count]; else COUNTS[t.dataset.count] = t.value;
+    store.set(CKEY, COUNTS);
+    const it = viewItem(t.dataset.count);
+    const cell = document.querySelector(`[data-diff="${CSS.escape(t.dataset.count)}"]`);
+    if (cell && it) { const d = t.value === '' ? null : +t.value - it.qty; cell.innerHTML = d === null ? '' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d > 0 ? '+' : ''}${fmt(d)}</span>`; }
+    if ($('countN')) $('countN').textContent = countedN();
+  }
+});
+$('panel').addEventListener('change', (e) => { if (e.target.id === 'adjSup') ADJ.supplier = e.target.value; });
+$('panel').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.target.id === 'adjQ') { e.preventDefault(); adjustSearch(true); }
+  if (e.target.dataset?.count !== undefined) { e.preventDefault(); const all = [...document.querySelectorAll('[data-count]')]; all[all.indexOf(e.target) + 1]?.focus(); }
+});
+$('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); });
+$('panel').addEventListener('click', async (e) => {
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  if (t('adjkind')) { ADJ.kind = t('adjkind'); ADJ_NOTE = ''; render(); }
+  if (t('adjpick')) pickAdjust(t('adjpick'));
+  if (e.target.id === 'adjChange') { ADJ.code = null; render(); $('adjQ')?.focus(); }
+  if (t('expout')) {
+    const it = viewItem(t('expout')); const qty = +e.target.closest('[data-expqty]').dataset.expqty;
+    if (it && confirm(`تشيل ${qty} علبة منتهية من «${it.name}» من الرصيد؟`)) await localInsert('stock_moves', { code: it.code, qty: -qty, kind: 'expired', branch_id: BRANCH === 'all' ? mainBranchId() : BRANCH_ID(), cost: it.cost || null, happened_at: new Date().toISOString(), note: 'منتهي على الرف' });
+  }
+  if (e.target.id === 'countSave') saveCount();
+  if (e.target.id === 'countClear' && confirm('تمسح كل اللي كتبته في الجرد؟')) { COUNTS = {}; store.set(CKEY, COUNTS); render(); $('countBox').open = true; }
+  if (t('delmove')) {
+    const m = MOVES.find((x) => x.id === t('delmove'));
+    if (m && confirm(m.kind === 'transfer' ? 'تمسح التحويل ده من الفرعين؟' : 'تمسح التعديل ده؟ الرصيد هيرجع زي ما كان قبله.')) {
+      if (m.ref && SUP_PAYMENTS.some((p) => p.id === m.ref)) await localDelete('supplier_payments', m.ref);
+      if (m.kind === 'transfer' && m.ref) for (const x of MOVES.filter((y) => y.ref === m.ref && y.id !== m.id)) await localDelete('stock_moves', x.id);
+      await localDelete('stock_moves', m.id);
+    }
+  }
+});
+
 $('panel').addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'itemsQ') { ITEMS_Q = t.value; $('itemsBody').innerHTML = itemsRows(); return; }
@@ -1185,6 +1373,164 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.id === 'rcvClear' && (!RCV.lines.length || confirm('تمسح الطلبية اللي بتكتبها وتبدأ من الأول؟'))) { RCV = blankReceive(); saveDraft(); render(); }
   if (t('delpurchase') && confirm('تمسح الفاتورة دي؟ الرصيد هيقل بكمياتها، وحساب المورد هيتعدل.')) localDelete('purchases', t('delpurchase'));
   if (t('delpay') && confirm('تمسح الدفعة دي؟')) localDelete('supplier_payments', t('delpay'));
+});
+
+// ---------- Customers on account and insurance (migration 011) ----------
+let CUSTOMERS = [], CUST_PAYMENTS = [];
+let CUST_READY = true;
+let CUST_EDIT = null;   // customer being edited, or 'new'
+let CUST_VIEW = null;   // customer whose statement is open
+let CUST_NOTE = '';
+let CLAIM_PERIOD = 'thisMonth';
+const needCust = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث <code>011</code> بيضيف العملاء والآجل والتأمين. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
+const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name ?? '';
+
+async function loadCustomers() {
+  try {
+    [CUSTOMERS, CUST_PAYMENTS] = await Promise.all([
+      loadTable('customers', 'id, name, phone, kind, coverage_pct, credit_limit, note, active, created_at, updated_at'),
+      loadTable('customer_payments', 'id, customer_id, amount, paid_on, note, created_at', 'paid_on'),
+    ]);
+    CUST_READY = true;
+  } catch (e) { if (e.missing) CUST_READY = false; }
+}
+
+function customerForm() {
+  const c = CUST_EDIT === 'new' ? {} : CUSTOMERS.find((x) => x.id === CUST_EDIT) || {};
+  return `<form id="custForm" class="card stack" novalidate><h3>${c.id ? `عدّل «${esc(c.name)}»` : 'عميل جديد'}</h3><div class="grid2">
+    <label>الاسم<input id="cuName" maxlength="120" value="${esc(c.name || '')}"></label>
+    <label>الموبايل (اختياري)<input id="cuPhone" type="tel" inputmode="tel" maxlength="20" value="${esc(c.phone || '')}"></label>
+    <label>النوع<select id="cuKind">${CUSTOMER_KINDS.map(([v, t]) => `<option value="${v}" ${v === (c.kind || 'person') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label id="cuCovWrap" ${(c.kind || 'person') === 'insurance' ? '' : 'hidden'}>الشركة بتدفع كام % من الفاتورة<input id="cuCov" type="number" min="0" max="100" step="1" value="${esc(c.coverage_pct ?? 80)}"></label>
+    <label>أقصى آجل مسموح (اختياري)<input id="cuLimit" type="number" min="0" step="50" value="${esc(c.credit_limit ?? '')}"></label>
+    <label>ملاحظة (اختياري)<input id="cuNote" maxlength="300" value="${esc(c.note || '')}"></label></div>
+    <div class="row"><button class="btn primary" type="submit">${c.id ? 'احفظ' : 'ضيف'}</button><button class="btn" type="button" id="cuCancel">إلغاء</button><span class="note" id="cuMsg" role="status"></span></div></form>`;
+}
+
+function statementHtml(c) {
+  const rows = statement(c.id, POS_SALES, CUST_PAYMENTS);
+  const label = { sale: 'فاتورة', return: 'مرتجع', payment: 'دفع' };
+  return `<div class="card"><div class="row" style="justify-content:space-between"><h3>كشف حساب ${esc(c.name)}</h3><div class="row">
+    ${c.phone ? `<button class="btn" type="button" data-sendstmt="${esc(c.id)}">ابعته واتساب</button>` : ''}<button class="btn" type="button" data-closestmt="1">اقفل</button></div></div>`
+    + table(['يوم', 'البيان', 'رقم', 'المبلغ', 'الرصيد'], rows.map((r) => `<tr><td>${dayText(r.at)}</td><td>${label[r.kind]}${r.claim ? ` · موافقة <span class="n">${esc(r.claim)}</span>` : ''}</td><td class="n">${esc(r.ref || '')}</td>
+      <td class="n"><span class="pill ${r.amount < 0 ? 'ok' : 'warn'}">${r.amount > 0 ? '+' : ''}${fmt(r.amount, 2)}</span></td><td class="n"><b>${fmt(r.balance, 2)}</b></td></tr>`)) + '</div>';
+}
+function statementText(c) {
+  const rows = statement(c.id, POS_SALES, CUST_PAYMENTS).slice(-25);
+  const label = { sale: 'فاتورة', return: 'مرتجع', payment: 'دفعة' };
+  const bal = rows.length ? rows[rows.length - 1].balance : 0;
+  return [`كشف حساب ${c.name} — ${SESS.pharmacy?.name || 'الصيدلية'}`, ...rows.map((r) => `${dayText(r.at)}: ${label[r.kind]} ${fmt(Math.abs(r.amount), 2)} ج`), `الباقي عليك: ${fmt(bal, 2)} ج`].join('\n');
+}
+
+function renderCustomers() {
+  if (!CUST_READY) return needCust();
+  const bal = customerBalances(CUSTOMERS, POS_SALES, CUST_PAYMENTS);
+  const owedAll = bal.reduce((a, c) => a + Math.max(0, c.owed), 0);
+  const view = CUST_VIEW && CUSTOMERS.find((c) => c.id === CUST_VIEW);
+  const pay = isOwner() && CUSTOMERS.length ? `<form id="cpayForm" class="card stack"><h3>استلمت فلوس من عميل أو شركة تأمين</h3><div class="grid2">
+      <label>من مين<select id="cpCust">${bal.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.owed > 0 ? ` (عليه ${fmt(c.owed, 2)})` : ''}</option>`).join('')}</select></label>
+      <label>المبلغ<input id="cpAmount" type="number" min="0.5" step="0.5" inputmode="decimal"></label>
+      <label>يوم<input id="cpDate" type="date" max="${isoDay(TODAY)}" value="${isoDay(TODAY)}"></label>
+      <label>ملاحظة (اختياري)<input id="cpNote" maxlength="300"></label></div>
+      <div class="row"><button class="btn primary" type="submit">سجّل</button><span class="note" id="cpMsg" role="status"></span></div></form>` : '';
+  return `<p>العملاء اللي بيشتروا آجل وشركات التأمين. الفاتورة اللي عليها عميل في الكاشير بتتسجل على حسابه، والتأمين بيتحسب عليه نصيبه بس. إجمالي اللي ليك برا: <b class="n">${fmt(owedAll, 2)}</b> ج.</p>
+    ${CUST_NOTE ? `<p class="note" role="status">${esc(CUST_NOTE)}</p>` : ''}
+    ${isOwner() ? (CUST_EDIT ? customerForm() : '<div class="row"><button class="btn primary" type="button" id="cuNew">+ عميل جديد</button></div>') : ''}
+    ${view ? statementHtml(view) : ''}`
+    + table(['الاسم', 'النوع', 'فواتير', 'على الحساب', 'دفع', 'الباقي عليه', 'آخر شراء', ''],
+      bal.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.phone ? `<span class="cat n">${esc(c.phone)}</span>` : ''}${pendingPill(c)}</td>
+        <td>${c.kind === 'insurance' ? `تأمين <span class="n">${fmt(+c.coverage_pct)}%</span>` : 'عميل'}</td><td class="n">${fmt(c.bills)}</td><td>${egp(c.onAccount)}</td><td>${egp(c.paid)}</td>
+        <td>${c.owed > 0.005 ? `<span class="pill ${+c.credit_limit && c.owed > +c.credit_limit ? 'crit' : 'warn'}"><span class="n">${fmt(c.owed, 2)}</span> ج</span>` : '<span class="pill ok">خالص</span>'}</td>
+        <td>${c.last ? dayText(c.last) : '—'}</td>
+        <td class="acts"><button class="btn" type="button" data-stmt="${esc(c.id)}">كشف حساب</button>${isOwner() ? ` <button class="btn" type="button" data-editcust="${esc(c.id)}">عدّل</button>` : ''}</td></tr>`))
+    + pay;
+}
+
+async function saveCustomer(e) {
+  e.preventDefault();
+  const name = $('cuName').value.trim();
+  if (!name) { $('cuMsg').textContent = 'اكتب الاسم.'; return; }
+  const kind = $('cuKind').value;
+  const fields = { name, phone: $('cuPhone').value.trim() || null, kind, coverage_pct: kind === 'insurance' ? Math.max(0, Math.min(100, +$('cuCov').value || 0)) : 0,
+    credit_limit: $('cuLimit').value === '' ? null : Math.max(0, +$('cuLimit').value), note: $('cuNote').value.trim() || null };
+  const id = CUST_EDIT;
+  CUST_EDIT = null;
+  if (id && id !== 'new') await localUpdate('customers', id, { ...fields, updated_at: new Date().toISOString() });
+  else {
+    if (CUSTOMERS.some((c) => c.name === name)) { CUST_EDIT = 'new'; render(); $('cuMsg').textContent = 'فيه عميل بنفس الاسم.'; return; }
+    await localInsert('customers', { ...fields, active: true });
+  }
+  CUST_NOTE = `${id && id !== 'new' ? 'اتحفظ التعديل' : `اتضاف «${name}»`}.`;
+  render();
+}
+async function saveCustomerPayment(e) {
+  e.preventDefault();
+  const amount = +$('cpAmount').value;
+  if (!(amount > 0)) { $('cpMsg').textContent = 'اكتب المبلغ.'; return; }
+  const id = $('cpCust').value;
+  await localInsert('customer_payments', { customer_id: id, amount, paid_on: $('cpDate').value || isoDay(TODAY), note: $('cpNote').value.trim() || null });
+  CUST_NOTE = `اتسجل ${fmt(amount, 2)} ج من «${custName(id)}». ${savedNote()}`;
+  render();
+}
+
+function renderClaims() {
+  if (!CUST_READY) return needCust();
+  const [from, to] = periodRange(CLAIM_PERIOD);
+  const list = claims(CUSTOMERS, POS_SALES, from, to);
+  const head = `<div class="row">${periodSelect('claimPeriodSel', CLAIM_PERIOD)}</div><p>فواتير شركات التأمين في الفترة دي: رقم الفاتورة، ورقم الموافقة، ونصيب الشركة. انسخها وابعتها للشركة مع المطالبة.</p>`;
+  if (!list.length) return head + '<div class="card emptybox"><h3>مفيش فواتير تأمين في الفترة دي</h3><p>في الكاشير، اختار شركة التأمين في خانة العميل قبل الدفع، والبرنامج يحسب نصيبها لوحده.</p></div>';
+  return head + list.map((g, i) => `<div class="card"><div class="row" style="justify-content:space-between"><h3>${esc(g.customer.name)} <span class="muted">(${fmt(+g.customer.coverage_pct)}%)</span></h3>
+    <span>${fmt(g.bills.length)} فاتورة · الإجمالي <b class="n">${fmt(g.total, 2)}</b> · نصيب الشركة <b class="n">${fmt(g.share, 2)}</b> ج</span></div>`
+    + table(['يوم', 'رقم الفاتورة', 'رقم الموافقة', 'الفاتورة', 'نصيب الشركة'], g.bills.map((s) => `<tr><td>${dayText(s.sold_at)}</td><td class="n">${esc(s.number)}</td><td class="n">${esc(s.claim_no || '—')}</td><td class="n">${fmt(+s.total, 2)}</td><td class="n"><b>${fmt(+s.credit, 2)}</b></td></tr>`))
+    + `<textarea readonly id="claimMsg${i}" aria-label="المطالبة" style="min-height:120px">${esc([`مطالبة ${SESS.pharmacy?.name || 'الصيدلية'} — ${g.customer.name}`, ...g.bills.map((s) => `${dayText(s.sold_at)} · فاتورة ${s.number}${s.claim_no ? ` · موافقة ${s.claim_no}` : ''} · ${fmt(+s.credit, 2)} ج`), `الإجمالي المطلوب: ${fmt(g.share, 2)} ج (${g.bills.length} فاتورة)`].join('\n'))}</textarea>
+    <div class="row"><button class="btn" type="button" data-copyclaim="${i}">انسخ المطالبة</button><span class="note" id="claimNote${i}"></span></div></div>`).join('');
+}
+
+// ---------- Profit by day and by month ----------
+function renderProfit() {
+  const months = profitByPeriod(DATA, 'month', new Date(TODAY.getFullYear(), TODAY.getMonth() - 11, 1), addDays(TODAY, 1));
+  const days = profitByPeriod(DATA, 'day', new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), addDays(TODAY, 1));
+  const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
+  const expOf = (key) => {
+    if (!EXP_READY) return null;
+    const [y, m] = key.split('-').map(Number);
+    return expenseTotals(EXPENSES, new Date(y, m - 1, 1), new Date(y, m, 1), bid);
+  };
+  const monthName = (key) => { const [y, m] = key.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' }); };
+  const pill = (v) => `<span class="pill ${v < 0 ? 'crit' : 'ok'}"><span class="n">${fmt(v)}</span> ج</span>`;
+  const branchTable = BRANCH === 'all' && multi() ? (() => {
+    const from = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+    const rows = BRANCHES.map((b) => ({ b, r: profitByPeriod(branchData(b), 'month', from, addDays(TODAY, 1))[0] }));
+    return '<h3>الفروع الشهر ده</h3>' + table(['الفرع', 'المبيعات', 'تكلفة البضاعة', 'المكسب', 'نسبة المكسب'], rows.map(({ b, r }) => `<tr><td><b>${esc(b.name)}</b></td><td>${egp(r?.sales ?? 0)}</td><td>${egp(r?.cogs ?? 0)}</td><td>${pill(r?.gross ?? 0)}</td><td class="n">${fmt(r?.margin ?? 0, 1)}%</td></tr>`));
+  })() : '';
+  if (!months.length) return '<div class="card emptybox"><h3>لسه مفيش مبيعات</h3><p>الأرباح بتتحسب من مبيعات الكاشير والملفات اللي اترفعت.</p></div>';
+  return `<p>المكسب = المبيعات (بعد الخصومات) − تكلفة البضاعة اللي اتباعت بسعر شرائها. والصافي بيطرح كمان التالف والمنتهي والمصروفات المتسجلة.</p>`
+    + '<h3>كل شهر</h3>' + table(['الشهر', 'المبيعات', 'تكلفة البضاعة', 'المكسب', 'نسبة المكسب', 'تالف ومنتهي', 'المصروفات', 'الصافي'], months.map((r) => {
+      const E = expOf(r.key);
+      const net = r.gross - r.lost - (E?.operating ?? 0);
+      return `<tr><td><b>${monthName(r.key)}</b></td><td>${egp(r.sales)}</td><td>${egp(r.cogs)}</td><td>${pill(r.gross)}</td><td class="n">${fmt(r.margin, 1)}%</td><td>${r.lost ? egp(r.lost) : '—'}</td><td>${E?.count ? egp(E.operating) : '<span class="muted">—</span>'}</td><td>${pill(net)}</td></tr>`;
+    }))
+    + branchTable
+    + '<h3>كل يوم في الشهر ده</h3>' + table(['اليوم', 'المبيعات', 'تكلفة البضاعة', 'المكسب', 'نسبة المكسب'], days.map((r) => `<tr><td>${new Date(`${r.key}T00:00:00`).toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'short' })}</td><td>${egp(r.sales)}</td><td>${egp(r.cogs)}</td><td>${pill(r.gross)}</td><td class="n">${fmt(r.margin, 1)}%</td></tr>`));
+}
+
+$('panel').addEventListener('submit', (e) => {
+  if (e.target.id === 'custForm') saveCustomer(e);
+  if (e.target.id === 'cpayForm') saveCustomerPayment(e);
+});
+$('panel').addEventListener('change', (e) => {
+  if (e.target.id === 'cuKind') $('cuCovWrap').hidden = e.target.value !== 'insurance';
+  if (e.target.id === 'claimPeriodSel') { CLAIM_PERIOD = e.target.value; render(); }
+});
+$('panel').addEventListener('click', (e) => {
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  if (e.target.id === 'cuNew') { CUST_EDIT = 'new'; CUST_NOTE = ''; render(); $('cuName')?.focus(); }
+  if (e.target.id === 'cuCancel') { CUST_EDIT = null; render(); }
+  if (t('editcust')) { CUST_EDIT = t('editcust'); CUST_NOTE = ''; render(); $('custForm')?.scrollIntoView({ block: 'center' }); }
+  if (t('stmt')) { CUST_VIEW = t('stmt'); render(); $('panel').querySelector('.card h3')?.scrollIntoView({ block: 'start' }); }
+  if (t('closestmt')) { CUST_VIEW = null; render(); }
+  if (t('sendstmt')) { const c = CUSTOMERS.find((x) => x.id === t('sendstmt')); const phone = normalizeEgPhone(c?.phone || ''); if (c) window.open(`https://wa.me/${phone || ''}?text=${encodeURIComponent(statementText(c))}`, '_blank', 'noopener'); }
+  if (t('copyclaim') !== undefined) copyFrom($(`claimMsg${t('copyclaim')}`), $(`claimNote${t('copyclaim')}`));
 });
 
 // ---------- Branches & data ----------
@@ -1346,7 +1692,7 @@ async function boot() {
 
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory()]);
+  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers()]);
   renderBranches(); setView(); render();
   sync();
 }

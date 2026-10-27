@@ -89,7 +89,10 @@ export function daySummary(sales) {
     if (s.kind === 'return') { out.returns += 1; out.returned += -t; } else { out.receipts += 1; out.sales += t; }
     out.discount += toPt(s.discount);
     out.net += t;
-    out.byPayment[s.payment] = (out.byPayment[s.payment] || 0) + t;
+    // The part on a customer's account (credit, or the insurance share) is not cash in the drawer.
+    const credit = toPt(s.credit);
+    if (credit) out.byPayment.credit = (out.byPayment.credit || 0) + credit;
+    if (t - credit) out.byPayment[s.payment] = (out.byPayment[s.payment] || 0) + t - credit;
   }
   for (const k of ['sales', 'returned', 'discount', 'net']) out[k] = toEgp(out[k]);
   for (const k of Object.keys(out.byPayment)) out.byPayment[k] = toEgp(out.byPayment[k]);
