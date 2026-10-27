@@ -136,3 +136,5 @@ tr.pend td { background: var(--warn-soft); }
   .bar label.btn { flex: 1 1 100%; text-align: center; padding-block: 11px; }
   .btn { min-height: 40px; }
 }
+.checkline { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--fg); }
+.checkline input { width: auto; min-height: 0; }

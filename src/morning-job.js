@@ -1,6 +1,7 @@
 // Daily job: for each pharmacy with WhatsApp numbers, build the morning summary from the latest snapshot
 // and send the approved template. Pure apart from fetchFn, so it is tested without the network.
 import { analyze, fromExport, settingsFromSaved, startOfDay } from './core.js';
+import { mergeBranches } from './branches-expenses.js';
 import { morningTemplateParams, parsePhones } from './report.js';
 
 const REQUIRED = ['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'REPORT_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID'];
@@ -25,7 +26,9 @@ export async function runMorning({ env, fetchFn = fetch, now = new Date() }) {
   for (const p of rows) {
     const ageH = (now - new Date(p.snapshot_at)) / 3600000;
     if (ageH > STALE_HOURS) { results.push({ pharmacy: p.pharmacy_name, skipped: `data is ${Math.round(ageH)}h old` }); continue; }
-    const A = analyze(fromExport(p.data), settingsFromSaved(p.settings || {}), startOfDay(now));
+    // Every branch's latest data, merged (migration 008); older databases send one snapshot in `data`.
+    const parts = Array.isArray(p.branch_data) && p.branch_data.length ? p.branch_data.map((b) => fromExport(b.data)) : [fromExport(p.data)];
+    const A = analyze(mergeBranches(parts), settingsFromSaved(p.settings || {}), startOfDay(now));
     const params = morningTemplateParams(A, { pharmacyName: p.pharmacy_name, link: site });
     for (const to of parsePhones(p.settings?.waNumbers)) {
       const r = await fetchFn(`https://graph.facebook.com/v21.0/${env.WHATSAPP_PHONE_ID}/messages`, {

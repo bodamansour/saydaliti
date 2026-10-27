@@ -63,6 +63,11 @@ async function send(client, e) {
   else if (e.type === 'deleteExpense') res = await client.from('expenses').delete().eq('id', p.id);
   else if (e.type === 'snapshot') res = await client.rpc('save_snapshot', p);
   else if (e.type === 'settings') res = await client.rpc('save_settings', p);
+  // Generic rows (shortages, market prices, patients, reminders). Ids come from the device, so a retry
+  // after a lost response inserts nothing twice.
+  else if (e.type === 'insert') res = await client.from(p.table).upsert(p.row, { onConflict: 'id', ignoreDuplicates: true });
+  else if (e.type === 'update') res = await client.from(p.table).update(p.patch).eq('id', p.id);
+  else if (e.type === 'delete') res = await client.from(p.table).delete().eq('id', p.id);
   else return;
   if (res.error) throw res.error;
 }
