@@ -66,6 +66,15 @@
     </div>
   </details>
 
+  <details class="help" id="localBox" hidden>
+    <summary>النسخ الاحتياطي (البيانات على الجهاز ده)</summary>
+    <p>النسخة دي شغالة من غير نت، وكل البيانات محفوظة على الكمبيوتر ده. <b>لو الجهاز باظ من غير نسخة احتياطية، البيانات هتضيع.</b></p>
+    <p class="note" id="backupWhere"></p>
+    <div class="row"><button class="btn primary" type="button" id="backupBtn">اعمل نسخة احتياطية دلوقتي</button>
+      <label class="btn" for="restoreFile">رجّع من نسخة احتياطية<input id="restoreFile" type="file" accept=".json" hidden></label>
+      <span class="note" id="backupMsg" role="status"></span></div>
+  </details>
+
   <details class="help" id="settingsBox">
     <summary>الإعدادات (ضرايب، تقدير المصاريف، طلبيات)</summary>
     <div class="grid2" style="margin-top:10px">

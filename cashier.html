@@ -66,9 +66,10 @@
         <div class="stack" style="margin-top:8px">
           <label>عرض ورق الطابعة<select id="paper"><option value="80">80 مم</option><option value="58">58 مم</option></select></label>
           <label class="checkline"><input id="autoPrint" type="checkbox" checked> اطبع الفاتورة بعد الدفع على طول</label>
+          <label class="checkline" id="silentWrap" hidden><input id="silentPrint" type="checkbox"> اطبع على الطابعة الافتراضية من غير ما يسأل</label>
           <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
           <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
-          <p class="note">عشان الطباعة تطلع من غير نافذة كل مرة، شغّل كروم بالاختيار <code>--kiosk-printing</code> وخلّي الطابعة الحرارية هي الافتراضية.</p>
+          <p class="note" id="kioskNote">عشان الطباعة تطلع من غير نافذة كل مرة، شغّل كروم بالاختيار <code>--kiosk-printing</code> وخلّي الطابعة الحرارية هي الافتراضية.</p>
         </div>
       </details>
     </aside>
