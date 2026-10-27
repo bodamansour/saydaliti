@@ -25,6 +25,18 @@ if ((Test-Path $connFile) -and -not $PSBoundParameters.ContainsKey("Server") -an
   if ($cj.sqlUser -and -not $SqlUser) { $SqlUser = $cj.sqlUser }
   Write-Host "Reading directly from '$Database' on '$Server' (from connection.json)."
 }
+# A SQL login needs its password here too (it is never saved by step 1): from connector.json, the
+# SAYDALITI_SQL_PASSWORD environment variable, or typed now.
+if ($SqlUser -and -not $SqlPassword) {
+  $cfgFile = Join-Path $PSScriptRoot "connector.json"
+  if (Test-Path $cfgFile) { $cc = Get-Content $cfgFile -Raw -Encoding UTF8 | ConvertFrom-Json; if ($cc.sqlUser -eq $SqlUser -and $cc.sqlPassword) { $SqlPassword = $cc.sqlPassword } }
+  if (-not $SqlPassword -and $env:SAYDALITI_SQL_PASSWORD) { $SqlPassword = $env:SAYDALITI_SQL_PASSWORD }
+  if (-not $SqlPassword -and [Environment]::UserInteractive) {
+    $sec = Read-Host "Password for SQL user '$SqlUser'" -AsSecureString
+    $SqlPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+  }
+  if (-not $SqlPassword) { throw "No password for SQL user '$SqlUser'. Put it in connector.json (sqlPassword) or SAYDALITI_SQL_PASSWORD." }
+}
 
 if (-not (Test-Path $Mapping)) { throw "mapping.json not found. Copy mapping.example.json to mapping.json and fill it in." }
 $m = Get-Content $Mapping -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -37,14 +49,24 @@ function Col($sec, [string]$key, [string]$cast) {
   return "CAST($(Q $v) AS $cast) AS $key"
 }
 
+# Queries from mapping.json are only allowed to read: one SELECT (or WITH … SELECT), no statements
+# that change anything — and every query runs inside a transaction that is always rolled back.
+function Assert-ReadOnly([string]$sql) {
+  $t = ($sql -replace "--[^\r\n]*", " " -replace "/\*[\s\S]*?\*/", " ").Trim()
+  if ($t -notmatch '^(?i)(select|with)\b') { throw "mapping.json: a query must start with SELECT (or WITH). Refused: $($t.Substring(0, [Math]::Min(80, $t.Length)))" }
+  if ($t.TrimEnd(';') -match ';') { throw "mapping.json: only one statement per query." }
+  if ($t -match '(?i)\b(insert|update|delete|merge|drop|alter|create|truncate|exec|execute|grant|revoke|deny|backup|restore|dbcc|shutdown|kill|into|openrowset|opendatasource|xp_\w+|sp_\w+)\b') { throw "mapping.json: a query may only read data. Refused: $($t.Substring(0, [Math]::Min(80, $t.Length)))" }
+}
 function Run([string]$sql) {
+  Assert-ReadOnly $sql
   $auth = if ($SqlUser) { "User ID=$SqlUser;Password=$SqlPassword" } else { "Integrated Security=True" }
   $c = New-Object System.Data.SqlClient.SqlConnection "Server=$Server;Database=$Database;$auth;TrustServerCertificate=True;ApplicationIntent=ReadOnly"
   $c.Open()
+  $tx = $c.BeginTransaction()
   try {
-    $cmd = $c.CreateCommand(); $cmd.CommandText = $sql; $cmd.CommandTimeout = 600
+    $cmd = $c.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandText = $sql; $cmd.CommandTimeout = 600
     $t = New-Object System.Data.DataTable; $t.Load($cmd.ExecuteReader()); return ,$t
-  } finally { $c.Close() }
+  } finally { try { $tx.Rollback() } catch { }; $c.Close() }
 }
 
 function Rows($table, [string[]]$cols) {
@@ -90,7 +112,7 @@ $days = if ($m.salesDays) { [int]$m.salesDays } else { 180 }
 $sSql = if ($s.sql) { $s.sql -replace "\{days\}", $days } else {
   $amount = if ($s.amount) { "SUM(CAST($(Q $s.amount) AS decimal(18,3)))" } else { "NULL" }
   $where = "$(Q $s.date) >= DATEADD(day, -$days, GETDATE())"
-  if ($s.where) { $where += " AND ($($s.where))" }
+  if ($s.where) { Assert-ReadOnly "SELECT 1 WHERE $($s.where)"; $where += " AND ($($s.where))" }
   "SELECT CAST($(Q $s.code) AS nvarchar(100)) AS code, CAST($(Q $s.date) AS date) AS date, SUM(CAST($(Q $s.qty) AS decimal(18,3))) AS qty, $amount AS amount " +
   "FROM $(T $s.table) WHERE $where GROUP BY CAST($(Q $s.code) AS nvarchar(100)), CAST($(Q $s.date) AS date)"
 }

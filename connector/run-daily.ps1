@@ -11,9 +11,15 @@ try {
       Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $bak) { throw "No .gen/.bak file in $($cfg.geniusBackupDir)" }
     Write-Host "Genius backup: $($bak.FullName) ($($bak.LastWriteTime))"
-    $py = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
-    & $py (Join-Path $PSScriptRoot "genius\genius_export.py") $bak.FullName (Join-Path $PSScriptRoot "data.json")
-    if ($LASTEXITCODE -ne 0) { throw "genius_export.py failed" }
+    # Node reads the backup in place (no copy of the database anywhere); Python is the fallback.
+    if (Get-Command node -ErrorAction SilentlyContinue) {
+      & node (Join-Path $PSScriptRoot "genius\genius-export.mjs") $bak.FullName (Join-Path $PSScriptRoot "data.json")
+      if ($LASTEXITCODE -ne 0) { throw "genius-export.mjs failed" }
+    } else {
+      $py = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
+      & $py (Join-Path $PSScriptRoot "genius\genius_export.py") $bak.FullName (Join-Path $PSScriptRoot "data.json")
+      if ($LASTEXITCODE -ne 0) { throw "genius_export.py failed" }
+    }
     & (Join-Path $PSScriptRoot "upload.ps1")
     return
   }
