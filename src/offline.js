@@ -54,7 +54,10 @@ export async function clearLocal() {
   } catch { /* storage blocked */ }
 }
 
-export const isOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false;
+// The offline desktop version keeps its database on the computer: it is always "connected" to it.
+let ALWAYS_ONLINE = false;
+export const setAlwaysOnline = (v) => { ALWAYS_ONLINE = !!v; };
+export const isOnline = () => ALWAYS_ONLINE || typeof navigator === 'undefined' || navigator.onLine !== false;
 const isNetworkError = (e) => /fetch|network|Failed to fetch|NetworkError|Load failed|مفيش اتصال/i.test(String(e?.message ?? e));
 // The table isn't there yet (database update not applied) or the server had a hiccup: try again later.
 const isRetryLater = (e) => /schema cache|does not exist|PGRST20[45]|42P01|timeout|503|502|500/i.test(`${e?.code ?? ''} ${e?.message ?? e}`);
@@ -128,6 +131,6 @@ export function flush(client, onRejected = () => {}) {
 
 // Service worker: caches the app so it opens with no connection, and makes it installable on phones.
 export function registerServiceWorker() {
-  if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
+  if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return; // the desktop app has its own copy
   navigator.serviceWorker.register('./sw.js').catch(() => { /* app still works online */ });
 }

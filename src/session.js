@@ -1,7 +1,7 @@
 // Shared sign-in for every page: config from /api/config, Supabase session, pharmacy membership and branches.
 // The last good config and membership are kept on the device so the app still opens with no connection.
 import { arabicError } from './supabase-store.js';
-import { clearLocal } from './offline.js';
+import { clearLocal, setAlwaysOnline } from './offline.js';
 
 export const ROLE_LABEL = { owner: 'صاحب الصيدلية', partner: 'شريك', device: 'جهاز الصيدلية' };
 let client = null;
@@ -79,6 +79,17 @@ export function getSession() {
 async function loadSession() {
   const cfg = await loadConfig();
   if (!cfg.configured) return { mode: 'local' };
+  // The offline desktop version: the database lives on this computer, no account needed.
+  if (cfg.local) {
+    if (!client) {
+      const { createLocalClient } = await import('./local-db.js');
+      client = await createLocalClient();
+      setAlwaysOnline(true);
+    }
+    const m = await loadMembership('local', 'النسخة المحلية');
+    if (!m) return { mode: 'no-pharmacy', client, user: { id: 'local', email: 'على الجهاز ده' }, local: true };
+    return { mode: 'member', client, user: { id: '00000000-0000-4000-8000-000000000001', email: 'على الجهاز ده' }, config: cfg, offline: false, local: true, ...m };
+  }
   if (!client) {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
     client = createClient(cfg.url, cfg.key, { auth: { lock: lockWithTimeout, storage: authStorage } });
@@ -162,14 +173,18 @@ export function renderSignIn(box, onDone, mode = 'in') {
 
 export function renderPharmacyChoice(box, onDone) {
   box.hidden = false;
-  box.innerHTML = `<h2>أهلاً! الحساب ده لسه مش مربوط بصيدلية</h2>
+  if (client?.local) {
+    box.innerHTML = `<h2>أهلاً بيك في صيدليتي</h2><p class="note">النسخة دي شغالة على الجهاز ده بس، ومش محتاجة نت ولا حساب. اكتب اسم الصيدلية عشان نبدأ.</p>
+      <form id="createForm" class="stack"><label>اسم الصيدلية<input id="phNameNew" required placeholder="صيدلية أحمد منصور"></label><button class="btn primary wide" type="submit">ابدأ</button></form>
+      <p class="note" id="authMsg" role="status"></p>`;
+  } else box.innerHTML = `<h2>أهلاً! الحساب ده لسه مش مربوط بصيدلية</h2>
     <form id="createForm" class="stack"><b>صاحب صيدلية؟</b><label>اسم الصيدلية<input id="phNameNew" required placeholder="صيدلية أحمد منصور"></label><button class="btn primary wide" type="submit">اعمل الصيدلية</button></form>
     <hr>
     <form id="joinForm" class="stack"><b>شريك أو جهاز الصيدلية؟</b><label>كود الدعوة<input id="joinCode" required placeholder="A1B2C3D4" autocapitalize="characters"></label><button class="btn wide" type="submit">ادخل بالكود</button></form>
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch"><button class="linkbtn" type="button" id="outBtn">خروج</button></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
-  box.querySelector('#outBtn').addEventListener('click', async () => { await signOut(); location.reload(); });
+  box.querySelector('#outBtn')?.addEventListener('click', async () => { await signOut(); location.reload(); });
   box.querySelector('#createForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = box.querySelector('#phNameNew').value.trim();
@@ -178,7 +193,7 @@ export function renderPharmacyChoice(box, onDone) {
     if (error) return msg(arabicError(error).message);
     onDone();
   });
-  box.querySelector('#joinForm').addEventListener('submit', async (e) => {
+  box.querySelector('#joinForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const { error } = await client.rpc('join_pharmacy', { p_code: box.querySelector('#joinCode').value });
     if (error) return msg(arabicError(error).message);
