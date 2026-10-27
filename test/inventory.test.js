@@ -144,3 +144,16 @@ test('cashier discounts reach the books once, including a discount on the whole 
   const L = ledger(d, { taxRate: 0, overheadRate: 0 }, new Date(2026, 9, 21), new Date(2026, 9, 22));
   assert.equal(Math.round(L.totals.revenue * 100) / 100, 145); // 100 + 60 − 15
 });
+
+test('editing stock by hand: quantities and expiry dates become adjustments', async () => {
+  const { stockEdits } = await import('../src/inventory.js');
+  const before = [{ qty: 5, expiry: new Date(2026, 11, 1) }, { qty: 10, expiry: new Date(2027, 5, 1) }];
+  // 5 → 3, and the 10 really expire in 2027-08, plus 4 new boxes with no date.
+  const moves = stockEdits(before, [{ qty: 3, expiry: '2026-12-01' }, { qty: 10, expiry: '2027-08-01' }, { qty: 4, expiry: null }]);
+  assert.deepEqual(moves, [{ qty: -10, expiry: '2027-06-01' }, { qty: -2, expiry: '2026-12-01' }, { qty: 4, expiry: null }, { qty: 10, expiry: '2027-08-01' }]);
+  assert.deepEqual(stockEdits(before, [{ qty: 5, expiry: '2026-12-01' }, { qty: 10, expiry: '2027-06-01' }]), [], 'nothing changed');
+  // Applied to the stock, a correction takes from the batch it names, not the earliest one.
+  const d = liveData(base, AT, { moves: moves.map((m, i) => ({ ...m, code: 'P1', kind: 'count', happened_at: `2026-10-21T09:0${i}:00Z` })) });
+  const p = d.items.find((i) => i.code === 'P1');
+  assert.deepEqual(p.batches.map((b) => [b.qty, b.expiry ? `${b.expiry.getFullYear()}-${String(b.expiry.getMonth() + 1).padStart(2, '0')}` : null]).sort(), [[10, '2027-08'], [3, '2026-12'], [4, null]].sort());
+});

@@ -112,8 +112,16 @@ $hdr = Query $master "RESTORE HEADERONLY FROM DISK = N'$bak'" 300  # the header 
 $h = $hdr.Rows[0]
 Write-Host ("Backup: database '{0}', made on {1}, SQL Server {2}.{3}.{4}" -f $h.DatabaseName, $h.BackupFinishDate, $h.SoftwareVersionMajor, $h.SoftwareVersionMinor, $h.SoftwareVersionBuild)
 
-# 4) Restore as a separate copy (skip if already restored)
+# 4) Restore as a separate copy (skip if already restored).
+#    Safety: the copy's name must start with "Saydaliti", can't be the pharmacy's own database, and an
+#    existing database with that name is only replaced when Saydaliti made it (it carries our mark).
+if ($Database -notmatch '^Saydaliti[A-Za-z0-9_]*$') { throw "The copy's name must start with 'Saydaliti' (got '$Database'), so the pharmacy's own database is never replaced." }
+if ($Database -ieq $h.DatabaseName) { throw "'$Database' is the pharmacy program's own database name. Use another name, like SaydalitiCopy." }
 $exists = (Query $master "SELECT COUNT(*) n FROM sys.databases WHERE name = N'$Database'").Rows[0].n
+if ($exists -gt 0) {
+  $mark = (Query $master "SELECT COUNT(*) n FROM [$Database].sys.extended_properties WHERE class = 0 AND name = N'saydaliti_copy'").Rows[0].n
+  if ($mark -eq 0) { throw "A database named '$Database' already exists and was not made by Saydaliti. Nothing was changed. Run again with -Database SaydalitiCopy2 (or another new name)." }
+}
 if ($exists -eq 0 -or $copied) {
   try {
     $files = $null
@@ -151,6 +159,7 @@ if ($exists -eq 0 -or $copied) {
   Write-Host "Restoring as '$Database' (this can take a few minutes for ~1 GB) ..."
   $sql = "RESTORE DATABASE [$Database] FROM DISK = N'$bak' WITH " + ($moves -join ", ") + ", RECOVERY, REPLACE, STATS = 10" + ($(if ($pwOpts) { ", $pwOpts" } else { "" }))
   Exec $master $sql 3600
+  Exec $master "EXEC [$Database].sys.sp_addextendedproperty @name = N'saydaliti_copy', @value = N'1'"
   Write-Host "Restored." -ForegroundColor Green
 } else {
   Write-Host "Database '$Database' already restored from this backup, skipping restore."

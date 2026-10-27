@@ -317,12 +317,14 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     const d = day(r.sec_insert_date) || ph.get(Math.trunc(r.pth_id || 0));
     if (!d || d < since || !items.has(code)) continue;
     const k = `${code}|${d}`;
-    const p = purch.get(k) || [0, 0];
+    const p = purch.get(k) || [0, 0, 0]; // boxes (with bonus), paid boxes, money paid
+    const cost = ok(r.itm_cost, 1e5) ? r.itm_cost : 0;
     p[0] += r.qnty + (ok(r.bonus, 1e5) ? r.bonus : 0);
-    p[1] = ok(r.itm_cost, 1e5) ? r.itm_cost : 0;
+    p[1] += r.qnty; p[2] += r.qnty * cost;
     purch.set(k, p);
   }
-  const purchases = [...purch].map(([k, v]) => { const [code, date] = k.split('|'); return { code, date, qty: r3(v[0]), cost: r2(v[1]) }; });
+  // Several deliveries of one item on one day: the average cost of a paid box, weighted by quantity.
+  const purchases = [...purch].map(([k, v]) => { const [code, date] = k.split('|'); return { code, date, qty: r3(v[0]), cost: r2(v[1] ? v[2] / v[1] : 0) }; });
 
   // Every active item is kept (even with no stock), so the whole list is in Saydaliti; inactive
   // items only when they still have stock or sold recently.
