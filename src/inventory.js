@@ -156,3 +156,39 @@ export function newItemCode(barcode, taken = new Set()) {
   do { c = `S${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 36).toString(36).toUpperCase()}`; } while (taken.has(c));
   return c;
 }
+
+// ---------- Stock count and write-offs ----------
+export const MOVE_KINDS = [
+  ['count', 'جرد'],
+  ['damaged', 'تالف / مكسور'],
+  ['expired', 'منتهي الصلاحية'],
+  ['supplier_return', 'مرتجع للمورد'],
+  ['transfer', 'تحويل بين الفروع'],
+];
+export const moveLabel = (k) => MOVE_KINDS.find(([v]) => v === k)?.[1] ?? k;
+
+// What was counted on the shelf → the adjustment for each item whose count differs from the record.
+export function countDifferences(counts, items) {
+  const byCode = new Map(items.map((i) => [String(i.code), i]));
+  const out = [];
+  for (const [code, v] of Object.entries(counts)) {
+    if (v === '' || v === null || v === undefined || !Number.isFinite(+v) || +v < 0) continue;
+    const it = byCode.get(String(code));
+    const now = it ? it.qty : 0;
+    const diff = round2(+v - now);
+    if (diff) out.push({ code: String(code), name: it?.name ?? code, was: now, counted: +v, qty: diff });
+  }
+  return out;
+}
+
+// Boxes still on the shelf whose expiry date has passed, per item.
+export function expiredOnShelf(items, today) {
+  const t = today.getTime();
+  const out = [];
+  for (const it of items) {
+    const list = it.batches?.length ? it.batches : [{ qty: it.qty, expiry: it.expiry ?? null }];
+    const qty = list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).reduce((a, b) => a + b.qty, 0);
+    if (qty > 0) out.push({ code: it.code, name: it.name, qty, cost: it.cost, expiry: list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).sort((a, b) => a.expiry - b.expiry)[0].expiry });
+  }
+  return out.sort((a, b) => b.qty * b.cost - a.qty * a.cost);
+}

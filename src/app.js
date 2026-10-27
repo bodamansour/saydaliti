@@ -9,7 +9,7 @@ import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features
 import { normalizeEgPhone } from './report.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
-import { liveData, purchaseTotal, supplierBalances, newItemCode } from './inventory.js';
+import { liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -87,7 +87,7 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
-  ['stock', 'المخزون', [['items', 'كل الأصناف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
+  ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['money', 'الفلوس', [['pos', 'مبيعات الكاشير'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
@@ -159,6 +159,7 @@ function render() {
 
   let html;
   if (TAB === 'items') html = renderItems();
+  else if (TAB === 'adjust') html = renderAdjust();
   else if (TAB === 'receive') html = renderReceive();
   else if (TAB === 'invoices') html = renderInvoices();
   else if (TAB === 'supaccounts') html = renderSupplierAccounts();
@@ -1150,6 +1151,167 @@ async function savePayment(e) {
   await localInsert('supplier_payments', { supplier_id: id, supplier_name: name, amount, paid_on: $('payDate').value || isoDay(TODAY), note: $('payNote').value.trim() || null });
   $('payMsg') && ($('payMsg').textContent = savedNote());
 }
+
+// ----- Stock count, damaged / expired, returns to the supplier -----
+const CKEY = 'saydaliti-count-draft-v1';
+let COUNTS = store.get(CKEY, {});       // code -> boxes counted on the shelf (kept until saved)
+let COUNT_Q = '';
+let ADJ = { code: null, kind: 'damaged', qty: '', supplier: '', cost: '', note: '' };
+let ADJ_NOTE = '';
+const viewItem = (code) => DATA.items.find((i) => i.code === code);
+const needBranch = () => multi() && BRANCH === 'all';
+
+function adjustForm() {
+  const it = ADJ.code ? viewItem(ADJ.code) : null;
+  const sup = SUPPLIERS();
+  const kinds = MOVE_KINDS.filter(([k]) => k !== 'count' && k !== 'transfer');
+  return `<form id="adjForm" class="card stack" novalidate>
+    <h3>شيل بضاعة من الرصيد</h3>
+    <div class="row">${kinds.map(([k, t]) => `<button type="button" class="btn ${ADJ.kind === k ? 'sel' : ''}" data-adjkind="${k}" aria-pressed="${ADJ.kind === k}">${t}</button>`).join('')}</div>
+    ${it ? `<div class="row" style="justify-content:space-between"><b>${esc(it.name)}</b><span class="muted">الرصيد دلوقتي <b class="n">${fmt(it.qty)}</b></span><button type="button" class="btn" id="adjChange">صنف تاني</button></div>`
+      : `<div class="pos-search"><input id="adjQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه…" aria-label="الصنف"><div id="adjResults" class="results" hidden></div></div>`}
+    <div class="grid2">
+      <label>الكمية<input id="adjQty" type="number" min="1" step="1" inputmode="numeric" value="${esc(ADJ.qty)}"></label>
+      ${ADJ.kind === 'supplier_return' ? `<label>رجّعتها لمين<select id="adjSup">${sup.map((x) => `<option value="${esc(x.id)}" ${x.id === ADJ.supplier ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label>سعر الشراء للعلبة (بيتخصم من حساب المورد)<input id="adjCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(ADJ.cost || it?.cost || '')}"></label>` : ''}
+      <label>ملاحظة (اختياري)<input id="adjNote" maxlength="300" value="${esc(ADJ.note)}"></label>
+    </div>
+    ${ADJ.kind === 'supplier_return' && !sup.length ? '<p class="note">ضيف الموردين الأول من «اطلب إيه».</p>' : ''}
+    <div class="row"><button class="btn primary" type="submit">سجّل</button><span class="note" id="adjMsg" role="status">${esc(ADJ_NOTE)}</span></div>
+  </form>`;
+}
+
+function countRows() {
+  const list = itemMatches(COUNT_Q);
+  return list.slice(0, 120).map((i) => {
+    const v = COUNTS[i.code] ?? '';
+    const diff = v === '' ? null : +v - i.qty;
+    return `<tr><td class="name">${esc(i.name)}<span class="cat n">${esc(i.code)}</span></td><td class="n">${fmt(i.qty)}</td>
+      <td><input class="disc n" type="number" min="0" step="1" inputmode="numeric" data-count="${esc(i.code)}" value="${esc(v)}" aria-label="العدد على الرف"></td>
+      <td class="n" data-diff="${esc(i.code)}">${diff === null ? '' : diff === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${diff < 0 ? 'crit' : 'warn'}">${diff > 0 ? '+' : ''}${fmt(diff)}</span>`}</td></tr>`;
+  }).join('') + (list.length > 120 ? `<tr><td colspan="4" class="muted">ظاهر أول 120 من ${fmt(list.length)}. دوّر عشان تلاقي الباقي.</td></tr>` : '');
+}
+const countedN = () => Object.values(COUNTS).filter((v) => v !== '' && v !== null).length;
+
+function renderAdjust() {
+  if (!INV_READY) return needInv();
+  if (needBranch()) return '<div class="card emptybox"><h3>اختار الفرع من فوق الأول</h3><p>الجرد والتالف بيتسجلوا على فرع معين.</p></div>';
+  const expired = expiredOnShelf(DATA.items, TODAY);
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const hist = MOVES.filter(inBranch({ id: bid })).sort((a, b) => String(b.happened_at).localeCompare(String(a.happened_at))).slice(0, 100);
+  const exp = expired.length ? `<div class="card"><h3>علب منتهية لسه في الرصيد (${fmt(expired.length)} صنف)</h3>
+    <p class="note">لو شلتها من الرف فعلاً، دوس «شيلها» وهتتسجل خسارة منتهي الصلاحية.</p>
+    ${table(['الصنف', 'منتهي من', 'الكمية', 'قيمتها', ''], expired.map((x) => `<tr><td class="name">${esc(x.name)}</td><td>${expText(x.expiry)}</td><td class="n">${fmt(x.qty)}</td><td>${egp(x.qty * x.cost)}</td><td>${isOwner() ? `<button class="btn" type="button" data-expout="${esc(x.code)}" data-expqty="${x.qty}">شيلها</button>` : ''}</td></tr>`))}</div>` : '';
+  const count = `<details class="help" id="countBox" ${countedN() || COUNT_Q ? 'open' : ''}><summary>جرد الرف (اكتب العدد الفعلي لكل صنف)</summary>
+    <p class="note">اكتب اللي لقيته على الرف قدام كل صنف، حتى لو صفر. اللي بتكتبه بيتحفظ على الجهاز لحد ما تسجّل الجرد، فتقدر تجرد على كذا مرة.</p>
+    <input id="countQ" type="search" autocomplete="off" placeholder="دوّر على صنف…" value="${esc(COUNT_Q)}" aria-label="دوّر في الجرد">
+    <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الرصيد المسجل</th><th>لقيت على الرف</th><th>الفرق</th></tr></thead><tbody id="countBody">${countRows()}</tbody></table></div>
+    ${isOwner() ? `<div class="row"><button class="btn primary" type="button" id="countSave">سجّل الجرد (<span id="countN">${countedN()}</span> صنف)</button><button class="btn" type="button" id="countClear">امسح اللي كتبته</button><span class="note" id="countMsg" role="status"></span></div>` : ''}
+  </details>`;
+  const history = hist.length ? `<h3>آخر التعديلات</h3>` + table(['يوم', 'الصنف', 'النوع', 'الكمية', 'ملاحظة', ''],
+    hist.map((m) => `<tr><td>${dayText(m.happened_at)}</td><td class="name">${esc(viewItem(m.code)?.name ?? m.code)}</td><td>${moveLabel(m.kind)}</td>
+      <td class="n"><span class="pill ${+m.qty < 0 ? 'crit' : 'ok'}">${+m.qty > 0 ? '+' : ''}${fmt(+m.qty)}</span></td><td>${esc(m.note || '')}</td>
+      <td>${isOwner() ? `<button class="btn" type="button" data-delmove="${esc(m.id)}">امسح</button>` : ''}${pendingPill(m)}</td></tr>`)) : '';
+  return `<p>الجرد بيظبط الرصيد على اللي موجود فعلاً، والتالف والمنتهي بيتشالوا من الرصيد ويتحسبوا خسارة في «الحسابات»، والمرتجع للمورد بيتخصم من حسابه.</p>
+    ${isOwner() ? adjustForm() : ''}${exp}${count}${history}`;
+}
+
+function adjustSearch(enter) {
+  const q = $('adjQ').value;
+  const box = $('adjResults');
+  if (!q.trim()) { box.hidden = true; return; }
+  const r = lookup(q, DATA.items, barcodeMap());
+  const list = r.item ? [r.item] : r.matches.slice(0, 8);
+  if (enter && list.length) { pickAdjust(list[0].code); return; }
+  box.hidden = !list.length;
+  box.innerHTML = list.map((it, i) => `<button type="button" class="res ${i === 0 ? 'first' : ''}" data-adjpick="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">رصيد ${fmt(it.qty)}</span></button>`).join('');
+}
+function pickAdjust(code) {
+  ADJ.code = code; ADJ.cost = ''; ADJ_NOTE = '';
+  render();
+  $('adjQty')?.focus();
+}
+
+async function saveAdjust(e) {
+  e.preventDefault();
+  const m = (t) => { ADJ_NOTE = ''; $('adjMsg').textContent = t; };
+  const it = ADJ.code && viewItem(ADJ.code);
+  if (!it) return m('اختار الصنف الأول.');
+  const qty = Math.round(+$('adjQty').value || 0);
+  if (qty <= 0) return m('اكتب الكمية.');
+  const note = $('adjNote').value.trim();
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const row = { code: it.code, qty: -qty, kind: ADJ.kind, branch_id: bid, happened_at: new Date().toISOString(), note: note || null };
+  if (ADJ.kind === 'supplier_return') {
+    const s = SUPPLIERS().find((x) => x.id === $('adjSup')?.value);
+    if (!s) return m('اختار المورد.');
+    const cost = Math.max(0, +$('adjCost').value || 0);
+    const pay = cost > 0 ? await localInsert('supplier_payments', { supplier_id: s.id, supplier_name: s.name, amount: Math.round(qty * cost * 100) / 100, paid_on: isoDay(TODAY), note: `مرتجع بضاعة: ${qty} × ${it.name}` }) : null;
+    Object.assign(row, { cost, note: [`لـ${s.name}`, note].filter(Boolean).join(' · '), ...(pay ? { ref: pay.id } : {}) });
+  } else row.cost = it.cost || null;
+  await localInsert('stock_moves', row);
+  ADJ_NOTE = `اتسجل: ${moveLabel(ADJ.kind)} ${qty} من «${it.name}».${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+  ADJ = { code: null, kind: ADJ.kind, qty: '', supplier: ADJ.supplier, cost: '', note: '' };
+  render();
+  $('adjQ')?.focus();
+}
+
+async function saveCount() {
+  const list = countDifferences(COUNTS, DATA.items);
+  if (!countedN()) { $('countMsg').textContent = 'اكتب العدد قدام الأصناف اللي جردتها.'; return; }
+  if (list.length && !confirm(`هيتعدل رصيد ${list.length} صنف على حسب الجرد. تكمّل؟`)) return;
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const at = new Date().toISOString();
+  for (const x of list) await localInsert('stock_moves', { code: x.code, qty: x.qty, kind: 'count', branch_id: bid, happened_at: at, note: `جرد: كان ${fmt(x.was)} ولقيت ${fmt(x.counted)}` });
+  const n = countedN();
+  COUNTS = {}; store.set(CKEY, COUNTS); COUNT_Q = '';
+  render();
+  $('countBox').open = true;
+  $('countMsg').textContent = `اتسجل جرد ${n} صنف: ${list.length ? `${list.length} صنف رصيده اتظبط` : 'كله مظبوط'}.`;
+}
+
+$('panel').addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'adjQ') adjustSearch(false);
+  if (t.id === 'adjQty') ADJ.qty = t.value;
+  if (t.id === 'adjNote') ADJ.note = t.value;
+  if (t.id === 'adjCost') ADJ.cost = t.value;
+  if (t.id === 'countQ') { COUNT_Q = t.value; $('countBody').innerHTML = countRows(); }
+  if (t.dataset.count !== undefined) {
+    if (t.value === '') delete COUNTS[t.dataset.count]; else COUNTS[t.dataset.count] = t.value;
+    store.set(CKEY, COUNTS);
+    const it = viewItem(t.dataset.count);
+    const cell = document.querySelector(`[data-diff="${CSS.escape(t.dataset.count)}"]`);
+    if (cell && it) { const d = t.value === '' ? null : +t.value - it.qty; cell.innerHTML = d === null ? '' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d > 0 ? '+' : ''}${fmt(d)}</span>`; }
+    if ($('countN')) $('countN').textContent = countedN();
+  }
+});
+$('panel').addEventListener('change', (e) => { if (e.target.id === 'adjSup') ADJ.supplier = e.target.value; });
+$('panel').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.target.id === 'adjQ') { e.preventDefault(); adjustSearch(true); }
+  if (e.target.dataset?.count !== undefined) { e.preventDefault(); const all = [...document.querySelectorAll('[data-count]')]; all[all.indexOf(e.target) + 1]?.focus(); }
+});
+$('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); });
+$('panel').addEventListener('click', async (e) => {
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  if (t('adjkind')) { ADJ.kind = t('adjkind'); ADJ_NOTE = ''; render(); }
+  if (t('adjpick')) pickAdjust(t('adjpick'));
+  if (e.target.id === 'adjChange') { ADJ.code = null; render(); $('adjQ')?.focus(); }
+  if (t('expout')) {
+    const it = viewItem(t('expout')); const qty = +e.target.closest('[data-expqty]').dataset.expqty;
+    if (it && confirm(`تشيل ${qty} علبة منتهية من «${it.name}» من الرصيد؟`)) await localInsert('stock_moves', { code: it.code, qty: -qty, kind: 'expired', branch_id: BRANCH === 'all' ? mainBranchId() : BRANCH_ID(), cost: it.cost || null, happened_at: new Date().toISOString(), note: 'منتهي على الرف' });
+  }
+  if (e.target.id === 'countSave') saveCount();
+  if (e.target.id === 'countClear' && confirm('تمسح كل اللي كتبته في الجرد؟')) { COUNTS = {}; store.set(CKEY, COUNTS); render(); $('countBox').open = true; }
+  if (t('delmove')) {
+    const m = MOVES.find((x) => x.id === t('delmove'));
+    if (m && confirm('تمسح التعديل ده؟ الرصيد هيرجع زي ما كان قبله.')) {
+      if (m.ref && SUP_PAYMENTS.some((p) => p.id === m.ref)) await localDelete('supplier_payments', m.ref);
+      await localDelete('stock_moves', m.id);
+    }
+  }
+});
 
 $('panel').addEventListener('input', (e) => {
   const t = e.target;

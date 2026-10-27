@@ -360,6 +360,45 @@ test('cashier: sells from the stock entered here, and adds a brand-new item on t
   await page.waitForSelector('#app:not([hidden])');
 });
 
+test('stock count, damaged boxes, and a return to the supplier', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=adjust]');
+  // Damaged: 2 boxes of gauze (31 on the shelf after the cashier sale).
+  await page.click('[data-adjkind=damaged]');
+  await page.fill('#adjQ', 'شاش');
+  await page.press('#adjQ', 'Enter');
+  assert.match(await text('#adjForm'), /الرصيد دلوقتي 31/);
+  await page.fill('#adjQty', '2');
+  await page.click('#adjForm button[type=submit]');
+  assert.ok(await until(async () => (await db('stock_moves')).some((m) => m.kind === 'damaged' && m.qty === -2)));
+  assert.match(await text('#adjMsg'), /اتسجل/);
+  // Return 3 to the supplier: off the shelf and off what we owe him.
+  await page.click('[data-adjkind=supplier_return]');
+  await page.fill('#adjQ', '6220000000001');
+  await page.press('#adjQ', 'Enter');
+  await page.fill('#adjQty', '3');
+  await page.fill('#adjCost', '9');
+  await page.click('#adjForm button[type=submit]');
+  assert.ok(await until(async () => (await db('supplier_payments')).some((p) => p.amount === 27)));
+  // Shelf count: 20 found.
+  await page.click('#countBox summary');
+  await page.fill('#countQ', 'شاش');
+  await page.fill('[data-count="6220000000001"]', '20');
+  assert.match(await text('[data-diff="6220000000001"]'), /-6/);
+  await shot('adjust'); await page.setViewportSize({ width: 390, height: 844 }); await shot('adjust-phone'); await page.setViewportSize({ width: 1200, height: 900 });
+  await page.click('#countSave');
+  assert.ok(await until(async () => (await db('stock_moves')).some((m) => m.kind === 'count' && m.qty === -6)));
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  assert.match(await text('#itemsBody tr'), /20/);
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=supaccounts]');
+  assert.match(await text('#panel tbody tr'), /37/, '64 owed − 27 returned');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=books]');
+  assert.match(await text('#panel'), /الهالك والمنتهي/);
+});
+
 test('opens offline with saved data even after the sign-in expired', async () => {
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForTimeout(800); // let the app files finish caching
@@ -377,9 +416,9 @@ test('opens offline with saved data even after the sign-in expired', async () =>
 
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const tabs = ['items', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ items: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest

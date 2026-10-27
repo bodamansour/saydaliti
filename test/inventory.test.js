@@ -115,3 +115,24 @@ test('adjustments: a count fixes the shelf, damaged and expired count as losses'
   assert.equal(d.items.find((i) => i.code === 'Z0').qty, 4);
   assert.deepEqual(d.losses.map((l) => [l.code, l.qty, l.reason]), [['P1', 2, 'منتهي الصلاحية']]);
 });
+
+test('a shelf count gives one adjustment per item that differs', async () => {
+  const { countDifferences } = await import('../src/inventory.js');
+  const d = liveData(base, AT);
+  const out = countDifferences({ P1: '12', Z0: '0', X9: '', NEW: '3' }, d.items);
+  assert.deepEqual(out.map((x) => [x.code, x.was, x.counted, x.qty]), [['P1', 15, 12, -3], ['NEW', 0, 3, 3]]);
+});
+
+test('expired boxes still on the shelf are listed with their cost', async () => {
+  const { expiredOnShelf } = await import('../src/inventory.js');
+  const d = liveData(base, AT);
+  const out = expiredOnShelf(d.items, new Date(2026, 11, 15));
+  assert.deepEqual(out.map((x) => [x.code, x.qty]), [['P1', 5]]);
+  assert.equal(expiredOnShelf(d.items, new Date(2026, 9, 1)).length, 0);
+});
+
+test('a supplier return taken off the shelf', () => {
+  const d = liveData(base, AT, { moves: [{ happened_at: '2026-10-21T09:00:00Z', code: 'P1', qty: -4, kind: 'supplier_return', cost: 40 }] });
+  assert.equal(d.items.find((i) => i.code === 'P1').qty, 11);
+  assert.equal(d.losses.length, 0, 'a return is not a loss');
+});
