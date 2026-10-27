@@ -3,7 +3,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -80,6 +81,52 @@ test('upload needs a branch picked, then saves to that branch', async () => {
   assert.match(await text('#fileMsg'), /اتحفظت/);
 });
 
+test('a second upload shows which prices changed', async () => {
+  const data = JSON.parse(await readFile(FIXTURE, 'utf8'));
+  const p = data.items.find((i) => i.code === '101');
+  p.price = 56.1; p.cost = 44; // +10% price, higher cost
+  const file = join(await mkdtemp(join(tmpdir(), 'sd-')), 'new-prices.json');
+  await writeFile(file, JSON.stringify(data));
+  await page.setInputFiles('#file', file);
+  assert.ok(await until(async () => (await db('snapshots')).length === 2));
+  await page.click('[data-sec=sell]');
+  assert.match(await text('[data-tab=changes]'), /1/, 'tab shows one change');
+  await page.click('[data-tab=changes]');
+  const row = await text('#panel tbody tr');
+  assert.match(row, /Panadol/);
+  assert.match(row, /\+10%/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=morning]');
+  assert.match(await page.inputValue('#morningMsg'), /سعره اتغير/);
+});
+
+test('suppliers: best discount, a manual pick, and the order message for WhatsApp', async () => {
+  await page.click('[data-tab=reorder]');
+  for (const [name, phone, all] of [['مخزن الأمل', '01011111111', '5'], ['مخزن النور', '', '8']]) {
+    await page.fill('#supName', name);
+    await page.fill('#supPhone', phone);
+    await page.fill('#supAll', all);
+    await page.click('#supForm button[type=submit]');
+    await until(async () => (await page.locator('#supBox tbody tr').count()) > 0 && (await text('#supBox')).includes(name));
+  }
+  const settings = () => page.evaluate(() => window.__DB.members[0].pharmacies.settings);
+  assert.ok(await until(async () => (await settings()).suppliers?.length === 2), 'suppliers saved for the pharmacy');
+  const sel = page.locator('select[data-supfor="101"]');
+  const ids = Object.fromEntries((await settings()).suppliers.map((x) => [x.name, x.id]));
+  assert.equal(await sel.inputValue(), ids['مخزن النور'], 'biggest discount picked');
+  assert.match(await text('.orders .card b'), /مخزن النور/);
+  await sel.selectOption(ids['مخزن الأمل']);
+  assert.ok(await until(async () => (await settings()).supplierFor?.['101'] === ids['مخزن الأمل']));
+  assert.match(await text('.orders .card b'), /مخزن الأمل/);
+  await page.evaluate(() => { window.open = (u) => { window.__opened = u; }; });
+  await page.click('[data-wa="0"]');
+  const url = await page.evaluate(() => window.__opened);
+  assert.ok(url.startsWith('https://wa.me/201011111111?text='), url);
+  const msg = decodeURIComponent(url.split('text=')[1]);
+  assert.match(msg, /طلبية من صيدلية أحمد منصور \(الفرع الرئيسي\)/);
+  assert.match(msg, /Panadol Extra 24 tab: \d+/);
+});
+
 test('expenses save online, and queue offline until the connection is back', async () => {
   await page.click('[data-sec=money]');
   await page.click('[data-tab=expenses]');
@@ -100,6 +147,29 @@ test('expenses save online, and queue offline until the connection is back', asy
   const books = await text('#panel .card .ledger');
   assert.match(books, /المصروفات المتسجلة/);
   assert.match(books, /مسحوبات/);
+});
+
+test('editing an expense, and adding last month\'s fixed costs in one tap', async () => {
+  await page.click('[data-tab=expenses]');
+  await page.locator('#panel tr', { hasText: 'كهربا' }).locator('[data-editexp]').click();
+  assert.match(await text('#expForm h3'), /عدّل/);
+  assert.equal(await page.inputValue('#expAmount'), '1450');
+  await page.fill('#expAmount', '1500');
+  await page.click('#expForm button[type=submit]');
+  assert.ok(await until(async () => { const a = (await db('expenses')).map((e) => +e.amount); return a.includes(1500) && !a.includes(1450); }), 'edited, not duplicated');
+
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const iso = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-01`;
+  await page.selectOption('#expKind', 'rent');
+  await page.fill('#expAmount', '5000');
+  await page.fill('#expDate', iso);
+  await page.click('#expForm button[type=submit]');
+  await page.waitForSelector('#fixedCard');
+  assert.match(await text('#fixedCard'), /إيجار/);
+  await page.click('#addFixed');
+  assert.ok(await until(async () => (await db('expenses')).filter((e) => e.kind === 'rent').length === 2));
+  assert.equal(await page.locator('#fixedCard').count(), 0, 'nothing left to add');
 });
 
 test('market shortages, market prices and patient reminders', async () => {
@@ -152,15 +222,22 @@ test('opens offline with saved data even after the sign-in expired', async () =>
   await page.waitForSelector('#app:not([hidden])', { timeout: 8000 });
   assert.match(await text('#netChip'), /من غير نت/);
   assert.match(await text('#tiles'), /3 صنف/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=reorder]');
+  assert.match(await text('.orders .card b'), /مخزن الأمل/, 'suppliers available offline');
   await goOnline();
 });
 
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const sec of ['stock', 'money', 'sell', 'patients']) {
+  const tabs = ['reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  for (const tab of tabs) {
+    const sec = await page.evaluate((t) => ({ reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
+    if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
     const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-    assert.equal(over, 0, `section ${sec} scrolls sideways by ${over}px`);
+    assert.equal(over, 0, `${tab} scrolls sideways by ${over}px`);
   }
   await page.setViewportSize({ width: 1200, height: 900 });
 });

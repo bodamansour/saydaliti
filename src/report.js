@@ -1,7 +1,7 @@
 // "Money at risk" morning report — plain text, ready for WhatsApp. Pure function over analyze() output.
 const fmt = (n) => Math.round(Number.isFinite(n) ? n : 0).toLocaleString('en-US');
 
-export function morningReport(A, { pharmacyName = 'الصيدلية', date = new Date(), top = 5, shortages = [] } = {}) {
+export function morningReport(A, { pharmacyName = 'الصيدلية', date = new Date(), top = 5, shortages = [], priceChanged = 0 } = {}) {
   const riskVal = A.expiring.reduce((a, r) => a + r.atRisk * r.cost, 0);
   const deadVal = A.deadStock.reduce((a, r) => a + r.qty * r.cost, 0);
   const orderVal = A.reorder.reduce((a, r) => a + r.order * r.cost, 0);
@@ -43,7 +43,9 @@ export function morningReport(A, { pharmacyName = 'الصيدلية', date = new
     }
   }
 
-  if (!A.expiring.length && !A.reorder.length && !A.deadStock.length && !shortages.length) lines.push('', '✅ مفيش حاجة محتاجة تتعمل النهارده.');
+  if (priceChanged) lines.push('', `💲 ${priceChanged} صنف سعره اتغير في آخر تحديث للبيانات (التفاصيل في «أسعار اتغيرت»).`);
+
+  if (!A.expiring.length && !A.reorder.length && !A.deadStock.length && !shortages.length && !priceChanged) lines.push('', '✅ مفيش حاجة محتاجة تتعمل النهارده.');
   return lines.join('\n');
 }
 
