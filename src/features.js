@@ -61,10 +61,12 @@ export function parseTimes(text) {
   }
   return [...new Set(out)].sort();
 }
+export const DOSE_WINDOW_MIN = 90;
 const toMin = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
-// Which reminders should go out now. The job runs about once an hour, so a dose is due when its time
-// passed within the last hour and nothing was sent since. A refill reminder goes out the day before
+// Which reminders should go out now. The job runs about once an hour but GitHub can start it late,
+// so a dose is due when its time passed within the last 90 minutes and nothing was sent since.
+// (A late run still sends; a dose is never sent twice.) A refill reminder goes out the day before
 // the refill date (or any later day if it was missed), once per refill.
 export function dueReminders(reminders, now = new Date(), tz = 'Africa/Cairo') {
   const { date, minutes } = cairoClock(now, tz);
@@ -75,7 +77,7 @@ export function dueReminders(reminders, now = new Date(), tz = 'Africa/Cairo') {
     if (r.kind === 'dose') {
       for (const t of r.dose_times || []) {
         const diff = minutes - toMin(t);
-        if (diff < 0 || diff >= 60) continue;
+        if (diff < 0 || diff >= DOSE_WINDOW_MIN) continue;
         const doseAt = new Date(now.getTime() - diff * 60000);
         if (!last || last < new Date(doseAt.getTime() - 60000)) { due.push({ ...r, dueTime: t }); break; }
       }

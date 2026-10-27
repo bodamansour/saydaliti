@@ -1,0 +1,29 @@
+# Runs the calculation tests and the browser test on every pull request and on main,
+# so a mistake shows up before it is merged.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Calculation tests
+        run: npm test
+      - name: Browser for the dashboard test
+        run: npx playwright install --with-deps chromium
+      - name: Dashboard test (sign-in, branches, expenses, offline, phone size)
+        run: npm run e2e

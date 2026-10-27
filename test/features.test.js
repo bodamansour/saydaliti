@@ -55,9 +55,13 @@ test('dose reminder goes out once within the hour after its time', () => {
   assert.equal(dueReminders([r], cairo('2026-10-27T08:50:00')).length, 0);
   assert.equal(dueReminders([r], cairo('2026-10-27T09:05:00')).length, 1);
   assert.equal(dueReminders([r], cairo('2026-10-27T09:59:00')).length, 1);
-  assert.equal(dueReminders([r], cairo('2026-10-27T10:00:00')).length, 0);
+  assert.equal(dueReminders([r], cairo('2026-10-27T10:20:00')).length, 1, 'a late run still sends');
+  assert.equal(dueReminders([r], cairo('2026-10-27T10:31:00')).length, 0, 'too late');
   const sent = { ...r, last_sent_at: cairo('2026-10-27T09:05:00').toISOString() };
   assert.equal(dueReminders([sent], cairo('2026-10-27T09:40:00')).length, 0, 'not twice');
+  assert.equal(dueReminders([sent], cairo('2026-10-27T10:20:00')).length, 0, 'not twice on a late run');
+  const close = { ...r, dose_times: ['09:00', '10:00'], last_sent_at: cairo('2026-10-27T09:05:00').toISOString() };
+  assert.equal(dueReminders([close], cairo('2026-10-27T10:05:00'))[0].dueTime, '10:00', 'next dose an hour later');
   assert.equal(dueReminders([sent], cairo('2026-10-27T21:10:00')).length, 1, 'evening dose');
   assert.equal(dueReminders([{ ...r, active: false }], cairo('2026-10-27T09:05:00')).length, 0);
 });
