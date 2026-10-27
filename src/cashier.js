@@ -4,13 +4,14 @@ import { fromExport, startOfDay } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
-import { lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
+import { splitBill, customerBalances } from './accounts.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => (Number.isFinite(+n) ? +n : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const PAY = PAYMENTS.filter(([k]) => k !== 'credit'); // credit needs customer accounts (later)
+const PAY = PAYMENTS;
 
 // ---------- Device settings (this cashier PC only) ----------
 const DKEY = 'saydaliti-pos-v1';
@@ -32,9 +33,11 @@ let CART = [];              // [{ code, name, price, qty, discount }]
 let MODE = 'sale';          // 'sale' | 'return'
 let PAYMENT = 'cash';
 let LINK_BARCODE = null;
+let CUSTOMERS = [], CUST_PAYMENTS = [], CUST_READY = false; // migration 011
+let CUST = null;            // the customer on this bill
 
 const bkey = () => BRANCH ?? 'main';
-const K = { items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}` };
+const K = { items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}`, cust: () => `pos-cust:${SESS.pharmacy.id}` };
 const msg = (t, err = false) => { $('posMsg').innerHTML = err ? `<span class="err">${esc(t)}</span>` : esc(t); };
 const today = () => startOfDay();
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -89,6 +92,25 @@ function refreshItems() {
   ITEMS = liveData(BASE, UPLOADED_AT, { catalog: STOCK.catalog, purchases: STOCK.purchases.filter(mine), sales: branchSales(), moves: STOCK.moves.filter(mine) }).items;
   for (const c of STOCK.catalog) if (c.barcode && !BARCODES.has(c.barcode)) BARCODES.set(c.barcode, c.code);
 }
+// Customers on account and what they paid (migration 011). Missing table = feature off.
+async function loadCustomers() {
+  const cached = await kvGet(K.cust(), { customers: [], payments: [], ready: false });
+  let next = cached;
+  if (isOnline()) {
+    const [c, p] = await Promise.all([
+      SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).range(0, 4999),
+      SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).range(0, 9999),
+    ]);
+    if (!c.error && !p.error) next = { customers: c.data, payments: p.data, ready: true };
+    else if (c.error && !/fetch|network/i.test(c.error.message)) next = { customers: [], payments: [], ready: false };
+  }
+  const local = cached.customers.filter((x) => x.pending && !next.customers.some((y) => y.id === x.id));
+  next = { ...next, customers: [...next.customers, ...local] };
+  CUSTOMERS = next.customers; CUST_PAYMENTS = next.payments; CUST_READY = next.ready || local.length > 0;
+  await kvSet(K.cust(), next);
+}
+const owedBy = (id) => customerBalances(CUSTOMERS, SALES, CUST_PAYMENTS).find((c) => c.id === id)?.owed ?? 0;
+
 const stockOf = (code) => ITEMS.find((i) => i.code === code)?.qty ?? 0;
 
 async function loadBarcodes() {
@@ -160,9 +182,15 @@ function renderCart() {
   $('tDisc').textContent = fmt(t.discount);
   $('tTotal').textContent = fmt(t.total);
   $('tLabel').textContent = MODE === 'return' ? 'هيترجع للعميل' : 'المطلوب';
-  const cash = PAYMENT === 'cash';
+  const sp = splitBill(t.total, CUST, PAYMENT);
+  $('creditRow').hidden = !sp.credit;
+  $('nowRow').hidden = !sp.credit || !sp.now;
+  $('creditLabel').textContent = CUST?.kind === 'insurance' ? `على شركة التأمين (${+CUST.coverage_pct}%)` : 'على حساب العميل';
+  $('tCredit').textContent = fmt(sp.credit);
+  $('tNow').textContent = fmt(sp.now);
+  const cash = PAYMENT === 'cash' && sp.now > 0;
   $('paidWrap').hidden = !cash || MODE === 'return';
-  const ch = cash && MODE === 'sale' && $('paid').value !== '' ? changeDue(t.total, +$('paid').value) : null;
+  const ch = cash && MODE === 'sale' && $('paid').value !== '' ? changeDue(sp.now, +$('paid').value) : null;
   $('tChange').textContent = MODE === 'return' || !cash ? '—' : $('paid').value === '' ? '—' : ch === null ? 'المدفوع أقل' : fmt(ch);
   $('checkout').textContent = MODE === 'return' ? 'سجّل المرتجع واطبع (F2)' : 'ادفع واطبع (F2)';
   $('checkout').disabled = !CART.length;
@@ -170,7 +198,7 @@ function renderCart() {
 const totals = () => cartTotals(CART, +$('extraDisc').value || 0);
 
 function newBill() {
-  CART = []; $('extraDisc').value = 0; $('paid').value = ''; PAYMENT = 'cash'; setMode('sale');
+  CART = []; $('extraDisc').value = 0; $('paid').value = ''; PAYMENT = 'cash'; setCustomer(null); setMode('sale');
   renderPay(); renderCart(); focusSearch();
 }
 function setMode(m) {
@@ -184,6 +212,46 @@ function renderPay() {
   $('payMethods').innerHTML = PAY.map(([k, t]) => `<button class="btn ${k === PAYMENT ? 'sel' : ''}" data-pay="${k}" aria-pressed="${k === PAYMENT}">${t}</button>`).join('');
 }
 const focusSearch = () => setTimeout(() => $('q').focus(), 0);
+
+// ---------- Customer on the bill ----------
+function setCustomer(c) {
+  CUST = c;
+  $('custChosen').hidden = !c;
+  $('custSearch').hidden = !!c;
+  $('claimWrap').hidden = c?.kind !== 'insurance';
+  $('claimNo').value = '';
+  if (c) {
+    $('custName').textContent = c.name;
+    const owed = owedBy(c.id);
+    $('custInfo').textContent = c.kind === 'insurance' ? `تأمين ${+c.coverage_pct}%` : owed ? `عليه ${fmt(owed)}` : '';
+    if (c.kind !== 'insurance' && PAYMENT === 'cash') PAYMENT = 'credit';
+  } else if (PAYMENT === 'credit') PAYMENT = 'cash';
+  $('custQ').value = ''; $('custResults').hidden = true;
+  renderPay(); renderCart();
+}
+function customerSearch() {
+  const q = normalizeText($('custQ').value);
+  const box = $('custResults');
+  if (!q) { box.hidden = true; return; }
+  const list = CUSTOMERS.filter((c) => c.active !== false && (normalizeText(c.name).includes(q) || String(c.phone || '').includes(q))).slice(0, 8);
+  box.hidden = false;
+  box.innerHTML = list.map((c, i) => `<button type="button" class="res ${i === 0 ? 'first' : ''}" data-cust="${esc(c.id)}"><span>${esc(c.name)}</span><span class="muted">${c.kind === 'insurance' ? `تأمين ${+c.coverage_pct}%` : esc(c.phone || '')}</span></button>`).join('')
+    + `<button type="button" class="res" data-newcust="1"><span>➕ عميل جديد «${esc($('custQ').value.trim())}»</span></button>`;
+}
+async function addCustomer(e) {
+  e.preventDefault();
+  const name = $('ncName').value.trim();
+  if (!name) { $('ncMsg').textContent = 'اكتب الاسم.'; return; }
+  const kind = $('ncKind').value;
+  const row = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, name, phone: $('ncPhone').value.trim() || null, kind, coverage_pct: kind === 'insurance' ? Math.max(0, Math.min(100, +$('ncCov').value || 0)) : 0, created_by: SESS.user.id };
+  CUSTOMERS.push({ ...row, pending: true });
+  await kvSet(K.cust(), { customers: CUSTOMERS, payments: CUST_PAYMENTS, ready: true });
+  await enqueue('insert', { table: 'customers', row });
+  CUST_READY = true;
+  $('custDlg').close();
+  setCustomer(CUSTOMERS[CUSTOMERS.length - 1]);
+  sync();
+}
 
 // ---------- Search / scan ----------
 function showResults(list, box = $('results'), attr = 'pick') {
@@ -254,9 +322,13 @@ async function linkBarcode(itemCode) {
 async function checkout() {
   if (!CART.length) return;
   const t = totals();
-  const cash = PAYMENT === 'cash' && MODE === 'sale';
-  const paid = cash ? ($('paid').value === '' ? t.total : +$('paid').value) : t.total;
-  if (cash && changeDue(t.total, paid) === null) { msg('المدفوع أقل من المطلوب.', true); $('paid').focus(); return; }
+  if (PAYMENT === 'credit' && !CUST) { msg('الآجل محتاج عميل: اختاره أو ضيفه من خانة العميل.', true); $('custQ').focus(); return; }
+  const sp = splitBill(t.total, CUST, PAYMENT);
+  const cash = PAYMENT === 'cash' && MODE === 'sale' && sp.now > 0;
+  const paid = cash ? ($('paid').value === '' ? sp.now : +$('paid').value) : sp.now;
+  if (cash && changeDue(sp.now, paid) === null) { msg('المدفوع أقل من المطلوب.', true); $('paid').focus(); return; }
+  if (MODE === 'sale' && CUST && sp.credit && +CUST.credit_limit > 0 && owedBy(CUST.id) + sp.credit > +CUST.credit_limit
+    && !confirm(`«${CUST.name}» هيعدّي حد الآجل بتاعه (${fmt(CUST.credit_limit)} ج). تكمّل؟`)) return;
   const now = new Date();
   const dayKey = `saydaliti-pos-count-${isoDay(now)}`;
   let n = 1; try { n = (+localStorage.getItem(dayKey) || 0) + 1; localStorage.setItem(dayKey, String(n)); } catch { /* blocked */ }
@@ -265,14 +337,17 @@ async function checkout() {
     id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
     number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
     lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0 })),
-    total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT, created_by: SESS.user.id,
+    total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
+    // Only sent when a customer is chosen, so receipts still upload before database update 011.
+    ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
   };
+  const custName = CUST?.name;
   SALES.unshift({ ...sale, pending: true });
   await kvSet(K.sales(), SALES);
   await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
   try { refreshItems(); } catch (err) { console.error(err); }
   if (dev.autoPrint) printReceipt(sale);
-  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(t.total, paid))} ج` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
+  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
   newBill();
   renderDay();
   sync();
@@ -287,7 +362,9 @@ function receiptHtml(sale) {
     <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
     <div class="rc-tot">${sale.discount ? `<div><span>الخصم</span><span class="n">${fmt(sale.discount)}</span></div>` : ''}
     <div class="big"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(sale.total))}</span></div>
-    ${!ret && sale.payment === 'cash' && sale.paid ? `<div><span>المدفوع</span><span class="n">${fmt(sale.paid)}</span></div><div><span>الباقي</span><span class="n">${fmt(sale.paid - sale.total)}</span></div>` : ''}
+    ${sale.customer_id ? `<div><span>العميل</span><span>${esc(CUSTOMERS.find((c) => c.id === sale.customer_id)?.name ?? '')}</span></div>${sale.claim_no ? `<div><span>رقم الموافقة</span><span class="n">${esc(sale.claim_no)}</span></div>` : ''}` : ''}
+    ${sale.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(sale.credit))}</span></div>` : ''}
+    ${!ret && sale.payment === 'cash' && sale.paid ? `<div><span>المدفوع</span><span class="n">${fmt(sale.paid)}</span></div><div><span>الباقي</span><span class="n">${fmt(sale.paid - (sale.total - (sale.credit || 0)))}</span></div>` : ''}
     <div><span>الدفع</span><span>${esc(PAYMENTS.find(([k]) => k === sale.payment)?.[1] ?? '')}</span></div></div>
     <div class="rc-foot">${dev.footer ? `<div>${esc(dev.footer)}</div>` : ''}<div>ألف سلامة عليك</div></div>`;
 }
@@ -348,6 +425,9 @@ async function sync() {
   let itemsDone = false;
   for (const c of STOCK.catalog) if (c.pending && !waiting.has(c.id)) { c.pending = false; itemsDone = true; }
   if (itemsDone) await kvSet(K.stock(), STOCK);
+  let custDone = false;
+  for (const c of CUSTOMERS) if (c.pending && !waiting.has(c.id)) { c.pending = false; custDone = true; }
+  if (custDone) await kvSet(K.cust(), { customers: CUSTOMERS, payments: CUST_PAYMENTS, ready: true });
   updateNet();
 }
 onOutboxChange(updateNet);
@@ -385,7 +465,8 @@ async function boot() {
 }
 async function reload() {
   await loadItems();
-  await Promise.all([loadBarcodes(), loadSales(), loadStock()]);
+  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers()]);
+  $('custBox').hidden = !CUST_READY; // customers need database update 011
   refreshItems();
   if (!ITEMS.length) msg('لسه مفيش أصناف للفرع ده. صاحب الصيدلية يرفع دليل الأصناف من اللوحة، أو يضيف الأصناف من «كل الأصناف».', true);
   else msg(`${ITEMS.length} صنف${UPLOADED_AT ? ` · آخر رفع من برنامج الصيدلية: ${new Date(UPLOADED_AT).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}`);
@@ -400,6 +481,16 @@ $('linkQ').addEventListener('input', () => showResults(lookup($('linkQ').value, 
 $('linkResults').addEventListener('click', (e) => { const b = e.target.closest('[data-link]'); if (b) linkBarcode(b.dataset.link); });
 $('unknownCancel').addEventListener('click', () => { $('unknownDlg').close(); focusSearch(); });
 $('newItemForm').addEventListener('submit', addNewItem);
+$('custQ').addEventListener('input', customerSearch);
+$('custQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('custResults').querySelector('.res')?.click(); } });
+$('custResults').addEventListener('click', (e) => {
+  const c = e.target.closest('[data-cust]'); if (c) { setCustomer(CUSTOMERS.find((x) => x.id === c.dataset.cust)); focusSearch(); return; }
+  if (e.target.closest('[data-newcust]')) { $('ncName').value = $('custQ').value.trim(); $('ncPhone').value = ''; $('ncKind').value = 'person'; $('ncCovWrap').hidden = true; $('ncMsg').textContent = ''; $('custDlg').showModal(); $('ncName').focus(); }
+});
+$('custClear').addEventListener('click', () => { setCustomer(null); focusSearch(); });
+$('ncKind').addEventListener('change', () => { $('ncCovWrap').hidden = $('ncKind').value !== 'insurance'; });
+$('custForm').addEventListener('submit', addCustomer);
+$('custDlgCancel').addEventListener('click', () => $('custDlg').close());
 $('cart').addEventListener('click', (e) => {
   const t = e.target.closest('button'); if (!t) return;
   const i = +(t.dataset.inc ?? t.dataset.dec ?? t.dataset.del);
@@ -414,7 +505,11 @@ $('cart').addEventListener('change', (e) => {
   if (e.target.dataset.disc !== undefined) CART[i].discount = Math.max(0, +e.target.value || 0);
   renderCart();
 });
-$('payMethods').addEventListener('click', (e) => { const b = e.target.closest('[data-pay]'); if (!b) return; PAYMENT = b.dataset.pay; renderPay(); renderCart(); });
+$('payMethods').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pay]'); if (!b) return;
+  PAYMENT = b.dataset.pay; renderPay(); renderCart();
+  if (PAYMENT === 'credit' && !CUST) { msg('الآجل محتاج عميل: اكتب اسمه في خانة العميل.'); $('custQ').focus(); }
+});
 $('paid').addEventListener('input', renderCart);
 $('extraDisc').addEventListener('input', renderCart);
 $('checkout').addEventListener('click', checkout);
@@ -430,7 +525,7 @@ $('autoPrint').addEventListener('change', (e) => { dev.autoPrint = e.target.chec
 $('footer').addEventListener('input', (e) => { dev.footer = e.target.value; saveDev(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
-  if ($('unknownDlg').open) return;
+  if ($('unknownDlg').open || $('custDlg').open) return;
   if (e.key === 'F2') { e.preventDefault(); checkout(); }
   if (e.key === 'Escape') { e.preventDefault(); if (!$('results').hidden) { showResults([]); $('q').value = ''; } else if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) newBill(); }
 });

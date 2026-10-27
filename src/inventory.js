@@ -109,14 +109,18 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       if (LOSS_REASON[row.kind] && qty < 0) out.losses.push({ date: dayOf(row.happened_at), code: it.code, qty: -qty, reason: LOSS_REASON[row.kind] });
     } else {
       const sign = row.kind === 'return' ? -1 : 1;
-      for (const l of row.lines || []) {
+      const lines = (row.lines || []).filter((l) => +l.qty);
+      // A discount on the whole receipt is shared over its lines by their value, so reports see it.
+      const gross = lines.reduce((a, l) => a + (+l.price || 0) * +l.qty - (+l.discount || 0), 0);
+      const extra = Math.max(0, (+row.discount || 0) - lines.reduce((a, l) => a + (+l.discount || 0), 0));
+      for (const l of lines) {
         const code = String(l.code);
         const it = get(code, l);
-        const qty = +l.qty || 0;
-        if (!qty) continue;
+        const qty = +l.qty;
         if (sign > 0) takeOut(it, qty); else putBack(it, qty);
-        const each = qty ? (+l.price || 0) - (+l.discount || 0) / qty : 0;
-        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: round2(each), ...(+l.discount ? { discount: sign * +l.discount } : {}) });
+        const net = (+l.price || 0) * qty - (+l.discount || 0);
+        const off = round2((+l.discount || 0) + (gross > 0 ? (extra * net) / gross : 0));
+        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: +l.price || 0, ...(off ? { discount: sign * off } : {}) });
       }
     }
   }
@@ -155,4 +159,40 @@ export function newItemCode(barcode, taken = new Set()) {
   let c;
   do { c = `S${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 36).toString(36).toUpperCase()}`; } while (taken.has(c));
   return c;
+}
+
+// ---------- Stock count and write-offs ----------
+export const MOVE_KINDS = [
+  ['count', 'جرد'],
+  ['damaged', 'تالف / مكسور'],
+  ['expired', 'منتهي الصلاحية'],
+  ['supplier_return', 'مرتجع للمورد'],
+  ['transfer', 'تحويل بين الفروع'],
+];
+export const moveLabel = (k) => MOVE_KINDS.find(([v]) => v === k)?.[1] ?? k;
+
+// What was counted on the shelf → the adjustment for each item whose count differs from the record.
+export function countDifferences(counts, items) {
+  const byCode = new Map(items.map((i) => [String(i.code), i]));
+  const out = [];
+  for (const [code, v] of Object.entries(counts)) {
+    if (v === '' || v === null || v === undefined || !Number.isFinite(+v) || +v < 0) continue;
+    const it = byCode.get(String(code));
+    const now = it ? it.qty : 0;
+    const diff = round2(+v - now);
+    if (diff) out.push({ code: String(code), name: it?.name ?? code, was: now, counted: +v, qty: diff });
+  }
+  return out;
+}
+
+// Boxes still on the shelf whose expiry date has passed, per item.
+export function expiredOnShelf(items, today) {
+  const t = today.getTime();
+  const out = [];
+  for (const it of items) {
+    const list = it.batches?.length ? it.batches : [{ qty: it.qty, expiry: it.expiry ?? null }];
+    const qty = list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).reduce((a, b) => a + b.qty, 0);
+    if (qty > 0) out.push({ code: it.code, name: it.name, qty, cost: it.cost, expiry: list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).sort((a, b) => a.expiry - b.expiry)[0].expiry });
+  }
+  return out.sort((a, b) => b.qty * b.cost - a.qty * a.cost);
 }

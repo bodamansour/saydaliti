@@ -210,3 +210,5 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 /* Five sections on a phone: three on the first row, two on the second, nothing cut off. */
 @media (max-width: 520px) { .sections { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sec { padding: 8px 4px; font-size: .92rem; } }
+/* .card sets a display; a closed dialog must still stay hidden. */
+dialog:not([open]) { display: none; }

@@ -49,6 +49,13 @@
         <div><span>خصم على الفاتورة</span><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"></div>
         <div><span>الخصم كله</span><span class="n" id="tDisc">0.00</span></div>
         <div class="tot big"><span id="tLabel">المطلوب</span><span class="n" id="tTotal">0.00</span></div>
+        <div id="creditRow" hidden><span id="creditLabel">على حساب العميل</span><span class="n" id="tCredit">0.00</span></div>
+        <div id="nowRow" hidden><span>يدفع دلوقتي</span><span class="n" id="tNow">0.00</span></div>
+      </div>
+      <div class="stack" id="custBox">
+        <div class="row" id="custChosen" hidden style="justify-content:space-between"><span>العميل: <b id="custName"></b> <span class="muted" id="custInfo"></span></span><button class="btn" type="button" id="custClear">شيل العميل</button></div>
+        <div class="pos-search" id="custSearch"><input id="custQ" type="search" autocomplete="off" placeholder="عميل آجل أو تأمين (اختياري)…" aria-label="العميل"><div id="custResults" class="results" hidden></div></div>
+        <label id="claimWrap" hidden>رقم الموافقة / الروشتة (اختياري)<input id="claimNo" maxlength="60" autocomplete="off"></label>
       </div>
       <div class="pay row" id="payMethods"></div>
       <label id="paidWrap">المدفوع<input id="paid" class="n big-in" type="number" min="0" step="0.5" inputmode="decimal"></label>
@@ -87,6 +94,17 @@
     <label>اسم الصنف<input id="niName" maxlength="160" autocomplete="off"></label>
     <label>سعر البيع<input id="niPrice" type="number" min="0" step="0.25" inputmode="decimal"></label>
     <div class="row"><button class="btn primary" type="submit">ضيفه للفاتورة</button><button class="btn" type="button" id="unknownCancel">إلغاء</button><span class="note" id="niMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="custDlg" class="card">
+  <form id="custForm" class="stack" novalidate>
+    <h3>عميل جديد</h3>
+    <label>الاسم<input id="ncName" maxlength="120" autocomplete="off"></label>
+    <label>الموبايل (اختياري)<input id="ncPhone" type="tel" inputmode="tel" maxlength="20"></label>
+    <label>النوع<select id="ncKind"><option value="person">عميل (بيشتري آجل)</option><option value="insurance">شركة تأمين / تعاقد</option></select></label>
+    <label id="ncCovWrap" hidden>الشركة بتدفع كام % من الفاتورة<input id="ncCov" type="number" min="0" max="100" step="1" inputmode="numeric" value="80"></label>
+    <div class="row"><button class="btn primary" type="submit">ضيفه</button><button class="btn" type="button" id="custDlgCancel">إلغاء</button><span class="note" id="ncMsg" role="status"></span></div>
   </form>
 </dialog>
 
