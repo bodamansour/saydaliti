@@ -48,7 +48,7 @@ jobs:
       - name: Get packages
         run: |
           flutter pub get
-          grep -E "^  (webview_flutter|webview_flutter_android|file_selector|url_launcher):" -A3 pubspec.lock | grep -E "^  [a-z_]+:|version:" | paste - - | sed 's/^/::notice::/'
+          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(webview_flutter|webview_flutter_android|file_selector|url_launcher):$/) print "::notice::" p " " $2 }' pubspec.lock
       - name: App icon
         run: dart run flutter_launcher_icons
       - name: Build APK
