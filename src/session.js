@@ -42,12 +42,33 @@ async function loadMembership(userId, email) {
 // → { mode: 'signed-out', client }
 // → { mode: 'no-pharmacy', client, user }
 // → { mode: 'member', client, user, role, pharmacy, branches, branchesReady, offline }
-export async function getSession() {
+// The sign-in library keeps one lock shared by every tab of the app and waits for it with no time
+// limit. If another tab holds it (stuck, asleep, or still loading) sign-in "succeeds" but the page
+// never moves on. Wait for the lock 3 seconds at most, then carry on.
+async function lockWithTimeout(name, acquireTimeout, fn) {
+  if (typeof navigator === 'undefined' || !navigator.locks?.request) return fn();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), acquireTimeout > 0 ? Math.min(acquireTimeout, 3000) : 3000);
+  try {
+    return await navigator.locks.request(name, { mode: 'exclusive', signal: ctrl.signal }, async () => { clearTimeout(timer); return fn(); });
+  } catch (e) {
+    if (e?.name === 'AbortError') return fn();
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+const withTimeout = (promise, ms, message) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
+
+export function getSession() {
+  return withTimeout(loadSession(), 20000, 'الدخول اتأخر أكتر من اللازم. اتأكد من النت ودوس «جرّب تاني». لو اتكررت، اقفل أي صفحة تانية مفتوحة للبرنامج.');
+}
+
+async function loadSession() {
   const cfg = await loadConfig();
   if (!cfg.configured) return { mode: 'local' };
   if (!client) {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
-    client = createClient(cfg.url, cfg.key);
+    client = createClient(cfg.url, cfg.key, { auth: { lock: lockWithTimeout } });
   }
   const { data: { session }, error: authError } = await client.auth.getSession();
   const saved = cache.get(MEM);

@@ -284,7 +284,11 @@ addEventListener('offline', updateNet);
 // ---------- Boot ----------
 async function boot() {
   $('gate').hidden = false; $('pos').hidden = true;
-  try { SESS = await getSession(); } catch (err) { $('auth').innerHTML = `<p class="err">${esc(err.message)}</p>`; return; }
+  try { SESS = await getSession(); } catch (err) {
+    $('auth').innerHTML = `<p class="err">${esc(err.message)}</p><button class="btn primary" type="button" id="retryBoot">جرّب تاني</button>`;
+    $('retryBoot').addEventListener('click', () => location.reload());
+    return;
+  }
   if (SESS.mode === 'local') { $('auth').innerHTML = '<p>البرنامج مش متوصل بقاعدة البيانات.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);

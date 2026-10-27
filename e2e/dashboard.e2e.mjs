@@ -286,7 +286,7 @@ test('opens offline with saved data even after the sign-in expired', async () =>
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 8000 });
   assert.match(await text('#netChip'), /من غير نت/);
-  assert.match(await text('#tiles'), /3 صنف/);
+  assert.ok(await until(async () => /3 صنف/.test(await text('#tiles'))), 'saved stock shows offline');
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=reorder]');
   assert.match(await text('.orders .card b'), /مخزن الأمل/, 'suppliers available offline');
