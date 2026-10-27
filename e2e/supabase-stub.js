@@ -24,6 +24,7 @@ function builder(table) {
   const run = () => {
     DB.calls.push({ table, op: q.op }); persist();
     if (window.__no008 && FEATURE_TABLES.includes(table)) return { data: null, error: { message: `relation "public.${table}" does not exist` } };
+    if (window.__no009 && table.startsWith('pos_')) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` } };
     DB[table] ||= [];
     const match = (r) => q.filters.every(([k, v, op]) => (op === 'gte' ? r[k] >= v : r[k] === v));
     if (q.op === 'upsert') {
