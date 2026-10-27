@@ -202,7 +202,12 @@ export function toExport(data) {
   const t = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim() : v);
   const items = [], batches = [];
   for (const i of data.items) {
-    items.push({ code: t(i.code), name: t(i.name), category: t(i.category), owner: t(i.owner), cost: i.cost, price: i.price, qty: i.qty, expiry: iso(i.expiry) });
+    // Empty fields are left out: a full item list from the pharmacy program can be 60,000 items.
+    const row = { code: t(i.code), name: t(i.name), category: t(i.category), cost: i.cost, price: i.price };
+    if (i.owner && i.owner !== UNASSIGNED) row.owner = t(i.owner);
+    if (i.qty && !i.batches?.length) row.qty = i.qty;
+    if (i.expiry && !i.batches?.length) row.expiry = iso(i.expiry);
+    items.push(row);
     for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry) });
   }
   const sales = data.sales.map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty,

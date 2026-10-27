@@ -40,7 +40,7 @@
   <div class="bar">
     <label class="owner" id="branchWrap">الفرع<select id="branchSel"></select></label>
     <label class="owner" id="ownerWrap" hidden>بضاعة مين؟<select id="ownerSel"></select></label>
-    <label class="btn primary" for="file" id="uploadBtn">ارفع بيانات الفرع<input id="file" type="file" accept=".xlsx,.xls,.csv,.json" multiple hidden></label>
+    <label class="btn primary" for="file" id="uploadBtn">ارفع بيانات الفرع<input id="file" type="file" accept=".xlsx,.xls,.csv,.json,.gen,.bak" multiple hidden></label>
   </div>
   <p class="note" id="fileMsg" role="status"></p>
 
@@ -118,7 +118,8 @@
 
   <details class="help">
     <summary>شكل الملفات المطلوبة من برنامج الصيدلية</summary>
-    <p>ملف الأصناف (Excel أو CSV) فيه الأعمدة دي، بالعربي أو الإنجليزي:
+    <p><b>أسهل طريقة:</b> ارفع ملف الباك اب بتاع برنامج المتحدة (Genius) زي ما هو (<code>.Gen</code>)، والبرنامج بيقرا منه كل الأصناف والرصيد والصلاحية والمبيعات والمشتريات لوحده، من غير SQL Server ومن غير باسورد الباك اب. الملف بيتقري على الجهاز، ومش بيترفع كله.</p>
+    <p>أو ملف الأصناف (Excel أو CSV) فيه الأعمدة دي، بالعربي أو الإنجليزي:
       <code>الكود</code> <code>الصنف</code> <code>النوع</code> (دواء / تجميل / مستلزمات) <code>سعر الشراء</code> <code>سعر البيع</code> <code>الكمية</code> <code>الصلاحية</code>، و<code>الشريك</code> لو البضاعة ليها أكتر من صاحب.</p>
     <p>وملف المبيعات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code>، ولو موجود <code>السعر</code> اللي اتباع بيه فعلاً و<code>الخصم</code>. وملف المشتريات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>سعر الشراء</code>. وملف الهالك: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>السبب</code>. ممكن يبقوا شيتات في ملف واحد. <b>متحطش أسماء أو أرقام زباين.</b></p>
     <hr>
