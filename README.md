@@ -16,6 +16,7 @@
 
 ```bash
 npm test      # الحسابات
+npm run e2e   # تجربة اللوحة في متصفح (أول مرة: npx playwright install chromium)
 npm run dev   # http://localhost:3000
 ```
 
@@ -50,6 +51,9 @@ npm run dev   # http://localhost:3000
 
 ## النشر (Vercel + Supabase)
 
+- **مهم:** في Supabase ← Authentication ← URL Configuration، لازم **Site URL** يبقى لينك الموقع (مثلاً `https://saydaliti-ivory.vercel.app`)، وإلا لينك تأكيد الإيميل للحسابات الجديدة هيفتح على عنوان غلط.
+- الخروج من البرنامج بيمسح كل بيانات الصيدلية المحفوظة على الجهاز (حتى بيانات المرضى)، ولو فيه حاجات لسه ماترفعتش بيحذّرك الأول.
+
 - قاعدة البيانات: `supabase/migrations/` (الصيدليات، الفروع، الأعضاء، الموظفين، الحضور، أكواد الدعوة، المصروفات). كل الصلاحيات بتتأكد جوه قاعدة البيانات (RLS). الفروع والمصروفات محتاجين `007_branches_expenses.sql`، ومن غيره اللوحة بتشتغل بفرع واحد ومن غير مصروفات.
 - متغيرين في Vercel (Project → Settings → Environment Variables): `SUPABASE_URL` و`SUPABASE_PUBLISHABLE_KEY`.
 - من غيرهم، صفحة الحضور بتشتغل كتجربة على الجهاز بس.
@@ -78,5 +82,21 @@ npm run dev   # http://localhost:3000
 1. قالبين في Meta (لغة Arabic، نوع Utility):
    - `saydaliti_dose`: `أهلاً {{1}}، تذكير من {{2}}: ده ميعاد {{3}}. ألف سلامة عليك.`
    - `saydaliti_refill`: `أهلاً {{1}}، {{3}} قرب يخلص. تحب {{2}} تجهزهولك؟ رد على الرسالة دي ونجهزه.`
-2. على GitHub (Settings ← Secrets and variables ← Actions): `SITE_URL` (لينك الموقع) و`CRON_SECRET` (نفس قيمة Vercel). الملف `.github/workflows/reminders.yml` بيشغّل `/api/reminders` كل ساعة، لأن Vercel المجاني بيسمح بمهام يومية بس.
+2. على GitHub (Settings ← Secrets and variables ← Actions): `SITE_URL` (لينك الموقع) و`CRON_SECRET` (نفس قيمة Vercel). الملف `.github/workflows/reminders.yml` بيشغّل `/api/reminders` كل ساعة، لأن Vercel المجاني بيسمح بمهام يومية بس. وVercel كمان بيشغّله مرة كل يوم (`vercel.json`) احتياطي، عشان تذكير تجديد الدوا ما يقفش لو GitHub وقف. وكل يوم المهمة بتشغّل نفسها من تاني عن طريق GitHub، لأن GitHub بيوقف المهام المتكررة في المستودعات العامة بعد 60 يوم من غير تعديلات. جرعة الدوا بتتبعت لحد ساعة ونص بعد ميعادها لو GitHub اتأخر، ومش بتتبعت مرتين.
 3. قواعد البيانات: `supabase/migrations/008_shortages_prices_reminders.sql` (محتاج `007` قبله).
+
+## مفتاح توقيع أبلكيشن أندرويد (مرة واحدة)
+
+أندرويد بيسطّب التحديث فوق الأبلكيشن القديم بس لو الاتنين متوقّعين بنفس المفتاح. من غير المفتاح ده، كل نسخة جديدة محتاجة تمسح القديمة الأول.
+
+على الكمبيوتر (محتاج Java، موجودة مع Android Studio أو Flutter):
+```powershell
+keytool -genkeypair -v -keystore saydaliti.jks -keyalg RSA -keysize 2048 -validity 10000 -alias saydaliti
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("saydaliti.jks")) | Set-Clipboard
+```
+وبعدين على GitHub (Settings ← Secrets and variables ← Actions ← New repository secret) ضيف 3 أسرار:
+- `ANDROID_KEYSTORE_BASE64`: الصق اللي اتنسخ.
+- `ANDROID_KEYSTORE_PASSWORD`: كلمة السر اللي كتبتها لـ keytool.
+- `ANDROID_KEY_ALIAS`: `saydaliti`
+
+احتفظ بملف `saydaliti.jks` وكلمة السر في مكان آمن: لو ضاعوا، التحديثات الجاية مش هتتسطب فوق الأبلكيشن الموجود. بعد ما تضيفهم، امسح الأبلكيشن القديم مرة أخيرة ونزّل الجديد، وبعد كده كل تحديث هيتسطب فوقه. رقم الإصدار بيزيد لوحده مع كل نسخة.

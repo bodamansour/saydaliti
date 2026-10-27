@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test", "dev": "npx --yes serve -l 3000 ." }
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "e2e": "node --test e2e/dashboard.e2e.mjs",
+    "dev": "npx --yes serve -l 3000 ."
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
 }

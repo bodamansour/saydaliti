@@ -55,7 +55,7 @@ jobs:
         run: |
           flutter --version | head -1 | sed 's/^/::notice::/'
           set +e
-          flutter build apk --release --dart-define=SITE_URL=https://saydaliti-ivory.vercel.app 2>&1 | tee build.log
+          flutter build apk --release --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }} --dart-define=SITE_URL=https://saydaliti-ivory.vercel.app 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             # Surface the reason as annotations (readable on the run page and through the API).
@@ -64,6 +64,26 @@ jobs:
           exit $code
       - name: Name the file
         run: cp build/app/outputs/flutter-apk/app-release.apk ../saydaliti.apk
+
+      # Android installs an update over the old app only when both are signed with the same key.
+      # The key comes from three repository secrets (see README, "مفتاح توقيع أبلكيشن أندرويد").
+      # Without them every build gets a throwaway key, so each update needs an uninstall first.
+      - name: Sign with the app key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KS_ALIAS" ]; then
+            echo "::warning::No app signing key in the repository secrets yet, so this APK will not install over an older version (uninstall first). See README."
+            exit 0
+          fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/app.jks"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/app.jks" --ks-pass env:KS_PASS --key-pass env:KS_PASS --ks-key-alias "$KS_ALIAS" --out ../signed.apk ../saydaliti.apk
+          rm -f "$RUNNER_TEMP/app.jks"
+          mv ../signed.apk ../saydaliti.apk
+          "$BT/apksigner" verify ../saydaliti.apk && echo "::notice::Signed with the app key."
 
       # On a pull request the APK is only kept as a build file, to check that it builds.
       - name: Keep the APK (pull request)
@@ -82,6 +102,6 @@ jobs:
           body: |
             نزّل `saydaliti.apk` على الموبايل وافتحه عشان يتسطب.
             لو الموبايل سأل، اسمح بتسطيب التطبيقات من المتصفح أو مدير الملفات.
-            آخر تحديث: ${{ github.sha }}
+            الإصدار: 1.0.${{ github.run_number }}
           files: saydaliti.apk
           make_latest: true
