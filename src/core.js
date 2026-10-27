@@ -197,15 +197,18 @@ export function fromExport(json) {
 // Inverse of fromExport: app data → plain JSON (dates as yyyy-mm-dd), for saving a shared snapshot.
 export function toExport(data) {
   const iso = (dt) => (dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}` : null);
+  // Exports from pharmacy programs sometimes carry invisible control characters (a NUL byte in a
+  // name, say). The database refuses the whole upload over one of them, so they are dropped here.
+  const t = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim() : v);
   const items = [], batches = [];
   for (const i of data.items) {
-    items.push({ code: i.code, name: i.name, category: i.category, owner: i.owner, cost: i.cost, price: i.price, qty: i.qty, expiry: iso(i.expiry) });
-    for (const b of i.batches || []) batches.push({ code: i.code, qty: b.qty, expiry: iso(b.expiry) });
+    items.push({ code: t(i.code), name: t(i.name), category: t(i.category), owner: t(i.owner), cost: i.cost, price: i.price, qty: i.qty, expiry: iso(i.expiry) });
+    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry) });
   }
-  const sales = data.sales.map((x) => ({ code: x.code, date: iso(x.date), qty: x.qty,
+  const sales = data.sales.map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty,
     amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}) }));
-  const purchases = (data.purchases || []).map((x) => ({ code: x.code, date: iso(x.date), qty: x.qty, cost: x.cost }));
-  const losses = (data.losses || []).map((x) => ({ code: x.code, date: iso(x.date), qty: x.qty, reason: x.reason }));
+  const purchases = (data.purchases || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, cost: x.cost }));
+  const losses = (data.losses || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, reason: t(x.reason) }));
   return { items, batches, sales, purchases, losses };
 }
 

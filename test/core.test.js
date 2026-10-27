@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  simplifiedRate, partnerSummary, ledger, UNASSIGNED, profitAt, breakEven, targetFloor, suggestOffer, analyze, mapRow, toDate, parseSheet, DAY,
+  simplifiedRate, partnerSummary, ledger, UNASSIGNED, profitAt, breakEven, targetFloor, suggestOffer, analyze, mapRow, toDate, parseSheet, DAY, toExport,
 } from '../src/core.js';
 
 const today = new Date(2026, 9, 24); // 24 Oct 2026, local midnight
@@ -225,4 +225,13 @@ test('toExport → fromExport keeps the numbers (shared snapshot round trip)', a
   const a1 = analyze(data, {}, today).rows.map((r) => [r.code, r.qty, r.atRisk, r.order]);
   const a2 = analyze(back, {}, today).rows.map((r) => [r.code, r.qty, r.atRisk, r.order]);
   assert.deepEqual(a2, a1);
+});
+
+test('toExport drops invisible control characters the database refuses', () => {
+  const out = toExport({ items: [{ code: 'A1\u0000', name: 'بانادول\u0000 ', category: 'x\u0007', owner: null, cost: 1, price: 2, qty: 3, expiry: null }], sales: [{ code: 'A1\u0000', date: new Date(2026, 0, 2), qty: 1, price: 2 }] });
+  assert.equal(out.items[0].code, 'A1');
+  assert.equal(out.items[0].name, 'بانادول');
+  assert.equal(out.items[0].category, 'x');
+  assert.equal(out.sales[0].code, 'A1');
+  assert.ok(!JSON.stringify(out).includes('\\u0000'));
 });

@@ -57,6 +57,19 @@ async function lockWithTimeout(name, acquireTimeout, fn) {
   } finally { clearTimeout(timer); }
 }
 
+// Where the sign-in is kept. On a real Chrome, something (most likely an extension) silently ignored
+// browser-storage reads and writes made while the sign-in library's script was running: the login
+// succeeded and the page went straight back to the sign-in form. Doing each read and write on its
+// own tick, outside the library's call, gets past that. A copy in memory covers storage that is
+// blocked or full, so the sign-in still works on this page.
+const authMemory = new Map();
+const later = (fn) => new Promise((resolve) => setTimeout(() => { try { resolve(fn()); } catch { resolve(undefined); } }, 0));
+const authStorage = {
+  getItem: (k) => later(() => localStorage.getItem(k)).then((v) => v ?? authMemory.get(k) ?? null),
+  setItem: (k, v) => { authMemory.set(k, v); return later(() => localStorage.setItem(k, v)); },
+  removeItem: (k) => { authMemory.delete(k); return later(() => localStorage.removeItem(k)); },
+};
+
 const withTimeout = (promise, ms, message) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
 
 export function getSession() {
@@ -68,7 +81,7 @@ async function loadSession() {
   if (!cfg.configured) return { mode: 'local' };
   if (!client) {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
-    client = createClient(cfg.url, cfg.key, { auth: { lock: lockWithTimeout } });
+    client = createClient(cfg.url, cfg.key, { auth: { lock: lockWithTimeout, storage: authStorage } });
   }
   const { data: { session }, error: authError } = await client.auth.getSession();
   const saved = cache.get(MEM);
