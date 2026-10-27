@@ -8,7 +8,8 @@ import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
-import { daySummary, PAYMENTS } from './pos.js';
+import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
+import { liveData, purchaseTotal, supplierBalances, newItemCode } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -86,7 +87,8 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
-  ['stock', 'المخزون', [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
+  ['stock', 'المخزون', [['items', 'كل الأصناف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
+  ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['money', 'الفلوس', [['pos', 'مبيعات الكاشير'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
@@ -156,7 +158,11 @@ function render() {
   $('tabs').innerHTML = secTabs.map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
 
   let html;
-  if (TAB === 'expenses') html = renderExpenses();
+  if (TAB === 'items') html = renderItems();
+  else if (TAB === 'receive') html = renderReceive();
+  else if (TAB === 'invoices') html = renderInvoices();
+  else if (TAB === 'supaccounts') html = renderSupplierAccounts();
+  else if (TAB === 'expenses') html = renderExpenses();
   else if (TAB === 'pos') html = renderPosSales();
   else if (TAB === 'shortages') html = renderShortages(full);
   else if (TAB === 'prices') html = renderPrices(A);
@@ -199,6 +205,7 @@ function render() {
   if (has && TAB === 'calc') bindCalc(A, s);
   if (has && TAB === 'offers') bindOffers(offerRows);
   if (TAB === 'patients' && isOwner() && FEATURES_READY) bindPatients();
+  if (TAB === 'receive' && $('rcvForm')) receiveTotals();
 }
 
 const PERIODS = [['thisMonth', 'الشهر ده'], ['lastMonth', 'الشهر اللي فات'], ['last90', 'آخر 3 شهور'], ['all', 'كل الفترة']];
@@ -540,7 +547,8 @@ function renderPosSales() {
 let FEATURES_READY = true;
 let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
-const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES };
+const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
+  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -560,9 +568,16 @@ async function loadTable(table, cols, order = 'created_at') {
   const upd = q.filter(mine('update'));
   let rows = null;
   if (isOnline()) {
-    const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).limit(5000);
+    // The server sends at most 1000 rows at a time: read page by page (stock needs every row).
+    let all = [], error = null;
+    for (let from = 0; from < 50000; from += 1000) {
+      const res = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).range(from, from + 999);
+      if (res.error) { error = res.error; break; }
+      all.push(...res.data);
+      if (res.data.length < 1000) break;
+    }
     if (error && !/fetch|network/i.test(error.message)) throw Object.assign(new Error(error.message), { missing: true });
-    if (!error) rows = data;
+    if (!error) rows = all;
   }
   if (!rows) rows = (await kvGet(cacheKey(table), [])).filter((r) => !r.pending);
   rows = rows.filter((r) => !del.has(r.id));
@@ -597,7 +612,7 @@ async function localInsert(table, row) {
   LISTS[table]().push({ ...full, pending: true, created_at: new Date().toISOString() });
   await kvSet(cacheKey(table), LISTS[table]());
   await enqueue('insert', { table, row: full });
-  refreshDerived(); render(); sync();
+  refreshDerived(); if (STOCK_TABLES.has(table)) setView(); render(); sync();
   return full;
 }
 async function localUpdate(table, id, patch) {
@@ -605,7 +620,7 @@ async function localUpdate(table, id, patch) {
   if (r) Object.assign(r, patch);
   await kvSet(cacheKey(table), LISTS[table]());
   await enqueue('update', { table, id, patch });
-  refreshDerived(); render(); sync();
+  refreshDerived(); if (STOCK_TABLES.has(table)) setView(); render(); sync();
 }
 async function localDelete(table, id) {
   const list = LISTS[table]();
@@ -615,7 +630,7 @@ async function localDelete(table, id) {
   await kvSet(cacheKey(table), list);
   if (table === 'patients') await kvSet(cacheKey('reminders'), REMINDERS);
   await enqueue('delete', { table, id });
-  refreshDerived(); render(); sync();
+  refreshDerived(); if (STOCK_TABLES.has(table)) setView(); render(); sync();
 }
 const savedNote = () => (isOnline() ? 'اتسجل.' : 'اتسجل على الجهاز، وهيترفع أول ما النت يرجع.');
 const pendingPill = (r) => (r.pending ? ' <span class="pill warn">مستني النت</span>' : '');
@@ -874,13 +889,318 @@ function bindCalc(A, s) {
   update();
 }
 
+// ---------- Stock kept here: all items, received orders, supplier accounts (migration 010) ----------
+let CATALOG = [], PURCHASES = [], SUP_PAYMENTS = [], MOVES = [], LEARNED = [];
+let INV_READY = true;
+const STOCK_TABLES = new Set(['catalog_items', 'purchases', 'stock_moves', 'pos_sales']);
+const needInv = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث <code>010</code> بيضيف الأصناف والطلبيات وحسابات الموردين. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
+const CATEGORIES = ['دواء', 'تجميل', 'مستلزمات', 'غير محدد'];
+const mainBranchId = () => BRANCHES[0]?.id ?? null;
+const inBranch = (b) => (r) => (r.branch_id ?? mainBranchId()) === (b?.id ?? null);
+const branchOfView = () => (BRANCH === 'all' ? mainBranchId() : BRANCH_ID());
+// Barcode → item code: barcodes saved on items here, and the ones the cashier learned.
+const barcodeMap = () => new Map([...LEARNED.map((r) => [r.barcode, r.code]), ...CATALOG.filter((c) => c.barcode).map((c) => [c.barcode, c.code])]);
+const dayText = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year: 'numeric' }) : '—');
+
+async function loadInventory() {
+  try {
+    [CATALOG, PURCHASES, MOVES] = await Promise.all([
+      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+      loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on'),
+      loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at'),
+    ]);
+    SUP_PAYMENTS = SESS.role === 'device' ? [] : await loadTable('supplier_payments', 'id, supplier_id, supplier_name, paid_on, amount, note, created_at', 'paid_on');
+    INV_READY = true;
+  } catch (e) { if (e.missing) INV_READY = false; }
+  try { LEARNED = await loadTable('pos_barcodes', 'id, barcode, code, created_at'); } catch { /* 009 not applied */ }
+}
+
+// ----- All items -----
+let ITEMS_Q = '';
+let ITEM_FORM = null;
+let ITEM_NOTE = ''; // null, or { code?, name, barcode, category, cost, price, forReceive }
+
+function itemMatches(q) {
+  const n = normalize(q);
+  const bc = barcodeMap();
+  const list = !n ? DATA.items : DATA.items.filter((i) => {
+    if (String(i.code) === q.trim() || bc.get(q.trim()) === i.code) return true;
+    const name = normalize(i.name);
+    return n.split(' ').every((w) => name.includes(w)) || String(i.code).startsWith(q.trim());
+  });
+  return [...list].sort((a, b) => (b.qty > 0) - (a.qty > 0) || a.name.localeCompare(b.name, 'ar'));
+}
+function itemsRows() {
+  const list = itemMatches(ITEMS_Q);
+  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}<span class="cat">${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
+    <td class="n">${i.qty < 0 ? `<span class="pill crit">${fmt(i.qty)}</span>` : i.qty === 0 ? '<span class="muted">خلصان</span>' : `<b>${fmt(i.qty)}</b>`}</td>
+    <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}</td><td>${expText(i.expiry)}</td>
+    ${isOwner() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);
+  const more = list.length > 150 ? `<tr><td colspan="6" class="muted">ظاهر أول 150 من ${fmt(list.length)}. اكتب أكتر عشان تلاقي الصنف.</td></tr>` : '';
+  return rows.join('') + more || `<tr><td colspan="6" class="empty">${ITEMS_Q ? 'مفيش صنف بالاسم ده.' : 'لسه مفيش أصناف.'}</td></tr>`;
+}
+function itemForm() {
+  const f = ITEM_FORM;
+  const editing = !!f.code;
+  return `<form id="itemForm" class="card stack">
+    <h3>${editing ? `عدّل «${esc(f.name)}»` : 'صنف جديد'}</h3>
+    <div class="grid2">
+      <label>اسم الصنف<input id="itName" maxlength="160" required value="${esc(f.name || '')}" placeholder="مثلاً: بانادول إكسترا 24 قرص"></label>
+      <label>الباركود (اختياري: امسحه بالقارئ)<input id="itBarcode" maxlength="64" inputmode="numeric" value="${esc(f.barcode || '')}"></label>
+      <label>النوع<select id="itCat">${CATEGORIES.map((c) => `<option ${c === (f.category || 'دواء') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+      <label>سعر البيع للجمهور<input id="itPrice" type="number" min="0" step="0.25" inputmode="decimal" value="${esc(f.price ?? '')}" required></label>
+      <label>سعر الشراء (اختياري)<input id="itCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(f.cost ?? '')}"></label>
+      ${editing || f.forReceive ? '' : `<label>الكمية اللي عندك دلوقتي (اختياري)<input id="itQty" type="number" min="0" step="1" inputmode="numeric"></label>
+      <label>الصلاحية (اختياري)<input id="itExp" type="month"></label>`}
+    </div>
+    <div class="row"><button class="btn primary" type="submit">${editing ? 'احفظ' : f.forReceive ? 'ضيفه وكمّل الطلبية' : 'ضيف الصنف'}</button><button class="btn" type="button" id="itemCancel">إلغاء</button><span class="note" id="itemMsg" role="status"></span></div>
+  </form>`;
+}
+function renderItems() {
+  if (!INV_READY) return needInv();
+  return `<p>كل أصناف الصيدلية، حتى اللي رصيدها صفر. الرصيد = آخر ملف اترفع + الطلبيات اللي وصلت − مبيعات الكاشير.</p>
+    <div class="row"><input id="itemsQ" type="search" autocomplete="off" placeholder="دوّر بالاسم أو الكود أو الباركود…" value="${esc(ITEMS_Q)}" style="flex:1;min-width:0" aria-label="دوّر على صنف">
+      ${isOwner() ? '<button class="btn primary" type="button" id="newItemBtn">+ صنف جديد</button>' : ''}</div>
+    ${ITEM_NOTE ? `<p class="note" role="status">${esc(ITEM_NOTE)}</p>` : ''}
+    ${ITEM_FORM && !ITEM_FORM.forReceive ? itemForm() : ''}
+    <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الرصيد</th><th>سعر الشراء</th><th>سعر البيع</th><th>أقرب صلاحية</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody id="itemsBody">${itemsRows()}</tbody></table></div>`;
+}
+
+async function saveItem(e) {
+  e.preventDefault();
+  const f = ITEM_FORM;
+  const msg = (t) => { $('itemMsg').textContent = t; };
+  const name = $('itName').value.trim();
+  const barcode = $('itBarcode').value.trim();
+  const price = +$('itPrice').value;
+  const cost = $('itCost').value === '' ? null : +$('itCost').value;
+  if (!name) return msg('اكتب اسم الصنف.');
+  if (!(price >= 0) || $('itPrice').value === '') return msg('اكتب سعر البيع.');
+  const owner = barcode && barcodeMap().get(barcode);
+  if (barcode && owner && owner !== f.code) return msg(`الباركود ده متسجل لـ«${DATA.items.find((i) => i.code === owner)?.name ?? owner}».`);
+  if (!f.code && DATA.items.some((i) => i.name.trim() === name)) return msg('فيه صنف بنفس الاسم. دوّر عليه وعدّله بدل ما تضيفه تاني.');
+  const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null };
+  const qty = +($('itQty')?.value || 0), exp = $('itExp')?.value;
+  ITEM_FORM = null;
+  let code = f.code;
+  if (code) {
+    const row = CATALOG.find((c) => c.code === code);
+    if (row) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
+    else await localInsert('catalog_items', { code, ...fields });
+  } else {
+    code = newItemCode(barcode, new Set(DATA.items.map((i) => i.code)));
+    await localInsert('catalog_items', { code, ...fields });
+    if (qty > 0) await localInsert('stock_moves', { code, qty, kind: 'count', branch_id: branchOfView(), expiry: exp ? `${exp}-01` : null, happened_at: new Date().toISOString(), note: 'رصيد أول مدة' });
+  }
+  if (f.forReceive) { addReceiveLine(DATA.items.find((i) => i.code === code)); return; }
+  ITEM_NOTE = `${f.code ? 'اتحفظ التعديل.' : `اتضاف «${name}».`}${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+  render();
+}
+
+// ----- A delivery arrived (purchase invoice) -----
+const RKEY = 'saydaliti-receive-draft-v1';
+const blankReceive = () => ({ supplier: '', supplierName: '', invoice: '', date: isoDay(TODAY), branch: BRANCH === 'all' ? key(mainBranchId()) : BRANCH, lines: [], paid: '', note: '' });
+let RCV = store.get(RKEY, null) || blankReceive();
+let RCV_NOTE = ''; // result of the last save, kept across re-renders
+const saveDraft = () => store.set(RKEY, RCV);
+
+function receiveLinesHtml() {
+  return RCV.lines.map((l, i) => `<tr><td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span></td>
+    <td><input class="disc n" type="number" min="0" step="1" data-l="${i}" data-f="qty" value="${esc(l.qty)}" aria-label="الكمية"></td>
+    <td><input class="disc n" type="number" min="0" step="1" data-l="${i}" data-f="bonus" value="${esc(l.bonus)}" aria-label="بونص"></td>
+    <td><input class="disc n" type="number" min="0" step="0.01" data-l="${i}" data-f="cost" value="${esc(l.cost)}" aria-label="سعر الشراء"></td>
+    <td><input class="disc n" type="number" min="0" step="0.25" data-l="${i}" data-f="price" value="${esc(l.price)}" aria-label="سعر البيع"></td>
+    <td><input type="month" data-l="${i}" data-f="expiry" value="${esc(l.expiry)}" aria-label="الصلاحية" style="min-width:130px"></td>
+    <td class="n" id="rl${i}">${fmt((+l.qty || 0) * (+l.cost || 0), 2)}</td>
+    <td><button class="btn" type="button" data-rcvdel="${i}" aria-label="شيل السطر">✕</button></td></tr>`).join('');
+}
+function receiveTotals() {
+  const total = purchaseTotal(RCV.lines);
+  if ($('rcvTotal')) $('rcvTotal').textContent = fmt(total, 2);
+  const paid = +RCV.paid || 0;
+  if ($('rcvDue')) $('rcvDue').textContent = fmt(Math.max(0, total - paid), 2);
+  RCV.lines.forEach((l, i) => { const c = $(`rl${i}`); if (c) c.textContent = fmt((+l.qty || 0) * (+l.cost || 0), 2); });
+}
+function renderReceive() {
+  if (!INV_READY) return needInv();
+  if (!isOwner()) return '<div class="card emptybox"><h3>تسجيل الطلبيات لصاحب الصيدلية</h3><p>تقدر تشوف الفواتير المتسجلة في تبويب «فواتير الشراء».</p></div>';
+  const sup = SUPPLIERS();
+  return `<p>وصلت طلبية؟ اختار المورد، وامسح باركود كل صنف أو اكتب اسمه، واكتب الكمية والبونص وسعر الشراء والصلاحية. أول ما تسجّلها، الرصيد بيزيد وبتتحسب على المورد.</p>
+  ${ITEM_FORM?.forReceive ? itemForm() : ''}
+  <form id="rcvForm" class="card stack" novalidate>
+    <div class="grid2">
+      <label>المورد<select id="rcvSup">${`<option value="">— اختار المورد —</option>${sup.map((x) => `<option value="${esc(x.id)}" ${x.id === RCV.supplier ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}<option value="__new" ${RCV.supplier === '__new' ? 'selected' : ''}>مورد مش في القايمة…</option>`}</select></label>
+      <label ${RCV.supplier === '__new' ? '' : 'hidden'} id="rcvSupNameWrap">اسم المورد الجديد<input id="rcvSupName" maxlength="80" value="${esc(RCV.supplierName)}"></label>
+      <label>رقم فاتورة المورد (اختياري)<input id="rcvNo" maxlength="60" value="${esc(RCV.invoice)}"></label>
+      <label>اتاستلمت يوم<input id="rcvDate" type="date" max="${isoDay(TODAY)}" value="${esc(RCV.date)}"></label>
+      ${multi() ? `<label>الفرع اللي استلم<select id="rcvBranch">${BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === RCV.branch ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>` : ''}
+    </div>
+    <div class="pos-search"><input id="rcvQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه… (Enter)" aria-label="ضيف صنف للطلبية"><div id="rcvResults" class="results" role="listbox" hidden></div></div>
+    <div class="tablebox cart"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء للعلبة</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th><th></th></tr></thead>
+      <tbody id="rcvLines">${receiveLinesHtml()}</tbody></table>${RCV.lines.length ? '' : '<p class="empty">امسح أول صنف في الطلبية.</p>'}</div>
+    <div class="grid2">
+      <label>دفعت كام للمورد دلوقتي<input id="rcvPaid" type="number" min="0" step="0.5" inputmode="decimal" value="${esc(RCV.paid)}" placeholder="0 لو آجل"></label>
+      <label>ملاحظة (اختياري)<input id="rcvNote" maxlength="300" value="${esc(RCV.note)}"></label>
+    </div>
+    <div class="ledger"><div class="tot"><span>إجمالي الفاتورة</span><span class="n" id="rcvTotal">0.00</span></div><div><span>الباقي عليك للمورد</span><span class="n" id="rcvDue">0.00</span></div></div>
+    <div class="row"><button class="btn primary" type="submit">سجّل الطلبية</button><button class="btn" type="button" id="rcvClear">ابدأ من الأول</button><span class="note" id="rcvMsg" role="status">${esc(RCV_NOTE)}</span></div>
+  </form>`;
+}
+function rerenderReceiveLines() {
+  $('rcvLines').innerHTML = receiveLinesHtml();
+  const empty = $('rcvLines').closest('.tablebox').querySelector('.empty');
+  if (RCV.lines.length && empty) empty.remove();
+  receiveTotals(); saveDraft();
+}
+function addReceiveLine(it) {
+  if (!it) return;
+  if (TAB !== 'receive') { TAB = 'receive'; }
+  const same = RCV.lines.find((l) => l.code === it.code);
+  if (same) same.qty = (+same.qty || 0) + 1;
+  else RCV.lines.push({ code: it.code, name: it.name, qty: 1, bonus: 0, cost: it.cost || '', price: it.price || '', expiry: '' });
+  saveDraft();
+  render();
+  receiveTotals();
+  const i = RCV.lines.findIndex((l) => l.code === it.code);
+  document.querySelector(`[data-l="${i}"][data-f="qty"]`)?.select();
+}
+function receiveSearch(enter) {
+  const q = $('rcvQ').value;
+  const box = $('rcvResults');
+  if (!q.trim()) { box.hidden = true; return; }
+  const r = lookup(q, DATA.items, barcodeMap());
+  if (r.item && enter) { $('rcvQ').value = ''; box.hidden = true; addReceiveLine(r.item); return; }
+  const list = r.item ? [r.item] : r.matches.slice(0, 8);
+  if (enter && list.length === 1) { $('rcvQ').value = ''; box.hidden = true; addReceiveLine(list[0]); return; }
+  box.hidden = false;
+  box.innerHTML = list.map((it, i) => `<button type="button" class="res ${i === 0 ? 'first' : ''}" data-rcvpick="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">رصيد ${fmt(it.qty)} · ${fmt(it.price, 2)} ج</span></button>`).join('')
+    + `<button type="button" class="res" data-rcvnew="1"><span>➕ ضيف «${esc(q.trim())}» كصنف جديد</span></button>`;
+  if (enter && list.length > 1) { $('rcvQ').value = ''; box.hidden = true; addReceiveLine(list[0]); }
+}
+
+async function saveReceive(e) {
+  e.preventDefault();
+  const msg = (t) => { RCV_NOTE = ''; $('rcvMsg').textContent = t; };
+  if (!RCV.lines.length) return msg('ضيف الأصناف اللي وصلت الأول.');
+  const lines = RCV.lines.map((l) => ({ code: l.code, name: l.name, qty: +l.qty || 0, bonus: +l.bonus || 0, cost: +l.cost || 0, price: +l.price || 0, expiry: l.expiry ? `${l.expiry}-01` : null }));
+  const bad = lines.find((l) => l.qty + l.bonus <= 0);
+  if (bad) return msg(`اكتب كمية «${bad.name}».`);
+  let supId = RCV.supplier, supName = '';
+  if (supId === '__new') {
+    supName = RCV.supplierName.trim();
+    if (!supName) return msg('اكتب اسم المورد.');
+    const exists = SUPPLIERS().find((x) => x.name === supName);
+    if (exists) supId = exists.id;
+    else { supId = crypto.randomUUID().slice(0, 8); await saveShared({ suppliers: [...SUPPLIERS(), { id: supId, name: supName, phone: '', discounts: { all: 0 } }] }); }
+  } else if (supId) supName = SUPPLIERS().find((x) => x.id === supId)?.name || '';
+  else return msg('اختار المورد.');
+  if (!RCV.date || RCV.date > isoDay(TODAY)) return msg('اختار تاريخ الاستلام (النهارده أو قبله).');
+  const total = purchaseTotal(lines);
+  const paid = Math.max(0, +RCV.paid || 0);
+  const bid = BRANCHES.find((b) => key(b.id) === RCV.branch)?.id ?? mainBranchId();
+  await localInsert('purchases', { branch_id: bid, supplier_id: supId, supplier_name: supName, invoice_no: RCV.invoice.trim() || null, received_on: RCV.date, lines, total, paid, note: RCV.note.trim() || null });
+  const n = lines.length;
+  RCV = blankReceive(); saveDraft();
+  RCV_NOTE = `اتسجلت الطلبية (${n} صنف بـ ${fmt(total, 2)} ج)، والرصيد زاد.${paid < total ? ` الباقي للمورد ${fmt(total - paid, 2)} ج.` : ''}${isOnline() ? '' : ' هتترفع أول ما النت يرجع.'}`;
+  render();
+}
+
+// ----- Purchase invoices -----
+function renderInvoices() {
+  if (!INV_READY) return needInv();
+  const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
+  const list = PURCHASES.filter((p) => bid === 'all' || inBranch({ id: bid })(p))
+    .sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)) || String(b.created_at).localeCompare(String(a.created_at)));
+  if (!list.length) return `<div class="card emptybox"><h3>لسه مفيش طلبيات متسجلة</h3><p>سجّل أول طلبية من تبويب «طلبية وصلت».</p></div>`;
+  const tot = list.reduce((a, p) => ({ t: a.t + +p.total, p: a.p + +p.paid }), { t: 0, p: 0 });
+  return `<div class="ledger card"><div><span>عدد الفواتير</span><span class="n">${fmt(list.length)}</span></div><div><span>إجماليها</span><span class="n">${fmt(tot.t, 2)}</span></div><div><span>اتدفع وقت الاستلام</span><span class="n">${fmt(tot.p, 2)}</span></div></div>
+  ${list.map((p) => `<details class="help"><summary>${dayText(p.received_on)} · <b>${esc(p.supplier_name || 'من غير مورد')}</b>${p.invoice_no ? ` · فاتورة <span class="n">${esc(p.invoice_no)}</span>` : ''} · <span class="n">${fmt(p.lines.length)}</span> صنف · <b class="n">${fmt(+p.total, 2)}</b> ج${+p.paid < +p.total ? ` · <span class="pill warn">باقي <span class="n">${fmt(+p.total - +p.paid, 2)}</span></span>` : ' · <span class="pill ok">مدفوعة</span>'}${multi() ? ` · ${esc(BRANCHES.find((b) => b.id === (p.branch_id ?? mainBranchId()))?.name || '')}` : ''}${pendingPill(p)}</summary>
+    <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th></tr></thead><tbody>
+    ${p.lines.map((l) => `<tr><td class="name">${esc(l.name || l.code)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${fmt(l.bonus || 0)}</td><td class="n">${fmt(l.cost, 2)}</td><td class="n">${l.price ? fmt(l.price, 2) : '—'}</td><td>${l.expiry ? expText(new Date(`${l.expiry}T00:00:00`)) : '—'}</td><td class="n">${fmt(l.qty * l.cost, 2)}</td></tr>`).join('')}
+    </tbody></table></div>${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
+    ${isOwner() ? `<div class="row"><button class="btn" type="button" data-delpurchase="${esc(p.id)}">امسح الفاتورة دي</button><span class="note">لو اتسجلت غلط. الرصيد هيقل بكمياتها.</span></div>` : ''}</details>`).join('')}`;
+}
+
+// ----- Supplier accounts -----
+function renderSupplierAccounts() {
+  if (!INV_READY) return needInv();
+  const bal = supplierBalances(PURCHASES, SUP_PAYMENTS);
+  const sup = SUPPLIERS();
+  const names = [...new Map([...sup.map((x) => [x.id, x.name]), ...bal.filter((b) => b.id).map((b) => [b.id, b.name])]).entries()];
+  const form = isOwner() && names.length ? `<form id="payForm" class="card stack"><h3>دفعت لمورد</h3><div class="grid2">
+      <label>المورد<select id="paySup" required>${names.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></label>
+      <label>المبلغ<input id="payAmount" type="number" min="0.5" step="0.5" inputmode="decimal" required></label>
+      <label>يوم<input id="payDate" type="date" max="${isoDay(TODAY)}" value="${isoDay(TODAY)}"></label>
+      <label>ملاحظة (اختياري)<input id="payNote" maxlength="300" placeholder="مثلاً: كاش مع المندوب"></label></div>
+      <div class="row"><button class="btn primary" type="submit">سجّل الدفعة</button><span class="note" id="payMsg" role="status"></span></div></form>` : '';
+  const pays = [...SUP_PAYMENTS].sort((a, b) => String(b.paid_on).localeCompare(String(a.paid_on))).slice(0, 30);
+  return `<p>الحساب مع كل مورد: إجمالي الفواتير، واللي اتدفع، والباقي عليك.</p>`
+    + table(['المورد', 'فواتير', 'إجمالي البضاعة', 'اتدفع', 'الباقي عليك', 'آخر طلبية'],
+      bal.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td class="n">${fmt(b.invoices)}</td><td>${egp(b.bought)}</td><td>${egp(b.paid)}</td><td>${b.due > 0.005 ? `<span class="pill warn"><span class="n">${fmt(b.due, 2)}</span> ج</span>` : b.due < -0.005 ? `<span class="pill ok">ليك <span class="n">${fmt(-b.due, 2)}</span> ج</span>` : '<span class="pill ok">خالص</span>'}</td><td>${dayText(b.last)}</td></tr>`))
+    + form
+    + (pays.length ? `<h3>آخر الدفعات</h3>` + table(['يوم', 'المورد', 'المبلغ', 'ملاحظة', ''], pays.map((x) => `<tr><td>${dayText(x.paid_on)}</td><td>${esc(x.supplier_name)}</td><td>${egp(+x.amount)}</td><td>${esc(x.note || '')}</td><td>${isOwner() ? `<button class="btn" type="button" data-delpay="${esc(x.id)}">امسح</button>` : ''}${pendingPill(x)}</td></tr>`)) : '');
+}
+async function savePayment(e) {
+  e.preventDefault();
+  const amount = +$('payAmount').value;
+  if (!(amount > 0)) { $('payMsg').textContent = 'اكتب المبلغ.'; return; }
+  const id = $('paySup').value;
+  const name = $('paySup').selectedOptions[0]?.textContent || '';
+  await localInsert('supplier_payments', { supplier_id: id, supplier_name: name, amount, paid_on: $('payDate').value || isoDay(TODAY), note: $('payNote').value.trim() || null });
+  $('payMsg') && ($('payMsg').textContent = savedNote());
+}
+
+$('panel').addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'itemsQ') { ITEMS_Q = t.value; $('itemsBody').innerHTML = itemsRows(); return; }
+  if (t.id === 'rcvQ') { receiveSearch(false); return; }
+  if (t.dataset.l !== undefined) { RCV.lines[+t.dataset.l][t.dataset.f] = t.value; receiveTotals(); saveDraft(); return; }
+  const f = { rcvSupName: 'supplierName', rcvNo: 'invoice', rcvDate: 'date', rcvPaid: 'paid', rcvNote: 'note' }[t.id];
+  if (f) { RCV[f] = t.value; if (f === 'paid') receiveTotals(); saveDraft(); }
+});
+$('panel').addEventListener('change', (e) => {
+  if (e.target.id === 'rcvSup') { RCV.supplier = e.target.value; saveDraft(); $('rcvSupNameWrap').hidden = RCV.supplier !== '__new'; if (!$('rcvSupNameWrap').hidden) $('rcvSupName').focus(); }
+  if (e.target.id === 'rcvBranch') { RCV.branch = e.target.value; saveDraft(); }
+});
+$('panel').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.target.id === 'rcvQ') { e.preventDefault(); receiveSearch(true); }
+  // A barcode scanner ends with Enter: don't send the form half-filled.
+  if (e.target.id === 'itBarcode' || (e.target.closest('#rcvForm') && e.target.type !== 'submit')) { e.preventDefault(); if (e.target.id === 'itBarcode') $('itCat').focus(); }
+});
+$('panel').addEventListener('submit', (e) => {
+  if (e.target.id === 'itemForm') saveItem(e);
+  if (e.target.id === 'rcvForm') saveReceive(e);
+  if (e.target.id === 'payForm') savePayment(e);
+});
+$('panel').addEventListener('click', (e) => {
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  if (e.target.id === 'newItemBtn') { ITEM_NOTE = ''; ITEM_FORM = { name: ITEMS_Q && !/^\d+$/.test(ITEMS_Q) ? ITEMS_Q : '', barcode: /^\d{6,}$/.test(ITEMS_Q.trim()) ? ITEMS_Q.trim() : '' }; render(); $('itName')?.focus(); }
+  if (t('edititem')) { const i = DATA.items.find((x) => x.code === t('edititem')); const c = CATALOG.find((x) => x.code === i?.code); if (i) { ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '' }; render(); $('itemForm')?.scrollIntoView({ block: 'center' }); } }
+  if (e.target.id === 'itemCancel') { ITEM_FORM = null; render(); }
+  if (t('rcvpick')) { $('rcvQ').value = ''; $('rcvResults').hidden = true; addReceiveLine(DATA.items.find((i) => i.code === t('rcvpick'))); }
+  if (t('rcvnew')) { const q = $('rcvQ').value.trim(); const digits = /^\d{6,}$/.test(q); ITEM_FORM = { forReceive: true, name: digits ? '' : q, barcode: digits ? q : '' }; render(); $(digits ? 'itName' : 'itPrice')?.focus(); }
+  if (t('rcvdel') !== undefined) { RCV.lines.splice(+t('rcvdel'), 1); rerenderReceiveLines(); }
+  if (e.target.id === 'rcvClear' && (!RCV.lines.length || confirm('تمسح الطلبية اللي بتكتبها وتبدأ من الأول؟'))) { RCV = blankReceive(); saveDraft(); render(); }
+  if (t('delpurchase') && confirm('تمسح الفاتورة دي؟ الرصيد هيقل بكمياتها، وحساب المورد هيتعدل.')) localDelete('purchases', t('delpurchase'));
+  if (t('delpay') && confirm('تمسح الدفعة دي؟')) localDelete('supplier_payments', t('delpay'));
+});
+
 // ---------- Branches & data ----------
 const snapKey = (k) => `snap:${SESS.pharmacy.id}:${k}`;
 const prevKey = (k) => `snapPrev:${SESS.pharmacy.id}:${k}`;
 
+// One branch's stock: its last upload, plus what was entered here since (items, deliveries, cashier, adjustments).
+function branchData(b) {
+  const s = SNAP.get(key(b?.id ?? null));
+  const mine = inBranch(b);
+  return liveData(s?.data, s?.at, { catalog: CATALOG, purchases: PURCHASES.filter(mine), sales: POS_SALES.filter(mine), moves: MOVES.filter(mine) });
+}
+
 function setView() {
-  const parts = BRANCH === 'all' ? BRANCHES.map((b) => SNAP.get(key(b.id))?.data) : [SNAP.get(BRANCH)?.data];
-  DATA = mergeBranches(parts.filter(Boolean)) || EMPTY();
+  const parts = BRANCH === 'all' ? BRANCHES.map(branchData) : [branchData(BRANCHES.find((b) => key(b.id) === BRANCH))];
+  DATA = mergeBranches(parts.filter((d) => d.items.length)) || EMPTY();
   if (!DATA.items) DATA = EMPTY();
   const prevParts = (BRANCH === 'all' ? BRANCHES.map((b) => SNAP.get(key(b.id))?.prev?.data) : [SNAP.get(BRANCH)?.prev?.data]).filter(Boolean);
   PREV_DATA = prevParts.length ? mergeBranches(prevParts) : null;
@@ -1026,7 +1346,7 @@ async function boot() {
 
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures()]);
+  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory()]);
   renderBranches(); setView(); render();
   sync();
 }
@@ -1142,10 +1462,16 @@ $('file').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!files.length) return;
   if (multi() && BRANCH === 'all') { $('fileMsg').innerHTML = '<span class="err">اختار الفرع من فوق الأول، وبعدين ارفع بياناته.</span>'; return; }
+  const k = BRANCH === 'all' ? key(BRANCHES[0].id) : BRANCH;
+  // A new file becomes the starting stock: what was entered here before it is assumed to be inside it.
+  const b = BRANCHES.find((x) => key(x.id) === k);
+  const since = SNAP.get(k)?.at ?? '';
+  const later = (r, f) => inBranch(b)(r) && String(r[f]) > String(since);
+  const entered = PURCHASES.filter((r) => later(r, 'created_at')).length + MOVES.filter((r) => later(r, 'happened_at')).length + POS_SALES.filter((r) => later(r, 'sold_at')).length;
+  if (entered && !confirm(`الملف الجديد هيبقى هو الرصيد من دلوقتي. فيه ${entered} حاجة اتسجلت هنا بعد آخر رفع (طلبيات ومبيعات كاشير وتعديلات)، والبرنامج هيعتبر إنها موجودة في الملف ده. لو الملف من برنامج مبطلتش تستخدمه، دوس «إلغاء». ترفعه برضه؟`)) { $('fileMsg').textContent = ''; return; }
   $('fileMsg').textContent = 'بقرا الملفات…';
   try {
     const data = await readFiles(files);
-    const k = BRANCH === 'all' ? key(BRANCHES[0].id) : BRANCH;
     const raw = toExport(data);
     const at = new Date().toISOString();
     const before = await kvGet(snapKey(k));

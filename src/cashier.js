@@ -4,7 +4,8 @@ import { fromExport, startOfDay } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
-import { lookup, cartTotals, changeDue, receiptNumber, stockLeft, expiryWarning, daySummary, PAYMENTS } from './pos.js';
+import { lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS } from './pos.js';
+import { liveData, newItemCode } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -21,8 +22,10 @@ dev.paper ??= '80'; dev.autoPrint ??= true; dev.footer ??= ''; dev.tag ??= 'K1';
 let SESS = null;
 let BRANCHES = [];
 let BRANCH = null;          // branch id (null = the single branch of an older database)
-let ITEMS = [];             // from the latest upload of this branch
+let ITEMS = [];             // this branch's stock now: last upload + items added, deliveries, sales, adjustments
+let BASE = null;            // the last upload of this branch
 let UPLOADED_AT = null;
+let STOCK = { catalog: [], purchases: [], moves: [] }; // entered in Saydaliti (migration 010)
 let BARCODES = new Map();   // barcode -> item code
 let SALES = [];             // recent receipts (server + this device)
 let CART = [];              // [{ code, name, price, qty, discount }]
@@ -31,7 +34,7 @@ let PAYMENT = 'cash';
 let LINK_BARCODE = null;
 
 const bkey = () => BRANCH ?? 'main';
-const K = { items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}` };
+const K = { items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}` };
 const msg = (t, err = false) => { $('posMsg').innerHTML = err ? `<span class="err">${esc(t)}</span>` : esc(t); };
 const today = () => startOfDay();
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -49,9 +52,44 @@ async function loadItems() {
   }
   const use = fresh && (!cached || fresh.at >= cached.at) ? fresh : cached;
   if (use === fresh && fresh) await kvSet(K.items(), fresh);
-  ITEMS = use ? fromExport(use.raw).items : [];
+  BASE = use ? fromExport(use.raw) : null;
   UPLOADED_AT = use?.at ?? null;
 }
+
+// Rows entered in Saydaliti: items added, deliveries received, stock adjustments. Missing tables
+// (database update 010 not applied yet) just mean there is nothing to add.
+async function loadStock() {
+  const cached = await kvGet(K.stock(), { catalog: [], purchases: [], moves: [] });
+  if (!isOnline()) { STOCK = mergePendingItems(cached); return; }
+  const get = async (table, cols) => {
+    const rows = [];
+    for (let from = 0; from < 20000; from += 1000) {
+      const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order('created_at', { ascending: true }).range(from, from + 999);
+      if (error) return null;
+      rows.push(...data);
+      if (data.length < 1000) break;
+    }
+    return rows;
+  };
+  const [catalog, purchases, moves] = await Promise.all([
+    get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+    get('purchases', 'id, branch_id, received_on, lines, created_at'),
+    get('stock_moves', 'id, branch_id, code, qty, kind, expiry, happened_at, created_at'),
+  ]);
+  STOCK = mergePendingItems({ catalog: catalog ?? cached.catalog, purchases: purchases ?? cached.purchases, moves: moves ?? cached.moves }, cached);
+  await kvSet(K.stock(), STOCK);
+}
+// Items this cashier added that haven't reached the server yet stay in the list.
+function mergePendingItems(next, prev = next) {
+  const local = prev.catalog.filter((c) => c.pending && !next.catalog.some((x) => x.id === c.id));
+  return { ...next, catalog: [...next.catalog, ...local] };
+}
+const mine = (r) => (r.branch_id ?? BRANCHES[0]?.id ?? null) === BRANCH;
+function refreshItems() {
+  ITEMS = liveData(BASE, UPLOADED_AT, { catalog: STOCK.catalog, purchases: STOCK.purchases.filter(mine), sales: branchSales(), moves: STOCK.moves.filter(mine) }).items;
+  for (const c of STOCK.catalog) if (c.barcode && !BARCODES.has(c.barcode)) BARCODES.set(c.barcode, c.code);
+}
+const stockOf = (code) => ITEMS.find((i) => i.code === code)?.qty ?? 0;
 
 async function loadBarcodes() {
   const cached = await kvGet(K.codes(), []);
@@ -69,12 +107,19 @@ async function loadBarcodes() {
 
 async function loadSales() {
   const cached = await kvGet(K.sales(), []);
-  const since = new Date(Math.min(today().getTime(), UPLOADED_AT ? new Date(UPLOADED_AT).getTime() : Infinity) - 86400000).toISOString();
+  // With no upload, the stock is made only of what was entered here, so every receipt counts.
+  const since = UPLOADED_AT ? new Date(Math.min(today().getTime(), new Date(UPLOADED_AT).getTime()) - 86400000).toISOString() : '2000-01-01T00:00:00Z';
   let server = null;
   if (isOnline()) {
-    const { data, error } = await SESS.client.from('pos_sales').select('id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment')
-      .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }).limit(2000);
-    if (!error) server = data;
+    // Every receipt since the last upload counts toward the shelf stock: read them page by page.
+    server = [];
+    for (let from = 0; from < 50000; from += 1000) {
+      const { data, error } = await SESS.client.from('pos_sales').select('id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment')
+        .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }).range(from, from + 999);
+      if (error) { server = null; break; }
+      server.push(...data);
+      if (data.length < 1000) break;
+    }
   }
   // Receipts made on this device and not uploaded yet — including any made while this was loading.
   const local = [...SALES, ...cached].filter((x, i, all) => x.pending && all.findIndex((y) => y.id === x.id) === i);
@@ -94,7 +139,7 @@ function addItem(it) {
   const line = CART.find((l) => l.code === it.code);
   if (line) line.qty += 1;
   else CART.push({ code: it.code, name: it.name, price: +it.price || 0, qty: 1, discount: 0 });
-  const left = stockLeft(it, branchSales(), UPLOADED_AT) - (CART.find((l) => l.code === it.code)?.qty ?? 0);
+  const left = stockOf(it.code) - (CART.find((l) => l.code === it.code)?.qty ?? 0);
   if (MODE === 'sale' && left < 0) msg(`«${it.name}»: الرصيد المسجل مش كفاية (آخر رصيد ${Math.max(0, left + (CART.find((l) => l.code === it.code)?.qty ?? 0))}). كمّل لو العلبة قدامك.`, true);
   else if (w?.level === 'soon') msg(`«${it.name}» أقرب تشغيلة منه بتنتهي بعد ${w.days} يوم.`);
   else if (!w || w.level !== 'expired') msg('');
@@ -144,7 +189,7 @@ const focusSearch = () => setTimeout(() => $('q').focus(), 0);
 function showResults(list, box = $('results'), attr = 'pick') {
   box.hidden = !list.length;
   box.innerHTML = list.map((it, i) => {
-    const left = stockLeft(it, branchSales(), UPLOADED_AT);
+    const left = stockOf(it.code);
     return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
   }).join('');
 }
@@ -156,16 +201,40 @@ function onSearch(enter) {
   if (enter && r.matches.length === 1) { addItem(r.matches[0]); $('q').value = ''; showResults([]); return; }
   if (enter && r.matches.length > 1) { addItem(r.matches[0]); $('q').value = ''; showResults([]); return; }
   showResults(q.trim() ? r.matches : []);
-  if (enter && q.trim() && !r.matches.length) msg(`مفيش صنف اسمه «${q.trim()}» في آخر بيانات اترفعت.`, true);
+  if (enter && q.trim() && !r.matches.length) { openLink(null, q.trim()); $('q').value = ''; }
 }
 
-function openLink(code) {
+// An unknown barcode: link it to an item that's already there, or add it as a new item.
+// A name with no match: add it as a new item.
+function openLink(code, name = '') {
   LINK_BARCODE = code;
-  $('unknownCode').textContent = code;
+  $('linkPart').hidden = !code;
+  $('unknownTitle').textContent = code ? 'الباركود ده مش متسجل' : `مفيش صنف اسمه «${name}»`;
+  $('unknownCode').textContent = code || '';
   $('linkQ').value = '';
+  $('niName').value = name; $('niPrice').value = ''; $('niMsg').textContent = '';
   showResults([], $('linkResults'), 'link');
   $('unknownDlg').showModal();
-  $('linkQ').focus();
+  (code ? $('linkQ') : $('niPrice')).focus();
+}
+async function addNewItem(e) {
+  e.preventDefault();
+  const name = $('niName').value.trim();
+  const price = +$('niPrice').value;
+  if (!name) { $('niMsg').textContent = 'اكتب اسم الصنف.'; return; }
+  if ($('niPrice').value === '' || !(price >= 0)) { $('niMsg').textContent = 'اكتب سعر البيع.'; return; }
+  const code = newItemCode(LINK_BARCODE, new Set(ITEMS.map((i) => i.code)));
+  const row = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, code, name, price, category: 'غير محدد', barcode: LINK_BARCODE || null, created_by: SESS.user.id };
+  STOCK.catalog.push({ ...row, pending: true, created_at: new Date().toISOString() });
+  await kvSet(K.stock(), STOCK);
+  await enqueue('insert', { table: 'catalog_items', row });
+  refreshItems();
+  $('unknownDlg').close();
+  LINK_BARCODE = null;
+  addItem(ITEMS.find((i) => i.code === code));
+  msg(`اتضاف «${name}» للأصناف. صاحب الصيدلية يقدر يكمّل بياناته (سعر الشراء والرصيد) من اللوحة.`);
+  sync();
+  focusSearch();
 }
 async function linkBarcode(itemCode) {
   const it = ITEMS.find((i) => i.code === itemCode);
@@ -200,7 +269,8 @@ async function checkout() {
   };
   SALES.unshift({ ...sale, pending: true });
   await kvSet(K.sales(), SALES);
-  await enqueue('insert', { table: 'pos_sales', row: sale });
+  await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
+  try { refreshItems(); } catch (err) { console.error(err); }
   if (dev.autoPrint) printReceipt(sale);
   msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(t.total, paid))} ج` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
   newBill();
@@ -275,6 +345,9 @@ async function sync() {
   let changed = false;
   for (const s of SALES) if (s.pending && !waiting.has(s.id)) { s.pending = false; changed = true; }
   if (changed) { await kvSet(K.sales(), SALES); renderDay(); }
+  let itemsDone = false;
+  for (const c of STOCK.catalog) if (c.pending && !waiting.has(c.id)) { c.pending = false; itemsDone = true; }
+  if (itemsDone) await kvSet(K.stock(), STOCK);
   updateNet();
 }
 onOutboxChange(updateNet);
@@ -312,9 +385,10 @@ async function boot() {
 }
 async function reload() {
   await loadItems();
-  await Promise.all([loadBarcodes(), loadSales()]);
-  if (!ITEMS.length) msg('لسه مفيش أصناف للفرع ده. صاحب الصيدلية يرفع بيانات برنامج الصيدلية من اللوحة (أو الوصلة ترفعها لوحدها).', true);
-  else if (UPLOADED_AT) msg(`${ITEMS.length} صنف · آخر تحديث للأصناف: ${new Date(UPLOADED_AT).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
+  await Promise.all([loadBarcodes(), loadSales(), loadStock()]);
+  refreshItems();
+  if (!ITEMS.length) msg('لسه مفيش أصناف للفرع ده. صاحب الصيدلية يرفع دليل الأصناف من اللوحة، أو يضيف الأصناف من «كل الأصناف».', true);
+  else msg(`${ITEMS.length} صنف${UPLOADED_AT ? ` · آخر رفع من برنامج الصيدلية: ${new Date(UPLOADED_AT).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}`);
   renderDay();
 }
 
@@ -325,6 +399,7 @@ $('results').addEventListener('click', (e) => { const b = e.target.closest('[dat
 $('linkQ').addEventListener('input', () => showResults(lookup($('linkQ').value, ITEMS).matches ?? [], $('linkResults'), 'link'));
 $('linkResults').addEventListener('click', (e) => { const b = e.target.closest('[data-link]'); if (b) linkBarcode(b.dataset.link); });
 $('unknownCancel').addEventListener('click', () => { $('unknownDlg').close(); focusSearch(); });
+$('newItemForm').addEventListener('submit', addNewItem);
 $('cart').addEventListener('click', (e) => {
   const t = e.target.closest('button'); if (!t) return;
   const i = +(t.dataset.inc ?? t.dataset.dec ?? t.dataset.del);
