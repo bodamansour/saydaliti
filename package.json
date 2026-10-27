@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "e2e": "node --test e2e/dashboard.e2e.mjs",
+    "e2e": "node --test e2e/dashboard.e2e.mjs e2e/local.e2e.mjs",
     "dev": "npx --yes serve -l 3000 ."
   },
   "devDependencies": {

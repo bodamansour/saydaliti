@@ -171,7 +171,7 @@ async function boot() {
     show(TAB); return;
   }
   $('app').hidden = true;
-  $('logout').hidden = sess.mode === 'signed-out';
+  $('logout').hidden = sess.mode === 'signed-out' || !!sess.local;
   if (sess.mode === 'signed-out') { $('modeChip').textContent = 'مش مسجّل دخول'; return renderSignIn($('auth'), boot); }
   if (sess.mode === 'no-pharmacy') { $('modeChip').textContent = sess.user.email; return renderPharmacyChoice($('auth'), boot); }
 

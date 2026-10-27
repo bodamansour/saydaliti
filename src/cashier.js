@@ -372,7 +372,10 @@ function printHtml(html) {
   const r = $('receipt');
   r.className = `paper-${dev.paper}`;
   r.innerHTML = html;
-  window.print();
+  // The Windows program can print straight to the default (thermal) printer with no print window.
+  const desk = window.saydalitiDesktop;
+  if (desk?.printSilent && dev.silent) desk.printSilent().then((res) => { if (res !== 'ok') msg(`الطباعة ماخلصتش: ${res}. اتأكد إن الطابعة الحرارية هي الافتراضية.`, true); });
+  else window.print();
 }
 const printReceipt = (sale) => printHtml(receiptHtml(sale));
 
@@ -409,7 +412,7 @@ function printDay() {
 async function updateNet() {
   const q = await pending(), st = await stuck();
   const on = isOnline();
-  $('netChip').textContent = on ? (q.length ? `بيرفع ${q.length}…` : 'متصل') : `من غير نت${q.length ? ` · ${q.length} مستني يترفع` : ''}`;
+  $('netChip').textContent = SESS?.local ? (q.length ? `بيحفظ ${q.length}…` : 'محفوظ على الجهاز') : on ? (q.length ? `بيرفع ${q.length}…` : 'متصل') : `من غير نت${q.length ? ` · ${q.length} مستني يترفع` : ''}`;
   $('netChip').className = `chip ${on ? 'real' : ''}`;
   $('stuckChip').hidden = !st.length;
   $('stuckChip').textContent = `${st.length} فاتورة مارضيتش تترفع — دوس هنا عشان تحاول تاني`;
@@ -453,10 +456,12 @@ async function boot() {
   $('posTitle').textContent = `${SESS.pharmacy.name} · الكاشير`;
   $('posWho').textContent = `${SESS.user.email ?? ''} · ${ROLE_LABEL[SESS.role]}`;
   $('toDashboard').hidden = SESS.role === 'device';
+  $('logout').hidden = !!SESS.local; // the desktop version has no accounts
   BRANCHES = SESS.branchesReady && SESS.branches.length ? SESS.branches.map(({ id, name }) => ({ id, name })) : [{ id: null, name: 'الفرع الرئيسي' }];
   BRANCH = dev.branch && BRANCHES.some((b) => b.id === dev.branch) ? dev.branch : BRANCHES[0].id;
   $('posBranchWrap').hidden = BRANCHES.length < 2;
   $('posBranch').innerHTML = BRANCHES.map((b) => `<option value="${esc(b.id ?? '')}" ${b.id === BRANCH ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
+  $('silentWrap').hidden = !window.saydalitiDesktop?.printSilent; $('silentPrint').checked = !!dev.silent; $('kioskNote').hidden = !!window.saydalitiDesktop;
   $('paper').value = dev.paper; $('autoPrint').checked = !!dev.autoPrint; $('footer').value = dev.footer; $('deviceTag').value = dev.tag;
   renderPay(); renderCart();
   await reload();
@@ -522,6 +527,7 @@ $('stuckChip').addEventListener('click', async () => { await retryStuck(); sync(
 $('posBranch').addEventListener('change', async (e) => { BRANCH = e.target.value || null; dev.branch = BRANCH; saveDev(); newBill(); await reload(); });
 $('paper').addEventListener('change', (e) => { dev.paper = e.target.value; saveDev(); });
 $('autoPrint').addEventListener('change', (e) => { dev.autoPrint = e.target.checked; saveDev(); });
+$('silentPrint').addEventListener('change', (e) => { dev.silent = e.target.checked; saveDev(); });
 $('footer').addEventListener('input', (e) => { dev.footer = e.target.value; saveDev(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {

@@ -7,7 +7,7 @@ import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
-import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
+import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf } from './inventory.js';
@@ -1533,6 +1533,44 @@ $('panel').addEventListener('click', (e) => {
   if (t('copyclaim') !== undefined) copyFrom($(`claimMsg${t('copyclaim')}`), $(`claimNote${t('copyclaim')}`));
 });
 
+// ---------- Offline desktop version: no accounts, backups to a file ----------
+const desktop = () => window.saydalitiDesktop; // provided by the Windows app
+function setupLocal() {
+  for (const id of ['logout', 'inviteBox', 'connectorBox']) { const el = $(id); if (el) el.hidden = true; }
+  $('localBox').hidden = false;
+  updateNet();
+  $('backupWhere').textContent = desktop() ? 'البرنامج بيعمل نسخة احتياطية لوحده كل يوم في فولدر «Saydaliti» جوه «Documents». احتفظ بنسخة كمان على فلاشة أو على الموبايل.' : 'نزّل نسخة احتياطية كل فترة واحتفظ بيها على فلاشة.';
+  autoBackup();
+}
+async function backupJson() { return JSON.stringify(await SESS.client.exportAll()); }
+async function saveBackup(manual) {
+  const json = await backupJson();
+  const name = `saydaliti-backup-${isoDay(new Date())}.json`;
+  if (desktop()?.saveBackup) return desktop().saveBackup(name, json, manual);
+  if (!manual) return null;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return name;
+}
+async function autoBackup() {
+  if (!desktop()?.saveBackup) return;
+  const last = store.get('saydaliti-last-backup', 0);
+  if (Date.now() - last < 20 * 3600 * 1000) return;
+  try { await saveBackup(false); store.set('saydaliti-last-backup', Date.now()); } catch { /* try again next time */ }
+}
+$('backupBtn').addEventListener('click', async () => {
+  $('backupMsg').textContent = 'لحظة…';
+  try { const where = await saveBackup(true); store.set('saydaliti-last-backup', Date.now()); $('backupMsg').textContent = where ? `اتحفظت: ${where}` : 'اتحفظت.'; } catch (e) { $('backupMsg').textContent = `ماتحفظتش: ${e.message}`; }
+});
+$('restoreFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (!confirm('ترجّع البيانات من النسخة دي؟ كل اللي على الجهاز دلوقتي هيتبدل بيها. (الأحسن تنزّل نسخة احتياطية من الحالي الأول.)')) return;
+  try { await SESS.client.importAll(JSON.parse(await f.text())); await clearLocal(); location.reload(); } catch (err) { $('backupMsg').textContent = err.message; }
+});
+
 // ---------- Branches & data ----------
 const snapKey = (k) => `snap:${SESS.pharmacy.id}:${k}`;
 const prevKey = (k) => `snapPrev:${SESS.pharmacy.id}:${k}`;
@@ -1605,7 +1643,7 @@ async function updateNet(q) {
   q ??= await pending();
   const n = q.length;
   const on = isOnline();
-  $('netChip').textContent = on ? (n ? `بيرفع ${n}…` : 'متصل') : `من غير نت${n ? ` · ${n} مستني يترفع` : ''}`;
+  $('netChip').textContent = SESS.local ? (n ? `بيحفظ ${n}…` : 'محفوظ على الجهاز') : on ? (n ? `بيرفع ${n}…` : 'متصل') : `من غير نت${n ? ` · ${n} مستني يترفع` : ''}`;
   $('netChip').className = `chip ${on ? 'real' : ''}`;
 }
 async function sync() {
@@ -1687,6 +1725,7 @@ async function boot() {
     $('settingsMsg').textContent = `الإعدادات بيحددها صاحب الصيدلية. إنت داخل كـ${ROLE_LABEL[SESS.role]}.`;
   }
   $('connectorBox').hidden = !isOwner();
+  if (SESS.local) setupLocal();
   $('toCashier').hidden = !isOwner();
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 

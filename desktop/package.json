@@ -1,0 +1,52 @@
+{
+  "name": "saydaliti-desktop",
+  "productName": "Saydaliti",
+  "version": "1.0.0",
+  "description": "صيدليتي — نسخة الكمبيوتر اللي بتشتغل من غير نت",
+  "author": "abdelrahman mansour",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "app": "node scripts/copy-app.mjs",
+    "start": "npm run app && electron .",
+    "dist": "npm run app && electron-builder --win nsis --x64 --publish never",
+    "smoke": "node smoke.mjs"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "5.2.7",
+    "@fontsource/ibm-plex-sans-arabic": "5.2.8",
+    "@fontsource/readex-pro": "5.2.8",
+    "electron": "33.4.11",
+    "electron-builder": "26.0.12",
+    "playwright": "1.63.0",
+    "xlsx": "0.18.5"
+  },
+  "build": {
+    "appId": "com.saydaliti.desktop",
+    "productName": "Saydaliti",
+    "artifactName": "Saydaliti-Setup.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "app/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "صيدليتي",
+      "uninstallDisplayName": "صيدليتي",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
