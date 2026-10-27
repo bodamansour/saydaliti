@@ -154,3 +154,57 @@ form.editing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-s
 /* Grid children may shrink below their content width, so wide tables scroll inside their own box
    (.tablebox) instead of stretching the page sideways on phones. */
 .wrap > *, .panel > *, details.help { min-width: 0; }
+/* ---------- Cashier (cashier.html) ---------- */
+.pos { display: grid; gap: 12px; padding: 12px max(12px, env(safe-area-inset-right, 0px)) 24px max(12px, env(safe-area-inset-left, 0px)); max-width: 1400px; margin: 0 auto; }
+.pos-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.pos-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
+.pos-left { display: grid; gap: 8px; min-width: 0; }
+.pos-search { position: relative; }
+.pos-search input { font-size: 1.15rem; padding: 12px 14px; min-height: 52px; border-width: 2px; }
+.pos-search input:focus { border-color: var(--accent); }
+.results { position: absolute; inset-inline: 0; top: 100%; z-index: 5; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / .12); max-height: 50vh; overflow: auto; }
+.results.static { position: static; box-shadow: none; max-height: 40vh; margin: 8px 0; }
+.res { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: start; font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 10px 12px; cursor: pointer; color: var(--fg); }
+.res:hover, .res:focus-visible, .res.first { background: var(--accent-soft); }
+.cart table td, .cart table th { white-space: nowrap; }
+.cart td.name { white-space: normal; }
+.qty { display: inline-flex; align-items: center; gap: 4px; }
+.qty input { width: 64px; text-align: center; min-height: 36px; padding: 4px; }
+.qty .btn { padding: 4px 10px; min-height: 36px; }
+input.disc { width: 80px; min-height: 36px; padding: 4px 8px; }
+.pos-side { position: sticky; top: 12px; gap: 12px; }
+.pos-totals input { width: 110px; min-height: 34px; padding: 4px 8px; }
+.ledger .big, .rc-tot .big { font-size: 1.5rem; }
+.big-in { font-size: 1.3rem; min-height: 50px; }
+.big-btn { font-size: 1.15rem; min-height: 56px; }
+.mode .btn, .pay .btn { flex: 1; }
+.btn.sel { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+body.returning .pos-side { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn-soft); }
+body.returning #modeReturn.sel { background: var(--warn); border-color: var(--warn); }
+.pos-day { gap: 8px; }
+.pos-day .ledger { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); display: grid; gap: 4px 16px; }
+dialog.card { max-width: min(560px, 92vw); border: 1px solid var(--line); color: var(--fg); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 900px) { .pos-main { grid-template-columns: minmax(0, 1fr); } .pos-side { position: static; } }
+
+/* Receipt: hidden on screen, the only thing printed. */
+#receipt { display: none; }
+@media print {
+  @page { margin: 0; }
+  body.pos-body > *:not(#receipt) { display: none !important; }
+  body.pos-body { background: #fff; color: #000; }
+  #receipt { display: block; font: 12px/1.45 var(--body); color: #000; padding: 2mm 3mm; }
+  #receipt.paper-80 { width: 72mm; }
+  #receipt.paper-58 { width: 48mm; font-size: 10.5px; }
+  #receipt .n { font-family: var(--num); }
+  .rc-head { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 2mm; margin-bottom: 2mm; }
+  .rc-head b { font-size: 15px; }
+  .rc-lines { width: 100%; border-collapse: collapse; }
+  .rc-lines td { padding: 0 0 1px; border: 0; white-space: normal; }
+  .rc-lines td:last-child { text-align: left; }
+  .rc-tot { border-top: 1px dashed #000; margin-top: 2mm; padding-top: 2mm; }
+  .rc-tot div { display: flex; justify-content: space-between; }
+  .rc-tot .big { font-size: 16px; font-weight: 700; }
+  .rc-foot { text-align: center; border-top: 1px dashed #000; margin-top: 2mm; padding-top: 2mm; }
+}
