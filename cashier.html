@@ -75,11 +75,19 @@
 </div>
 
 <dialog id="unknownDlg" class="card">
-  <h3>الباركود ده مش متسجل</h3>
-  <p class="note">الباركود <b class="n" id="unknownCode"></b> لسه مش مربوط بصنف. دوّر على الصنف واختاره، والبرنامج هيفتكره بعد كده.</p>
-  <input id="linkQ" type="search" autocomplete="off" placeholder="اسم الصنف…" aria-label="دوّر على الصنف">
-  <div id="linkResults" class="results static"></div>
-  <div class="row"><button class="btn" id="unknownCancel">إلغاء</button></div>
+  <h3 id="unknownTitle">الباركود ده مش متسجل</h3>
+  <div id="linkPart">
+    <p class="note">الباركود <b class="n" id="unknownCode"></b> لسه مش مربوط بصنف. لو الصنف موجود بباركود تاني، دوّر عليه واختاره، والبرنامج هيفتكره بعد كده.</p>
+    <input id="linkQ" type="search" autocomplete="off" placeholder="اسم الصنف…" aria-label="دوّر على الصنف">
+    <div id="linkResults" class="results static"></div>
+    <hr>
+  </div>
+  <form id="newItemForm" class="stack" novalidate>
+    <b>صنف جديد مش متسجل خالص؟ ضيفه وبيعه:</b>
+    <label>اسم الصنف<input id="niName" maxlength="160" autocomplete="off"></label>
+    <label>سعر البيع<input id="niPrice" type="number" min="0" step="0.25" inputmode="decimal"></label>
+    <div class="row"><button class="btn primary" type="submit">ضيفه للفاتورة</button><button class="btn" type="button" id="unknownCancel">إلغاء</button><span class="note" id="niMsg" role="status"></span></div>
+  </form>
 </dialog>
 
 <div id="receipt" aria-hidden="true"></div>

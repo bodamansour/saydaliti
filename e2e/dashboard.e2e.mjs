@@ -41,6 +41,8 @@ const text = (sel, p = page) => p.locator(sel).first().innerText();
 const db = (k) => page.evaluate((k) => window.__DB?.[k] ?? [], k);
 const goOffline = async () => { await ctx.setOffline(true); await page.evaluate(() => dispatchEvent(new Event('offline'))); };
 const goOnline = async () => { await ctx.setOffline(false); await page.evaluate(() => dispatchEvent(new Event('online'))); };
+// SHOTS=<folder> npm run e2e saves screenshots of the new screens for a visual check.
+const shot = (name) => process.env.SHOTS && page.screenshot({ path: join(process.env.SHOTS, `${name}.png`), fullPage: true });
 const until = async (fn, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await page.waitForTimeout(100); } return false; };
 
 test('sign-in comes first, and sign-up asks to confirm the password', async () => {
@@ -60,9 +62,9 @@ test('sign-in comes first, and sign-up asks to confirm the password', async () =
   await page.waitForSelector('#app:not([hidden])');
 });
 
-test('dashboard opens with no example data, grouped in four sections', async () => {
+test('dashboard opens with no example data, grouped in five sections', async () => {
   assert.equal(await text('#phTitle'), 'صيدلية أحمد منصور');
-  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'الفلوس', 'البيع', 'المرضى']);
+  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
   assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['مبيعات الكاشير', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب']);
@@ -278,6 +280,86 @@ test('cashier sales show up in the dashboard', async () => {
   assert.match(await text('#panel .card .ledger'), /الصافي/);
 });
 
+test('stock: add a new item, receive a delivery, pay the supplier', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.click('#newItemBtn');
+  await page.fill('#itName', 'شاش طبي');
+  await page.fill('#itBarcode', '6220000000001');
+  await page.press('#itBarcode', 'Enter'); // a scanner ends with Enter: the form must not be sent yet
+  assert.equal((await db('catalog_items')).length, 0);
+  await page.fill('#itPrice', '15');
+  await page.fill('#itCost', '10');
+  await page.fill('#itQty', '20');
+  await page.click('#itemForm button[type=submit]');
+  assert.ok(await until(async () => (await db('catalog_items')).length === 1 && (await db('stock_moves')).length === 1));
+  await page.fill('#itemsQ', 'شاش');
+  assert.match(await text('#itemsBody tr'), /20/);
+
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=receive]');
+  const ids = Object.fromEntries((await page.evaluate(() => window.__DB.members[0].pharmacies.settings.suppliers)).map((x) => [x.name, x.id]));
+  await page.selectOption('#rcvSup', ids['مخزن الأمل']);
+  await page.fill('#rcvQ', '6220000000001');
+  await page.press('#rcvQ', 'Enter');
+  await page.fill('[data-l="0"][data-f="qty"]', '10');
+  await page.fill('[data-l="0"][data-f="bonus"]', '2');
+  await page.fill('[data-l="0"][data-f="cost"]', '9');
+  await page.fill('#rcvQ', 'panadol');
+  await page.press('#rcvQ', 'Enter');
+  assert.equal(await page.locator('#rcvLines tr').count(), 2);
+  await page.fill('#rcvPaid', '50');
+  await shot('receive');
+  await page.setViewportSize({ width: 390, height: 844 }); await shot('receive-phone'); await page.setViewportSize({ width: 1200, height: 900 });
+  await page.click('#rcvForm button[type=submit]');
+  assert.ok(await until(async () => (await db('purchases')).length === 1));
+  const [p] = await db('purchases');
+  assert.deepEqual([p.supplier_name, p.lines.length, p.branch_id, p.paid], ['مخزن الأمل', 2, 'b1', 50]);
+  assert.match(await text('#rcvMsg'), /اتسجلت الطلبية/);
+
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  assert.match(await text('#itemsBody tr'), /32/, '20 + 10 + 2 free');
+  await page.fill('#itemsQ', ''); await shot('items');
+
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=supaccounts]');
+  assert.match(await text('#panel tbody tr'), /مخزن الأمل/);
+  await page.fill('#payAmount', '20');
+  await page.click('#payForm button[type=submit]');
+  assert.ok(await until(async () => (await db('supplier_payments')).length === 1));
+  await shot('accounts');
+  await page.click('[data-tab=invoices]');
+  assert.match(await text('#panel details summary'), /مخزن الأمل/);
+});
+
+test('cashier: sells from the stock entered here, and adds a brand-new item on the spot', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  assert.ok(await until(async () => /صنف/.test(await text('#posMsg'))));
+  await page.fill('#q', 'شاش');
+  assert.match(await text('#results'), /رصيد 32/, 'stock = 20 entered + 12 received');
+  await page.fill('#q', '6220000000001');
+  await page.press('#q', 'Enter');
+  assert.match(await text('#cart'), /شاش طبي/);
+  await page.fill('#q', '6220000000099'); // not in the list at all
+  await page.press('#q', 'Enter');
+  await page.waitForSelector('#unknownDlg[open]');
+  await page.fill('#niName', 'قطن 100 جم');
+  await page.fill('#niPrice', '12');
+  await page.press('#niPrice', 'Enter');
+  assert.ok(await until(async () => (await db('catalog_items')).some((c) => c.barcode === '6220000000099' && c.name === 'قطن 100 جم')));
+  assert.match(await text('#cart'), /قطن 100 جم/);
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).length === 4));
+  await page.fill('#q', 'شاش');
+  assert.match(await text('#results'), /رصيد 31/, 'the sale took one off');
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+});
+
 test('opens offline with saved data even after the sign-in expired', async () => {
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForTimeout(800); // let the app files finish caching
@@ -286,7 +368,7 @@ test('opens offline with saved data even after the sign-in expired', async () =>
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 8000 });
   assert.match(await text('#netChip'), /من غير نت/);
-  assert.ok(await until(async () => /3 صنف/.test(await text('#tiles'))), 'saved stock shows offline');
+  assert.ok(await until(async () => /5 صنف/.test(await text('#tiles'))), 'saved stock (3 uploaded + 2 added here) shows offline');
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=reorder]');
   assert.match(await text('.orders .card b'), /مخزن الأمل/, 'suppliers available offline');
@@ -295,9 +377,9 @@ test('opens offline with saved data even after the sign-in expired', async () =>
 
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const tabs = ['reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['items', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ items: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
@@ -347,6 +429,7 @@ test('a sale is never lost when the database update for the cashier is missing',
   await p3.goto(`${base}cashier.html`);
   await p3.waitForSelector('#pos:not([hidden])');
   const before = await p3.evaluate(() => window.__DB.pos_sales.length);
+  assert.ok(await until(async () => /صنف/.test(await text('#posMsg', p3))), 'items loaded');
   await p3.fill('#q', '101');
   await p3.press('#q', 'Enter');
   await p3.keyboard.press('F2');

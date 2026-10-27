@@ -208,3 +208,5 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .rc-tot .big { font-size: 16px; font-weight: 700; }
   .rc-foot { text-align: center; border-top: 1px dashed #000; margin-top: 2mm; padding-top: 2mm; }
 }
+/* Five sections on a phone: three on the first row, two on the second, nothing cut off. */
+@media (max-width: 520px) { .sections { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sec { padding: 8px 4px; font-size: .92rem; } }

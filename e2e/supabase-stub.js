@@ -45,6 +45,7 @@ function builder(table) {
     } else rows = DB[table].filter(match);
     if (q._order) rows = [...rows].sort((a, b) => (q._order.asc ? 1 : -1) * String(a[q._order.col]).localeCompare(String(b[q._order.col])));
     if (q._limit) rows = rows.slice(0, q._limit);
+    if (q._range) rows = rows.slice(q._range[0], q._range[1] + 1);
     return { data: rows, error: null };
   };
   Object.assign(q, {
@@ -53,6 +54,7 @@ function builder(table) {
     gte(k, v) { q.filters.push([k, v, 'gte']); return q; },
     order(col, o = {}) { q._order = { col, asc: o.ascending !== false }; return q; },
     limit(n) { q._limit = n; return q; },
+    range(a, b) { q._range = [a, b]; return q; },
     upsert(row) { q.op = 'upsert'; q.row = row; return q; },
     update(patch) { q.op = 'update'; q.patch = patch; return q; },
     delete() { q.op = 'delete'; return q; },
