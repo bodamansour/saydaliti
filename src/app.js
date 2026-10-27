@@ -991,7 +991,11 @@ function showApp() { $('gate').hidden = true; $('app').hidden = false; }
 
 async function boot() {
   showGate();
-  try { SESS = await getSession(); } catch (err) { $('auth').innerHTML = `<p class="err">${esc(err.message)}</p><button class="btn" onclick="location.reload()">جرّب تاني</button>`; return; }
+  try { SESS = await getSession(); } catch (err) {
+    $('auth').innerHTML = `<p class="err">${esc(err.message)}</p><button class="btn primary" type="button" id="retryBoot">جرّب تاني</button>`;
+    $('retryBoot').addEventListener('click', () => location.reload());
+    return;
+  }
   if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>البرنامج مش متوصل بقاعدة البيانات</h2><p class="note">لازم يتضاف <code>SUPABASE_URL</code> و<code>SUPABASE_PUBLISHABLE_KEY</code> في إعدادات Vercel، وبعدها تقدر تسجّل دخول.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
