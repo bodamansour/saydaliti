@@ -1,5 +1,6 @@
 # Sends due patient reminders (dose times, refills) about once an hour.
-# Vercel's free plan only allows daily cron jobs, so GitHub calls the site's /api/reminders instead.
+# Vercel's free plan only allows daily cron jobs, so GitHub calls the site's /api/reminders instead
+# (Vercel also calls it once a day as a backup, see vercel.json).
 # Needs two repository secrets (Settings → Secrets and variables → Actions):
 #   SITE_URL     e.g. https://saydaliti-ivory.vercel.app
 #   CRON_SECRET  the same value as CRON_SECRET in Vercel
@@ -10,7 +11,8 @@ on:
     - cron: '7 * * * *'
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  actions: write   # only to keep this schedule switched on (last step)
 
 jobs:
   send:
@@ -26,4 +28,17 @@ jobs:
             echo "SITE_URL or CRON_SECRET is not set; nothing to do."
             exit 0
           fi
-          curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "${SITE_URL%/}/api/reminders"
+          curl -fsS --retry 3 --retry-delay 20 --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "${SITE_URL%/}/api/reminders"
+
+      # GitHub switches off scheduled workflows in public repositories after 60 days without activity.
+      # Switching the workflow on again through the API counts as activity, so the reminders never
+      # stop just because nobody changed the code for two months. Once a day is enough.
+      - name: Keep the schedule on
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$(date -u +%H)" = "03" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+            gh api -X PUT "repos/$REPO/actions/workflows/reminders.yml/enable" && echo "Schedule kept on."
+          fi

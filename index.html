@@ -44,17 +44,25 @@
   <p class="note" id="fileMsg" role="status"></p>
 
   <section class="tiles" id="tiles" aria-label="ملخص"></section>
+  <nav class="sections" id="sections" aria-label="الأقسام"></nav>
   <nav class="tabs" role="tablist" id="tabs"></nav>
   <section id="panel" class="panel"></section>
 
   <details class="help" id="branchBox">
-    <summary>الفروع</summary>
+    <summary>الفروع والشركاء</summary>
     <div id="branchList"></div>
     <form id="branchForm" class="row" style="margin-top:10px">
       <label style="flex:1">اسم فرع جديد<input id="branchName" maxlength="80" placeholder="فرع شارع الجمهورية"></label>
       <button class="btn primary" type="submit">ضيف الفرع</button>
     </form>
     <p class="note" id="branchMsg" role="status"></p>
+    <div id="inviteBox" hidden>
+      <hr>
+      <b>دعوة شريك أو جهاز الصيدلية</b>
+      <p class="note">اعمل كود وابعته. الشريك (أو جهاز الصيدلية) يعمل حساب بإيميله ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 7 أيام. الشريك بيشوف الأرقام بس ومبيعدّلش، وجهاز الصيدلية بيسجّل الحضور بس.</p>
+      <div class="row"><button class="btn" type="button" data-invite="partner">كود لشريك</button><button class="btn" type="button" data-invite="device">كود لجهاز الصيدلية</button></div>
+      <div class="row" id="inviteOut" role="status" hidden><span id="inviteText"></span><button class="btn" type="button" id="inviteShare">ابعته على واتساب</button></div>
+    </div>
   </details>
 
   <details class="help" id="settingsBox">

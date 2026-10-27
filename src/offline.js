@@ -35,6 +35,25 @@ export async function kvSet(key, value) {
   });
 }
 
+// Removes everything this app saved on the device: cached data (patients included), queued changes
+// and settings. Called on sign-out, so nothing stays behind on a shared phone or computer.
+export async function clearLocal() {
+  const d = await db();
+  if (d) d.close();
+  dbp = null;
+  if (typeof indexedDB !== 'undefined') {
+    await new Promise((res) => {
+      const r = indexedDB.deleteDatabase(DB);
+      r.onsuccess = r.onerror = r.onblocked = () => res();
+    });
+  }
+  // The site's public connection settings stay, so the sign-in page still works with no connection.
+  const keep = new Set(['saydaliti-config-v1']);
+  try {
+    for (const k of Object.keys(localStorage)) if ((k.startsWith('sd:') || k.startsWith('saydaliti-')) && !keep.has(k)) localStorage.removeItem(k);
+  } catch { /* storage blocked */ }
+}
+
 export const isOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false;
 const isNetworkError = (e) => /fetch|network|Failed to fetch|NetworkError|Load failed|مفيش اتصال/i.test(String(e?.message ?? e));
 

@@ -64,7 +64,7 @@ let DATA = EMPTY();              // what the dashboard shows (one branch, or all
 let EXPENSES = [];               // recorded expenses (server + not yet uploaded)
 let EXP_READY = true;            // false until the expenses table exists in the database
 let CALC_CODE = null;
-let TAB = 'reorder';
+let TAB = store.get('saydaliti-tab-v1', 'reorder');
 let OWNER = 'all';
 let PERIOD = 'thisMonth';
 let EXP_PERIOD = 'thisMonth';
@@ -82,7 +82,17 @@ function settings() {
 }
 const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id) === BRANCH)?.id ?? null);
 
-const TABS = [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['offers', 'العروض'], ['expenses', 'المصروفات'], ['shortages', 'نواقص السوق'], ['prices', 'أسعار السوق'], ['patients', 'تذكير المرضى'], ['books', 'الحسابات'], ['morning', 'تقرير الصبح'], ['movers', 'الأكتر سحباً'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']];
+// Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
+const SECTIONS = [
+  ['stock', 'المخزون', [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
+  ['money', 'الفلوس', [['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
+  ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق']]],
+  ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
+];
+const TABS = SECTIONS.flatMap(([, , tabs]) => tabs);
+const sectionOf = (tab) => SECTIONS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) ?? SECTIONS[0];
+const visibleSections = () => SECTIONS.filter(([id]) => id !== 'patients' || isOwner());
+const LAST_TAB = {}; // last tab opened in each section
 const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc']);
 
 function taxNote(A, s) {
@@ -133,7 +143,14 @@ function render() {
     <div class="tile"><span class="k">مصروفات الشهر ده</span><span class="v">${fmt(monthExp?.operating ?? 0)}</span><span class="s">${monthExp?.withdrawals ? `ومسحوبات ${fmt(monthExp.withdrawals)} ج` : `${A.reorder.length} صنف محتاج يتطلب`}</span></div>`;
 
   const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length };
-  $('tabs').innerHTML = TABS.filter(([id]) => id !== 'patients' || isOwner()).map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
+  if (!TABS.some(([id]) => id === TAB) || (TAB === 'patients' && !isOwner())) TAB = 'reorder';
+  const [secId, , secTabs] = sectionOf(TAB);
+  LAST_TAB[secId] = TAB;
+  store.set('saydaliti-tab-v1', TAB);
+  const urgent = { stock: has ? A.reorder.length + A.expiring.length : 0 };
+  $('sections').innerHTML = visibleSections().map(([id, t]) => `<button class="sec" data-sec="${id}" aria-pressed="${id === secId}">${t}${urgent[id] ? `<span class="cnt">${urgent[id]}</span>` : ''}</button>`).join('');
+  $('tabs').hidden = secTabs.length < 2;
+  $('tabs').innerHTML = secTabs.map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
 
   let html;
   if (TAB === 'expenses') html = renderExpenses();
@@ -698,6 +715,7 @@ function renderBranches() {
   $('tokenBranch').closest('label').hidden = !multi();
   $('branchList').innerHTML = `<ul class="blist">${BRANCHES.map((b) => `<li>${esc(b.name)} <span class="muted">${SNAP.has(key(b.id)) ? `· ${fmt(SNAP.get(key(b.id)).data.items.length)} صنف` : '· لسه مفيش بيانات'}</span></li>`).join('')}</ul>`;
   $('branchForm').hidden = !isOwner() || !SESS.branchesReady;
+  $('inviteBox').hidden = !isOwner();
   $('uploadBtn').hidden = !isOwner();
   $('uploadBtn').firstChild.textContent = multi() && BRANCH !== 'all' ? `ارفع بيانات «${branchName(BRANCH)}»` : 'ارفع البيانات';
   if (!SESS.branchesReady && isOwner()) $('branchMsg').textContent = 'إضافة فروع محتاجة تحديث قاعدة البيانات.';
@@ -821,7 +839,43 @@ $('panel').addEventListener('click', (e) => {
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
 $('branchSel').addEventListener('change', (e) => { BRANCH = e.target.value; store.set('saydaliti-branch-v1', BRANCH); renderBranches(); setView(); render(); });
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) { TAB = b.dataset.tab; render(); } });
-$('logout').addEventListener('click', async () => { await signOut(); location.reload(); });
+$('sections').addEventListener('click', (e) => {
+  const b = e.target.closest('.sec'); if (!b) return;
+  const sec = SECTIONS.find(([id]) => id === b.dataset.sec);
+  TAB = LAST_TAB[sec[0]] ?? sec[2][0][0];
+  render();
+});
+$('logout').addEventListener('click', async () => {
+  if (SESS.mode === 'member' && isOnline()) await sync();
+  const left = (await pending()).length;
+  const warn = left
+    ? `فيه ${left} حاجة لسه ماترفعتش (مستنية النت). لو خرجت دلوقتي هتضيع. تخرج برضه؟`
+    : 'الخروج هيمسح بيانات الصيدلية المحفوظة على الجهاز ده، وهتنزل تاني لما تدخل. تخرج؟';
+  if (!confirm(warn)) return;
+  await signOut();
+  location.reload();
+});
+
+// Invite codes (partners see the numbers only; the pharmacy device only records attendance).
+let INVITE = null;
+$('inviteBox').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-invite]'); if (!b) return;
+  const role = b.dataset.invite;
+  if (!isOnline()) { $('branchMsg').textContent = 'كود الدعوة محتاج نت.'; return; }
+  $('branchMsg').textContent = 'لحظة…';
+  const { data, error } = await SESS.client.rpc('create_invite', { p_pharmacy: SESS.pharmacy.id, p_role: role });
+  if (error) { $('branchMsg').textContent = arabicError(error).message; return; }
+  $('branchMsg').textContent = '';
+  INVITE = { code: data, role };
+  $('inviteText').innerHTML = `الكود: <b class="n" style="font-size:1.2rem">${esc(data)}</b> (${role === 'device' ? 'لجهاز الصيدلية' : 'لشريك'})`;
+  $('inviteOut').hidden = false;
+});
+$('inviteShare').addEventListener('click', () => {
+  if (!INVITE) return;
+  const site = location.origin + location.pathname;
+  const text = `اتفضل كود الدخول على «صيدليتي» لـ${SESS.pharmacy.name}: ${INVITE.code}\nافتح ${site} واعمل حساب بإيميلك، وبعدين اكتب الكود. الكود بيشتغل مرة واحدة لمدة 7 أيام.`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+});
 
 $('branchForm').addEventListener('submit', async (e) => {
   e.preventDefault();
