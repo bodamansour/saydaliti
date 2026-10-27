@@ -56,6 +56,19 @@ export async function clearLocal() {
 
 export const isOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false;
 const isNetworkError = (e) => /fetch|network|Failed to fetch|NetworkError|Load failed|مفيش اتصال/i.test(String(e?.message ?? e));
+// The table isn't there yet (database update not applied) or the server had a hiccup: try again later.
+const isRetryLater = (e) => /schema cache|does not exist|PGRST20[45]|42P01|timeout|503|502|500/i.test(`${e?.code ?? ''} ${e?.message ?? e}`);
+// Money records are never thrown away, even if the server refuses them: they wait aside on the device.
+const MUST_KEEP = new Set(['pos_sales']);
+const STUCK = 'outbox-stuck';
+export const stuck = () => kvGet(STUCK, []);
+export async function retryStuck() {
+  const s = await kvGet(STUCK, []);
+  if (!s.length) return;
+  await kvSet(OUTBOX, [...(await kvGet(OUTBOX, [])), ...s]);
+  await kvSet(STUCK, []);
+  await notify();
+}
 
 // ---------- Outbox ----------
 // Each entry: { id, type, payload, at }. Types: 'expense', 'deleteExpense', 'snapshot', 'settings'.
@@ -101,8 +114,9 @@ export function flush(client, onRejected = () => {}) {
     while (q.length && isOnline()) {
       const [e] = q;
       try { await send(client, e); } catch (err) {
-        if (isNetworkError(err)) break;
-        onRejected(e, arabicError(err));
+        if (isNetworkError(err) || isRetryLater(err)) break;
+        if (e.type === 'insert' && MUST_KEEP.has(e.payload.table)) await kvSet(STUCK, [...(await kvGet(STUCK, [])), e]);
+        else onRejected(e, arabicError(err));
       }
       q = (await kvGet(OUTBOX, [])).filter((x) => x.id !== e.id);
       await kvSet(OUTBOX, q);

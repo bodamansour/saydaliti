@@ -65,7 +65,7 @@ test('dashboard opens with no example data, grouped in four sections', async () 
   assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['مبيعات الكاشير', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -213,6 +213,71 @@ test('partner invite codes from the dashboard', async () => {
   assert.equal((await db('invites'))[0].role, 'partner');
 });
 
+test('cashier: scan, search, teach a barcode, take payment and print', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; }; });
+  assert.ok(await until(async () => /صنف/.test(await text('#posMsg'))), 'items loaded');
+  await page.fill('#q', 'panadol');
+  await page.press('#q', 'Enter');
+  await page.fill('#q', '101'); // the item code, like a scanner sends it
+  await page.press('#q', 'Enter');
+  assert.equal(await page.inputValue('#cart [data-qty="0"]'), '2');
+  await page.fill('#q', '6223000123456'); // a barcode the app doesn't know yet
+  await page.press('#q', 'Enter');
+  await page.waitForSelector('#unknownDlg[open]');
+  await page.fill('#linkQ', 'sun');
+  await page.click('#linkResults [data-link="202"]');
+  assert.ok(await until(async () => (await db('pos_barcodes')).length === 1), 'barcode remembered');
+  assert.equal((await db('pos_barcodes'))[0].code, '202');
+  const total = await text('#tTotal');
+  assert.equal(total, '532.20'); // 2 × 56.10 + 420
+  await page.fill('#paid', '600');
+  assert.equal(await text('#tChange'), '67.80');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).length === 1));
+  const [sale] = await db('pos_sales');
+  assert.deepEqual([sale.kind, sale.total, sale.paid, sale.lines.length], ['sale', 532.2, 600, 2]);
+  assert.equal(await page.evaluate(() => window.__printed), 1);
+  assert.match(await page.locator('#receipt').innerHTML(), /532\.20/);
+  assert.equal(await page.locator('#cart tr').count(), 0, 'new bill after payment');
+  // The barcode now works straight away.
+  await page.fill('#q', '6223000123456');
+  await page.press('#q', 'Enter');
+  assert.match(await text('#cart'), /Sun cream/);
+  await page.keyboard.press('Escape');
+});
+
+test('cashier: a return, and a sale with no connection', async () => {
+  await page.click('#modeReturn');
+  await page.fill('#q', '303');
+  await page.press('#q', 'Enter');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140)));
+  await goOffline();
+  await page.fill('#q', '101');
+  await page.press('#q', 'Enter');
+  await page.click('[data-pay="card"]');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /مستني يترفع/.test(await text('#netChip'))));
+  assert.equal((await db('pos_sales')).length, 2, 'not uploaded while offline');
+  assert.match(await text('#dayList'), /مستني النت/);
+  await goOnline();
+  assert.ok(await until(async () => (await db('pos_sales')).length === 3));
+  const sum = await text('#daySum');
+  assert.match(sum, /فيزا/);
+  assert.match(sum, /مرتجعات/);
+});
+
+test('cashier sales show up in the dashboard', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=pos]');
+  assert.ok(await until(async () => (await page.locator('#panel > .tablebox tbody tr').count()) === 3));
+  assert.match(await text('#panel .card .ledger'), /الصافي/);
+});
+
 test('opens offline with saved data even after the sign-in expired', async () => {
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForTimeout(800); // let the app files finish caching
@@ -230,9 +295,9 @@ test('opens offline with saved data even after the sign-in expired', async () =>
 
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const tabs = ['reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
@@ -274,6 +339,22 @@ test('a database without the latest updates still works', async () => {
   await p2.click('[data-tab=shortages]');
   assert.match(await text('#panel', p2), /محتاج تحديث قاعدة البيانات/);
   await p2.close();
+});
+
+test('a sale is never lost when the database update for the cashier is missing', async () => {
+  const p3 = await ctx.newPage();
+  await p3.addInitScript(() => { window.__no009 = true; window.print = () => {}; });
+  await p3.goto(`${base}cashier.html`);
+  await p3.waitForSelector('#pos:not([hidden])');
+  const before = await p3.evaluate(() => window.__DB.pos_sales.length);
+  await p3.fill('#q', '101');
+  await p3.press('#q', 'Enter');
+  await p3.keyboard.press('F2');
+  await p3.waitForTimeout(1500); // a few sync attempts
+  assert.equal(await p3.evaluate(() => window.__DB.pos_sales.length), before, 'not uploaded');
+  assert.match(await text('#netChip', p3), /بيرفع 1/, 'still waiting in the queue');
+  assert.match(await text('#dayList', p3), /مستني النت/);
+  await p3.close();
 });
 
 test('no script errors', () => {
