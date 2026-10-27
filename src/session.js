@@ -71,6 +71,12 @@ export async function getSession() {
 // Signs out and removes everything this app saved on the device (data, patients, queued changes).
 // Works with no connection too: the library keeps the session when it can't reach the server,
 // so the saved sign-in is removed here directly.
+// Keep the saved copy of the pharmacy settings current, so the app shows them when it opens offline.
+export function rememberSettings(settings) {
+  const m = cache.get(MEM);
+  if (m?.pharmacy) { m.pharmacy.settings = settings; cache.set(MEM, m); }
+}
+
 export async function signOut() {
   cache.set(MEM, null);
   try { await client?.auth.signOut(); } catch { /* offline */ }

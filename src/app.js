@@ -1,6 +1,7 @@
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel } from './branches-expenses.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
+import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
@@ -86,14 +87,14 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 const SECTIONS = [
   ['stock', 'المخزون', [['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['money', 'الفلوس', [['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
-  ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق']]],
+  ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
 const TABS = SECTIONS.flatMap(([, , tabs]) => tabs);
 const sectionOf = (tab) => SECTIONS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) ?? SECTIONS[0];
 const visibleSections = () => SECTIONS.filter(([id]) => id !== 'patients' || isOwner());
 const LAST_TAB = {}; // last tab opened in each section
-const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc']);
+const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
 
 function taxNote(A, s) {
   if (s.taxMode === 'simplified') {
@@ -142,7 +143,8 @@ function render() {
     <div class="tile warn"><span class="k">فلوس واقفة في راكد</span><span class="v">${fmt(deadVal)}</span><span class="s">${A.deadStock.length} صنف من غير بيع 45+ يوم</span></div>
     <div class="tile"><span class="k">مصروفات الشهر ده</span><span class="v">${fmt(monthExp?.operating ?? 0)}</span><span class="s">${monthExp?.withdrawals ? `ومسحوبات ${fmt(monthExp.withdrawals)} ج` : `${A.reorder.length} صنف محتاج يتطلب`}</span></div>`;
 
-  const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length };
+  const nChanged = PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).length : 0;
+  const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length, ...(nChanged ? { changes: nChanged } : {}) };
   if (!TABS.some(([id]) => id === TAB) || (TAB === 'patients' && !isOwner())) TAB = 'reorder';
   const [secId, , secTabs] = sectionOf(TAB);
   LAST_TAB[secId] = TAB;
@@ -156,12 +158,11 @@ function render() {
   if (TAB === 'expenses') html = renderExpenses();
   else if (TAB === 'shortages') html = renderShortages(full);
   else if (TAB === 'prices') html = renderPrices(A);
+  else if (TAB === 'changes' && has) html = renderPriceChanges();
   else if (TAB === 'patients') html = renderPatients();
   else if (!has && NEEDS_DATA.has(TAB)) html = emptyState();
   else if (TAB === 'reorder') {
-    html = `<p>أصناف هتخلص خلال ${s.lead + 7} يوم أو أقل على حسب سرعة سحبها. الكمية المقترحة تكفيك ${s.cover} يوم.</p>` + table(
-      ['الصنف', 'في الرف', 'بيتسحب في الشهر', 'هيخلص بعد', 'اطلب', 'التكلفة'],
-      A.reorder.map((r) => `<tr>${nameCell(r, SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '')}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td><td>${egp(r.order * r.cost)}</td></tr>`));
+    html = renderReorder(A, s);
   } else if (TAB === 'expiry') {
     html = '<p>الكمية اللي غالباً مش هتتباع قبل الصلاحية على حسب سرعة السحب. اعمل عليها عرض، أو رجّعها للمخزن لو ينفع.</p>' + table(
       ['الصنف', 'الصلاحية', 'في الرف', 'متوقع يتباع', 'في خطر', 'قيمتها', ''],
@@ -179,7 +180,7 @@ function render() {
   } else if (TAB === 'morning') {
     const name = SESS.pharmacy?.name || 'الصيدلية';
     html = `<p>ملخص اليوم في رسالة واحدة: الفلوس اللي في خطر، تطلب إيه، وتعمل عرض على إيه. انسخه وابعته على واتساب${OWNER !== 'all' ? ` (ده لبضاعة ${esc(OWNER)} بس)` : ''}${BRANCH !== 'all' && multi() ? ` (${esc(branchName(BRANCH))})` : ''}.</p>
-      <div class="card msg"><textarea id="morningMsg" aria-label="تقرير الصبح" style="min-height:320px">${esc(morningReport(A, { pharmacyName: name, shortages: FEATURES_READY ? shortagePlan(SHORTAGES, A.rows).filter((x) => x.found) : [] }))}</textarea>
+      <div class="card msg"><textarea id="morningMsg" aria-label="تقرير الصبح" style="min-height:320px">${esc(morningReport(A, { pharmacyName: name, shortages: FEATURES_READY ? shortagePlan(SHORTAGES, A.rows).filter((x) => x.found) : [], priceChanged: nChanged }))}</textarea>
       <div class="row"><button class="btn primary" id="copyMorning">انسخ التقرير</button><span class="note" id="copyMorningNote"></span></div></div>`;
   } else if (TAB === 'books') {
     html = renderBooks(full, only);
@@ -255,22 +256,29 @@ function renderExpenses() {
   const list = EXPENSES.filter((e) => (bid === 'all' || e.branch_id === bid))
     .filter((e) => { const d = new Date(`${e.spent_on}T00:00:00`); return (!from || d >= from) && (!to || d < to); })
     .sort((a, b) => b.spent_on.localeCompare(a.spent_on) || String(b.created_at).localeCompare(String(a.created_at)));
-  const defBranch = BRANCH !== 'all' ? BRANCH : key(BRANCHES[0]?.id);
-  const form = isOwner() ? `<form id="expForm" class="card stack">
-      <h3>سجّل مصروف أو مسحوبات</h3>
+  const E = EDIT_EXP ? EXPENSES.find((x) => x.id === EDIT_EXP) : null;
+  if (EDIT_EXP && !E) EDIT_EXP = null;
+  const defBranch = E ? key(E.branch_id) : BRANCH !== 'all' ? BRANCH : key(BRANCHES[0]?.id);
+  const form = isOwner() ? `<form id="expForm" class="card stack${E ? ' editing' : ''}">
+      <h3>${E ? 'عدّل المصروف' : 'سجّل مصروف أو مسحوبات'}</h3>
       <div class="grid2">
-        <label>النوع<select id="expKind">${EXPENSE_KINDS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
-        <label>المبلغ (جنيه)<input id="expAmount" type="number" inputmode="decimal" min="0.01" step="0.01" required></label>
-        <label>التاريخ<input id="expDate" type="date" value="${isoDay(TODAY)}" max="${isoDay(TODAY)}" required></label>
+        <label>النوع<select id="expKind">${EXPENSE_KINDS.map(([v, t]) => `<option value="${v}" ${E?.kind === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label>المبلغ (جنيه)<input id="expAmount" type="number" inputmode="decimal" min="0.01" step="0.01" required value="${E ? esc(+E.amount) : ''}"></label>
+        <label>التاريخ<input id="expDate" type="date" value="${E ? esc(E.spent_on) : isoDay(TODAY)}" max="${isoDay(TODAY)}" required></label>
         ${multi() ? `<label>الفرع<select id="expBranch">${BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === defBranch ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>` : ''}
-        <label class="span2">ملاحظة (اختياري)<input id="expNote" maxlength="300" placeholder="مثلاً: فاتورة كهربا شهر 10، أو سحب أحمد"></label>
+        <label class="span2">ملاحظة (اختياري)<input id="expNote" maxlength="300" placeholder="مثلاً: فاتورة كهربا شهر 10، أو سحب أحمد" value="${esc(E?.note || '')}"></label>
       </div>
-      <div class="row"><button class="btn primary" type="submit">احفظ</button><span class="note" id="expMsg" role="status"></span></div>
+      <div class="row"><button class="btn primary" type="submit">${E ? 'احفظ التعديل' : 'احفظ'}</button>${E ? '<button class="btn" type="button" id="expCancel">إلغاء</button>' : ''}<span class="note" id="expMsg" role="status"></span></div>
       <p class="note">المسحوبات فلوس خرجت من الصيدلية لصاحبها أو لشريك. مش بتتحسب مصروف، بس بتظهر في الحسابات عشان تعرف فاضل كام.</p>
     </form>` : '<p class="note">صاحب الصيدلية بس اللي بيسجّل المصروفات.</p>';
   const kinds = EXPENSE_KINDS.filter(([k]) => T.byKind[k]).map(([k, t]) => `<div><span>${k === 'withdrawal' ? 'مسحوبات' : t}</span><span class="n">${fmt(T.byKind[k], 2)}</span></div>`).join('');
-  const rows = list.map((e) => `<tr class="${e.pending ? 'pend' : ''}"><td class="n">${esc(e.spent_on)}</td><td>${egp(+e.amount)}</td><td>${esc(e.kind === 'withdrawal' ? 'مسحوبات' : kindLabel(e.kind))}${e.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>${multi() ? `<td>${esc(branchName(key(e.branch_id)))}</td>` : ''}<td class="muted">${esc(e.note || '')}</td>${isOwner() ? `<td><button class="btn" data-delexp="${esc(e.id)}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
-  return `<div class="calc">
+  const rows = list.map((e) => `<tr class="${e.pending ? 'pend' : ''}"><td class="n">${esc(e.spent_on)}</td><td>${egp(+e.amount)}</td><td>${esc(e.kind === 'withdrawal' ? 'مسحوبات' : kindLabel(e.kind))}${e.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>${multi() ? `<td>${esc(branchName(key(e.branch_id)))}</td>` : ''}<td class="muted">${esc(e.note || '')}</td>${isOwner() ? `<td class="acts"><button class="btn" data-editexp="${esc(e.id)}">عدّل</button> <button class="btn" data-delexp="${esc(e.id)}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
+  const fixed = isOwner() ? recurringSuggestions(EXPENSES, TODAY).filter((x) => bid === 'all' || x.branch_id === bid) : [];
+  const fixedCard = fixed.length ? `<div class="card stack" id="fixedCard"><h3>مصاريف ثابتة لسه متسجلتش الشهر ده</h3>
+      <p class="note">زي الشهر اللي فات. لو المبلغ اتغير، سجّلهم وعدّل اللي اتغير.</p>
+      <div class="ledger">${fixed.map((x) => `<div><span>${esc(kindLabel(x.kind))}${x.note ? ` · ${esc(x.note)}` : ''}${multi() ? ` · ${esc(branchName(key(x.branch_id)))}` : ''}</span><span class="n">${fmt(x.amount, 2)}</span></div>`).join('')}</div>
+      <div class="row"><button class="btn primary" type="button" id="addFixed">سجّلهم للشهر ده</button></div></div>` : '';
+  return `${fixedCard}<div class="calc">
     ${form}
     <div class="card"><div class="row" style="justify-content:space-between"><h3>المجموع</h3>${periodSelect('expPeriodSel', EXP_PERIOD)}</div>
       <div class="ledger">${kinds || '<div><span class="muted">مفيش مصروفات في الفترة دي.</span><span></span></div>'}
@@ -282,6 +290,21 @@ function renderExpenses() {
     : '');
 }
 
+let EDIT_EXP = null; // id of the expense being edited
+
+// The database keeps expenses append-only, so an edit is saved as "delete the old one, add the new one".
+async function insertExpense(fields) {
+  const row = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, created_by: SESS.user.id, ...fields };
+  EXPENSES.push({ ...row, created_at: new Date().toISOString(), pending: true });
+  await saveExpenseCache();
+  await enqueue('expense', row);
+}
+async function removeExpense(id) {
+  EXPENSES = EXPENSES.filter((x) => x.id !== id);
+  await saveExpenseCache();
+  await enqueue('deleteExpense', { id });
+}
+
 async function addExpense(ev) {
   ev.preventDefault();
   const amount = Math.round((+$('expAmount').value || 0) * 100) / 100;
@@ -289,24 +312,29 @@ async function addExpense(ev) {
   if (!(amount > 0)) { $('expMsg').textContent = 'اكتب المبلغ.'; return; }
   if (!date || date > isoDay(TODAY)) { $('expMsg').textContent = 'اختار تاريخ النهارده أو قبله.'; return; }
   const bk = multi() ? $('expBranch').value : key(BRANCHES[0]?.id);
-  const row = {
-    id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: bk === 'main' ? null : bk,
-    spent_on: date, kind: $('expKind').value, amount, note: $('expNote').value.trim() || null, created_by: SESS.user.id,
-  };
-  EXPENSES.push({ ...row, created_at: new Date().toISOString(), pending: true });
-  await saveExpenseCache();
-  await enqueue('expense', row);
+  const editing = EDIT_EXP;
+  if (editing) await removeExpense(editing);
+  EDIT_EXP = null;
+  await insertExpense({ branch_id: bk === 'main' ? null : bk, spent_on: date, kind: $('expKind').value, amount, note: $('expNote').value.trim() || null });
   render();
-  $('expMsg').textContent = isOnline() ? 'اتسجل.' : 'اتسجل على الجهاز، وهيترفع أول ما النت يرجع.';
+  $('expMsg').textContent = `${editing ? 'اتعدّل.' : 'اتسجل.'}${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+  sync();
+}
+
+async function addFixedExpenses() {
+  const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
+  const list = recurringSuggestions(EXPENSES, TODAY).filter((x) => bid === 'all' || x.branch_id === bid);
+  for (const x of list) await insertExpense({ branch_id: x.branch_id, spent_on: isoDay(x.spent_on), kind: x.kind, amount: x.amount, note: x.note });
+  render();
+  $('expMsg').textContent = `اتسجل ${list.length} مصروف ثابت للشهر ده.${isOnline() ? '' : ' هيترفعوا أول ما النت يرجع.'}`;
   sync();
 }
 
 async function deleteExpense(id) {
   const e = EXPENSES.find((x) => x.id === id);
   if (!e || !confirm(`تمسح ${kindLabel(e.kind)} بـ ${fmt(+e.amount)} جنيه بتاريخ ${e.spent_on}؟`)) return;
-  EXPENSES = EXPENSES.filter((x) => x.id !== id);
-  await saveExpenseCache();
-  await enqueue('deleteExpense', { id });
+  if (EDIT_EXP === id) EDIT_EXP = null;
+  await removeExpense(id);
   render(); sync();
 }
 
@@ -330,6 +358,140 @@ async function loadExpenses() {
   EXPENSES = [...base.filter((e) => !deleted.has(e.id)).map((e) => ({ ...e, pending: false })), ...local];
   EXP_READY = true;
   await saveExpenseCache();
+}
+
+// ---------- Suppliers and orders (kept in the shared pharmacy settings, no extra tables) ----------
+const SUPPLIERS = () => SESS.pharmacy?.settings?.suppliers || [];
+const CHOSEN = () => SESS.pharmacy?.settings?.supplierFor || {};
+let EDIT_SUP = null;
+let SUP_OPEN = false; // the suppliers box stays as the owner left it across re-renders
+
+// Settings are one shared object (form fields, suppliers, chosen supplier per item): merge, then save.
+async function saveShared(patch) {
+  SESS.pharmacy.settings = { ...(SESS.pharmacy.settings || {}), ...patch };
+  rememberSettings(SESS.pharmacy.settings);
+  await enqueue('settings', { p_pharmacy: SESS.pharmacy.id, p_settings: SESS.pharmacy.settings });
+  sync();
+}
+
+function renderReorder(A, s) {
+  const sup = SUPPLIERS();
+  const chosen = CHOSEN();
+  const supCell = (r) => {
+    if (!sup.length) return '';
+    const p = pickSupplier(r, sup, chosen);
+    if (!isOwner()) return `<td>${esc(p.supplier.name)}${p.pct ? ` <span class="muted n">−${fmt(p.pct, 1)}%</span>` : ''}</td>`;
+    return `<td><select class="supsel" data-supfor="${esc(r.code)}" aria-label="المورد لـ ${esc(r.name)}">${sup.map((x) => `<option value="${esc(x.id)}" ${x.id === p.supplier.id ? 'selected' : ''}>${esc(x.name)} (−${fmt(pickSupplier(r, [x]).pct, 1)}%)</option>`).join('')}</select></td>`;
+  };
+  const costCell = (r) => {
+    const p = sup.length ? pickSupplier(r, sup, chosen) : null;
+    const full = r.order * r.cost;
+    if (!p?.pct) return `<td>${egp(full)}</td>`;
+    return `<td>${egp(full * (1 - p.pct / 100))} <span class="muted strike n">${fmt(full)}</span></td>`;
+  };
+  const head = ['الصنف', 'في الرف', 'بيتسحب في الشهر', 'هيخلص بعد', 'اطلب', ...(sup.length ? ['المورد'] : []), 'التكلفة'];
+  const body = A.reorder.map((r) => `<tr>${nameCell(r, SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '')}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td>${supCell(r)}${costCell(r)}</tr>`);
+  let orders = '';
+  if (A.reorder.length) {
+    const groups = ordersBySupplier(A.reorder, sup, chosen);
+    const bname = multi() && BRANCH !== 'all' ? branchName(BRANCH) : '';
+    orders = `<h3>الطلبيات${sup.length ? ' حسب المورد' : ''}</h3><div class="orders">${groups.map((g, i) => {
+      const msg = orderMessage(g, { pharmacyName: SESS.pharmacy?.name || 'الصيدلية', branchName: bname });
+      return `<div class="card msg"><div class="row" style="justify-content:space-between"><b>${esc(g.supplier?.name || (sup.length ? 'من غير مورد' : 'الطلبية'))}</b>
+        <span class="muted">${fmt(g.lines.length)} صنف · ${egp(g.cost)}${g.saved > 0.5 ? ` · وفّرت <span class="n">${fmt(g.saved)}</span> ج` : ''}</span></div>
+        <textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea>
+        <div class="row"><button class="btn primary" type="button" data-wa="${i}" data-phone="${esc(g.supplier?.phone || '')}">ابعتها على واتساب</button><button class="btn" type="button" data-copyorder="${i}">انسخ</button><span class="note" id="orderNote${i}"></span></div></div>`;
+    }).join('')}</div>`;
+  }
+  const hint = !sup.length ? `<p class="note">${isOwner() ? 'ضيف الموردين وخصم كل واحد تحت، والبرنامج هيختارلك أرخص مورد لكل صنف ويقسم الطلبية عليهم.' : 'صاحب الصيدلية لسه مضافش موردين.'}</p>` : '';
+  return `<p>أصناف هتخلص خلال ${s.lead + 7} يوم أو أقل على حسب سرعة سحبها. الكمية المقترحة تكفيك ${s.cover} يوم.</p>`
+    + table(head, body) + orders + hint + renderSuppliers();
+}
+
+function renderSuppliers() {
+  const sup = SUPPLIERS();
+  const E = EDIT_SUP ? sup.find((x) => x.id === EDIT_SUP) : null;
+  const pct = (v) => (v === undefined || v === null || v === '' ? '' : esc(v));
+  const list = sup.length ? `<div class="tablebox"><table><thead><tr><th>المورد</th><th>واتساب</th><th>الخصم العادي</th><th>أدوية</th><th>تجميل</th><th>مستلزمات</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${sup.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${x.phone ? `…${esc(String(x.phone).slice(-4))}` : '<span class="muted">—</span>'}</td>
+    ${['all', 'medicine', 'cosmetics', 'supplies'].map((k) => `<td class="n">${x.discounts?.[k] !== undefined && x.discounts[k] !== '' ? `${fmt(+x.discounts[k], 1)}%` : '<span class="muted">—</span>'}</td>`).join('')}
+    ${isOwner() ? `<td class="acts"><button class="btn" type="button" data-editsup="${esc(x.id)}">عدّل</button> <button class="btn" type="button" data-delsup="${esc(x.id)}">امسح</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : '';
+  const form = isOwner() ? `<form id="supForm" class="stack" style="margin-top:10px">
+      <b>${E ? `عدّل ${esc(E.name)}` : 'مورد جديد'}</b>
+      <div class="grid2">
+        <label>اسم المورد<input id="supName" maxlength="80" required value="${esc(E?.name || '')}" placeholder="مثلاً: مخزن الأمل"></label>
+        <label>رقم الواتساب (اختياري)<input id="supPhone" type="tel" inputmode="tel" value="${E?.phone ? esc('0' + String(E.phone).slice(2)) : ''}" placeholder="01xxxxxxxxx"></label>
+        <label>الخصم العادي %<input id="supAll" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.all)}" placeholder="مثلاً 5"></label>
+        <label>خصم الأدوية % (لو مختلف)<input id="supMed" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.medicine)}"></label>
+        <label>خصم التجميل % (لو مختلف)<input id="supCos" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.cosmetics)}"></label>
+        <label>خصم المستلزمات % (لو مختلف)<input id="supSup" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.supplies)}"></label>
+      </div>
+      <div class="row"><button class="btn primary" type="submit">${E ? 'احفظ التعديل' : 'ضيف المورد'}</button>${E ? '<button class="btn" type="button" id="supCancel">إلغاء</button>' : ''}<span class="note" id="supMsg" role="status"></span></div>
+      <p class="note">الخصم هنا إضافي على سعر الشراء. لو مورد معين بيدّي صنف أرخص، اختاره للصنف ده من القايمة في الجدول فوق.</p>
+    </form>` : '';
+  return `<details class="help" id="supBox" ${E || !sup.length || SUP_OPEN ? 'open' : ''}><summary>الموردين وخصوماتهم (${fmt(sup.length)})</summary>${list}${form}</details>`;
+}
+
+async function saveSupplier(e) {
+  e.preventDefault();
+  const msg = (t) => { $('supMsg').textContent = t; };
+  const name = $('supName').value.trim();
+  if (!name) return msg('اكتب اسم المورد.');
+  const rawPhone = $('supPhone').value.trim();
+  const phone = rawPhone ? normalizeEgPhone(rawPhone) : '';
+  if (rawPhone && !phone) return msg('رقم الواتساب لازم يبقى رقم موبايل مصري صحيح، أو سيبه فاضي.');
+  const num = (id) => { const v = $(id).value.trim(); return v === '' ? undefined : Math.max(0, Math.min(100, +v || 0)); };
+  const discounts = Object.fromEntries([['all', num('supAll') ?? 0], ['medicine', num('supMed')], ['cosmetics', num('supCos')], ['supplies', num('supSup')]].filter(([, v]) => v !== undefined));
+  const sup = [...SUPPLIERS()];
+  if (EDIT_SUP) {
+    const i = sup.findIndex((x) => x.id === EDIT_SUP);
+    if (i >= 0) sup[i] = { ...sup[i], name, phone, discounts };
+  } else {
+    if (sup.some((x) => x.name === name)) return msg('المورد ده موجود.');
+    sup.push({ id: crypto.randomUUID().slice(0, 8), name, phone, discounts });
+  }
+  EDIT_SUP = null;
+  SUP_OPEN = true;
+  await saveShared({ suppliers: sup });
+  render();
+  $('supMsg') && ($('supMsg').textContent = isOnline() ? 'اتحفظ.' : 'اتحفظ على الجهاز، وهيترفع أول ما النت يرجع.');
+}
+
+async function deleteSupplier(id) {
+  const x = SUPPLIERS().find((y) => y.id === id);
+  if (!x || !confirm(`تمسح ${x.name} من الموردين؟`)) return;
+  const supplierFor = Object.fromEntries(Object.entries(CHOSEN()).filter(([, v]) => v !== id));
+  await saveShared({ suppliers: SUPPLIERS().filter((y) => y.id !== id), supplierFor });
+  render();
+}
+
+async function chooseSupplier(code, id) {
+  const r = DATA.items.find((i) => i.code === code);
+  const best = r && pickSupplier(r, SUPPLIERS());
+  const supplierFor = { ...CHOSEN() };
+  // Picking the supplier the app would pick anyway just clears the manual choice.
+  if (best && best.supplier.id === id) delete supplierFor[code]; else supplierFor[code] = id;
+  await saveShared({ supplierFor });
+  render();
+}
+
+// ---------- Price changes between the last two uploads ----------
+let PREV_DATA = null;
+function renderPriceChanges() {
+  const ch = PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items) : [];
+  const shown = BRANCH === 'all' ? BRANCHES.map((b) => SNAP.get(key(b.id))).filter(Boolean) : [SNAP.get(BRANCH)].filter(Boolean);
+  const when = (iso) => new Date(iso).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
+  const prevAt = shown.map((x) => x.prev?.at).filter(Boolean).sort().pop();
+  const curAt = shown.map((x) => x.at).filter(Boolean).sort().pop();
+  if (!PREV_DATA) return '<div class="card emptybox"><h3>محتاج ملفين على الأقل</h3><p>البرنامج بيقارن آخر ملف اترفع باللي قبله. أول ما ترفع بيانات تاني (أو الوصلة ترفع لوحدها بكره)، الأصناف اللي سعرها اتغير هتظهر هنا.</p></div>';
+  const rows = ch.map((c) => `<tr>${nameCell(c)}
+    <td>${c.priceMoved ? `<span class="n">${fmt(c.oldPrice, 2)}</span> ← <b class="n">${fmt(c.newPrice, 2)}</b> <span class="pill ${c.pct > 0 ? 'warn' : 'ok'}"><span class="n">${c.pct > 0 ? '+' : ''}${fmt(c.pct, 0)}%</span></span>` : '<span class="muted">زي ما هو</span>'}</td>
+    <td>${c.costMoved ? `<span class="n">${fmt(c.oldCost, 2)}</span> ← <b class="n">${fmt(c.newCost, 2)}</b>` : '<span class="muted">زي ما هو</span>'}</td>
+    <td class="n">${fmt(c.qty)}</td>
+    <td><span class="pill ${c.newMargin < 0 ? 'crit' : c.newMargin < c.oldMargin ? 'warn' : 'ok'}"><span class="n">${fmt(c.oldMargin, 2)}</span> ← <span class="n">${fmt(c.newMargin, 2)}</span></span></td></tr>`);
+  return `<p>الأصناف اللي سعر بيعها أو سعر شرائها اتغير بين آخر ملفين اترفعوا (${prevAt ? when(prevAt) : '—'} و${curAt ? when(curAt) : '—'}).</p>
+    <p class="note">اتأكد إن سعر البيع في برنامج الصيدلية مطابق للسعر المكتوب على العلبة اللي بتبيعها، وراجع سعر العروض على الأصناف دي.</p>`
+    + (rows.length ? `<div class="tablebox"><table><thead><tr><th>الصنف</th><th>سعر البيع</th><th>سعر الشراء</th><th>في الرف</th><th>مكسب العلبة</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+      : '<div class="tablebox"><p class="empty">مفيش أسعار اتغيرت بين آخر ملفين.</p></div>');
 }
 
 // ---------- Shortages, market prices, patient reminders (migration 008) ----------
@@ -671,11 +833,14 @@ function bindCalc(A, s) {
 
 // ---------- Branches & data ----------
 const snapKey = (k) => `snap:${SESS.pharmacy.id}:${k}`;
+const prevKey = (k) => `snapPrev:${SESS.pharmacy.id}:${k}`;
 
 function setView() {
   const parts = BRANCH === 'all' ? BRANCHES.map((b) => SNAP.get(key(b.id))?.data) : [SNAP.get(BRANCH)?.data];
   DATA = mergeBranches(parts.filter(Boolean)) || EMPTY();
   if (!DATA.items) DATA = EMPTY();
+  const prevParts = (BRANCH === 'all' ? BRANCHES.map((b) => SNAP.get(key(b.id))?.prev?.data) : [SNAP.get(BRANCH)?.prev?.data]).filter(Boolean);
+  PREV_DATA = prevParts.length ? mergeBranches(prevParts) : null;
   OFFERS.clear();
   const shown = BRANCH === 'all' ? BRANCHES.map((b) => SNAP.get(key(b.id))).filter(Boolean) : [SNAP.get(BRANCH)].filter(Boolean);
   if (!shown.length) { $('fileMsg').textContent = ''; return; }
@@ -690,19 +855,24 @@ async function loadSnapshots() {
   for (const b of BRANCHES) {
     const k = key(b.id);
     const cached = await kvGet(snapKey(k));
-    let fresh = null;
+    const cachedPrev = await kvGet(prevKey(k));
+    let fresh = null, freshPrev = null;
     if (online) {
+      // The last two uploads: the newest is shown, the one before it shows what changed (prices).
       let q = SESS.client.from('snapshots').select('created_at, data').eq('pharmacy_id', SESS.pharmacy.id);
       if (b.id) q = q.eq('branch_id', b.id);
-      const { data, error } = await q.order('created_at', { ascending: false }).limit(1);
+      const { data, error } = await q.order('created_at', { ascending: false }).limit(2);
       if (!error && data.length) fresh = { at: data[0].created_at, raw: data[0].data };
+      if (!error && data.length > 1) freshPrev = { at: data[1].created_at, raw: data[1].data };
       if (error && !/fetch|network/i.test(error.message)) $('fileMsg').innerHTML = `<span class="err">${esc(arabicError(error).message)}</span>`;
     }
     // A local upload still waiting for the connection is newer than anything on the server.
-    const use = cached && (cached.pending || !fresh || cached.at >= fresh.at) ? cached : fresh;
+    const local = cached && (cached.pending || !fresh || cached.at >= fresh.at);
+    const use = local ? cached : fresh;
     if (!use) continue;
-    SNAP.set(k, { at: use.at, pending: !!use.pending, data: fromExport(use.raw) });
-    if (use === fresh) await kvSet(snapKey(k), { at: fresh.at, raw: fresh.raw });
+    const prev = local ? cachedPrev : freshPrev;
+    SNAP.set(k, { at: use.at, pending: !!use.pending, data: fromExport(use.raw), ...(prev ? { prev: { at: prev.at, data: fromExport(prev.raw) } } : {}) });
+    if (!local) { await kvSet(snapKey(k), { at: fresh.at, raw: fresh.raw }); await kvSet(prevKey(k), freshPrev); }
   }
 }
 
@@ -817,16 +987,31 @@ async function boot() {
 $('panel').addEventListener('change', (e) => {
   if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); }
   if (e.target.id === 'expPeriodSel') { EXP_PERIOD = e.target.value; render(); }
+  if (e.target.matches('select[data-supfor]')) chooseSupplier(e.target.dataset.supfor, e.target.value);
 });
+$('panel').addEventListener('toggle', (e) => { if (e.target.id === 'supBox') SUP_OPEN = e.target.open; }, true);
 $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'expForm') addExpense(e);
   if (e.target.id === 'shortForm') addShortage(e);
   if (e.target.id === 'priceForm') submitPrice(e);
   if (e.target.id === 'remForm') addReminder(e);
+  if (e.target.id === 'supForm') saveSupplier(e);
 });
 $('panel').addEventListener('click', (e) => {
   const c = e.target.closest('[data-calc]'); if (c) { CALC_CODE = c.dataset.calc; TAB = 'calc'; render(); }
   const d = e.target.closest('[data-delexp]'); if (d) deleteExpense(d.dataset.delexp);
+  const ed = e.target.closest('[data-editexp]'); if (ed) { EDIT_EXP = ed.dataset.editexp; render(); $('expForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  if (e.target.id === 'expCancel') { EDIT_EXP = null; render(); }
+  if (e.target.id === 'addFixed') addFixedExpenses();
+  const es = e.target.closest('[data-editsup]'); if (es) { EDIT_SUP = es.dataset.editsup; render(); $('supForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  const ds = e.target.closest('[data-delsup]'); if (ds) deleteSupplier(ds.dataset.delsup);
+  if (e.target.id === 'supCancel') { EDIT_SUP = null; render(); }
+  const wa = e.target.closest('[data-wa]');
+  if (wa) {
+    const text = $(`orderMsg${wa.dataset.wa}`).value;
+    window.open(`https://wa.me/${wa.dataset.phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  }
+  const co = e.target.closest('[data-copyorder]'); if (co) copyFrom($(`orderMsg${co.dataset.copyorder}`), $(`orderNote${co.dataset.copyorder}`));
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
   if (t('shortok')) localUpdate('shortages', t('shortok'), { status: 'resolved', resolved_at: new Date().toISOString() });
   if (t('shortdel') && confirm('تمسح الصنف ده من النواقص؟')) localDelete('shortages', t('shortdel'));
@@ -898,9 +1083,8 @@ fields.forEach((f) => $(f).addEventListener('input', () => {
   if (!isOwner()) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    await enqueue('settings', { p_pharmacy: SESS.pharmacy.id, p_settings: values });
+    await saveShared(values);
     $('settingsMsg').textContent = isOnline() ? 'الإعدادات اتحفظت، والشركاء هيشوفوها.' : 'اتحفظت على الجهاز، وهتترفع أول ما النت يرجع.';
-    sync();
   }, 800);
 }));
 
@@ -915,7 +1099,10 @@ $('file').addEventListener('change', async (e) => {
     const k = BRANCH === 'all' ? key(BRANCHES[0].id) : BRANCH;
     const raw = toExport(data);
     const at = new Date().toISOString();
-    SNAP.set(k, { at, pending: true, data: fromExport(raw) });
+    const before = await kvGet(snapKey(k));
+    if (before) await kvSet(prevKey(k), { at: before.at, raw: before.raw });
+    const old = SNAP.get(k);
+    SNAP.set(k, { at, pending: true, data: fromExport(raw), ...(old ? { prev: { at: old.at, data: old.data } } : {}) });
     await kvSet(snapKey(k), { at, raw, pending: true });
     const bid = BRANCHES.find((b) => key(b.id) === k)?.id;
     await enqueue('snapshot', { p_pharmacy: SESS.pharmacy.id, p_data: raw, ...(bid ? { p_branch: bid } : {}) });

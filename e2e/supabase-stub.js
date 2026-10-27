@@ -101,6 +101,7 @@ export function createClient() {
         }
         if (name === 'create_invite') { const code = `CODE${DB.invites.length + 1}`; DB.invites.push({ code, role: args.p_role }); persist(); return { data: code, error: null }; }
         if (name === 'create_connector_token') return { data: 'sdl_test', error: null };
+        if (name === 'save_settings') { DB.members[0].pharmacies.settings = args.p_settings; persist(); return { data: null, error: null }; }
         return { data: null, error: null };
       });
     },
