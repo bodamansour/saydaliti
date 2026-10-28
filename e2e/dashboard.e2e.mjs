@@ -258,7 +258,12 @@ test('cashier: a return, and a sale with no connection', async () => {
   await page.fill('#q', '303');
   await page.press('#q', 'Enter');
   await page.keyboard.press('F2');
-  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140)));
+  assert.match(await text('#posMsg'), /رقم فاتورة البيع/, 'a return needs its receipt');
+  assert.equal((await db('pos_sales')).length, 1);
+  await page.click('#retNoReceipt');
+  await page.fill('#retReason', 'بيعة قبل البرنامج');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140 && /بيعة قبل البرنامج/.test(x.note))));
   await goOffline();
   await page.fill('#q', '101');
   await page.press('#q', 'Enter');
@@ -606,6 +611,20 @@ test('a sale is never lost when the database update for the cashier is missing',
   assert.match(await text('#netChip', p3), /بيرفع 1/, 'still waiting in the queue');
   assert.match(await text('#dayList', p3), /مستني النت/);
   await p3.close();
+});
+
+test('two tabs queuing changes at the same moment lose none of them', async () => {
+  const a = await ctx.newPage(), b = await ctx.newPage();
+  await Promise.all([a.goto(`${base}cashier.html`), b.goto(base)]);
+  const run = (p, tag) => p.evaluate(async (tag) => {
+    const { enqueue } = await import('./src/offline.js');
+    await Promise.all(Array.from({ length: 40 }, (_, i) => enqueue('test-only', { tag, i })));
+  }, tag);
+  await Promise.all([run(a, 'a'), run(b, 'b')]);
+  const queued = await a.evaluate(async () => (await (await import('./src/offline.js')).pending()).filter((e) => e.type === 'test-only').length);
+  assert.equal(queued, 80);
+  await a.evaluate(async () => { const { kvUpdate } = await import('./src/offline.js'); await kvUpdate('outbox', (q) => q.filter((e) => e.type !== 'test-only'), []); });
+  await a.close(); await b.close();
 });
 
 test('no script errors', () => {

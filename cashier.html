@@ -44,6 +44,12 @@
 
     <aside class="pos-side card">
       <div class="mode row"><button class="btn sel" id="modeSale" aria-pressed="true">بيع</button><button class="btn" id="modeReturn" aria-pressed="false">مرتجع</button></div>
+      <div class="stack" id="retBox" hidden>
+        <div class="row"><input id="retNo" autocomplete="off" placeholder="رقم فاتورة البيع" aria-label="رقم فاتورة البيع" style="flex:1"><button class="btn" type="button" id="retFind">هات الفاتورة</button></div>
+        <p class="note" id="retInfo" role="status"></p>
+        <label class="checkline"><input type="checkbox" id="retNoReceipt"> العميل معاهوش الفاتورة</label>
+        <label id="retReasonWrap" hidden>السبب (لازم يتكتب)<input id="retReason" maxlength="200" placeholder="مثلاً: الفاتورة ضاعت، أو بيعة قبل البرنامج"></label>
+      </div>
       <div class="ledger pos-totals">
         <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>
         <div><span>خصم على الفاتورة</span><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"></div>

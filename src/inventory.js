@@ -40,8 +40,9 @@ function settle(it) {
 }
 
 // Takes stock off the shelf: from the batch with the given expiry first (a correction of one
-// batch), then from the earliest expiry. Returns what the boxes taken out cost.
-function takeOut(it, qty, expiry) {
+// batch), then from the earliest expiry. Returns what the boxes taken out cost; `parts`, when given,
+// collects which batches they came from ({ qty, expiry, cost }), so a return can put them back there.
+function takeOut(it, qty, expiry, parts = null) {
   const list = sortBatches(batchesFor(it));
   let left = qty, cost = 0;
   // Same day: dates from a file and dates typed here can differ by the time zone (a few hours).
@@ -50,6 +51,7 @@ function takeOut(it, qty, expiry) {
   for (const b of [...first, ...list.filter((x) => !first.includes(x))]) {
     const n = Math.min(b.qty, left);
     b.qty -= n; left -= n; cost += n * (b.cost ?? it.cost);
+    if (n > 0 && parts) parts.push({ qty: n, expiry: b.expiry, cost: b.cost ?? it.cost });
     if (!left) break;
   }
   if (left > 0) { it.short = (it.short || 0) + left; cost += left * it.cost; } // no stock recorded: today's price
@@ -91,6 +93,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
     return it;
   };
 
+  const taken = new Map(); // `${receipt id}|${code}` -> the batches that receipt's boxes came out of
   const events = [];
   // Items added here always exist; their name and prices count only if set after the upload.
   for (const c of catalog) events.push({ t: time(c.updated_at || c.created_at), kind: 'item', row: c });
@@ -139,10 +142,26 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         const code = String(l.code);
         const it = get(code, l);
         const qty = +l.qty;
-        // The cost of what was sold is the cost of the boxes it came out of; a returned box goes back
-        // at the item's buying price, and comes off the cost of sales at that price.
-        const unitCost = sign > 0 ? round4(takeOut(it, qty) / qty) : it.cost;
-        if (sign < 0) putBack(it, qty);
+        // The cost of what was sold is the cost of the boxes it came out of. A return of a receipt
+        // made here puts the boxes back on the batches (expiry and cost) they were sold from; one with
+        // no receipt (or a receipt from before the upload) goes back at the item's buying price.
+        let unitCost;
+        if (sign > 0) {
+          const parts = [];
+          unitCost = round4(takeOut(it, qty, undefined, parts) / qty);
+          const k = `${row.id}|${code}`;
+          taken.set(k, [...(taken.get(k) || []), ...parts]);
+        } else {
+          let left = qty, cost = 0;
+          for (const p of (row.return_of && taken.get(`${row.return_of}|${code}`)) || []) {
+            const n = Math.min(p.qty, left);
+            if (n <= 0) continue;
+            putBack(it, n, p.expiry, p.cost);
+            p.qty -= n; left -= n; cost += n * p.cost;
+          }
+          if (left > 0) { putBack(it, left); cost += left * it.cost; }
+          unitCost = round4(cost / qty);
+        }
         const net = (+l.price || 0) * qty - (+l.discount || 0);
         const off = round2((+l.discount || 0) + (gross > 0 ? (extra * net) / gross : 0));
         out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: +l.price || 0, cost: unitCost, ...(off ? { discount: sign * off } : {}) });

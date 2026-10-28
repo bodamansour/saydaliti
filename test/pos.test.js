@@ -71,3 +71,15 @@ test('end of day', () => {
   assert.deepEqual([s.receipts, s.returns, s.sales, s.returned, s.discount, s.net], [2, 1, 150.5, 20, 5, 130.5]);
   assert.deepEqual(s.byPayment, { cash: 80, card: 50.5 });
 });
+
+test('a return can take back only what the receipt sold, at the price paid', async () => {
+  const { returnableLines } = await import('../src/pos.js');
+  // 2 × 50 with 10 off the line, 1 × 100, and 20 off the whole receipt (spread by value: 9 and 11).
+  const sale = { id: 'S1', kind: 'sale', discount: 30, lines: [{ code: 'A', name: 'أ', price: 50, qty: 2, discount: 10 }, { code: 'B', name: 'ب', price: 100, qty: 1, discount: 0 }] };
+  const all = returnableLines(sale);
+  assert.deepEqual(all.map((l) => [l.code, l.left]), [['A', 2], ['B', 1]]);
+  const a = all.find((l) => l.code === 'A');
+  assert.equal(Math.round((a.price - a.unitOff) * 100) / 100, 40.26); // (90 − 90 × 20 ÷ 190) ÷ 2
+  const after = returnableLines(sale, [{ kind: 'return', return_of: 'S1', lines: [{ code: 'A', qty: 1 }, { code: 'B', qty: 1 }] }, { kind: 'return', return_of: 'OTHER', lines: [{ code: 'A', qty: 1 }] }]);
+  assert.deepEqual(after.map((l) => [l.code, l.left]), [['A', 1]], 'what was already returned can\'t come back twice');
+});

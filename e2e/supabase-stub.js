@@ -26,7 +26,7 @@ function builder(table) {
     if (window.__no008 && FEATURE_TABLES.includes(table)) return { data: null, error: { message: `relation "public.${table}" does not exist` } };
     if (window.__no009 && table.startsWith('pos_')) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` } };
     DB[table] ||= [];
-    const match = (r) => q.filters.every(([k, v, op]) => (op === 'gte' ? r[k] >= v : r[k] === v));
+    const match = (r) => q.filters.every(([k, v, op]) => (op === 'gte' ? r[k] >= v : op === 'notnull' ? r[k] != null : r[k] === v));
     if (q.op === 'upsert') {
       if (!DB[table].some((e) => e.id === q.row.id)) DB[table].push({ ...q.row, created_at: new Date().toISOString() });
       persist(); return { data: null, error: null };
@@ -52,6 +52,7 @@ function builder(table) {
     select(cols) { q.cols = cols; return q; },
     eq(k, v) { q.filters.push([k, v]); return q; },
     gte(k, v) { q.filters.push([k, v, 'gte']); return q; },
+    not(k, op, v) { if (op === 'is' && v === null) q.filters.push([k, null, 'notnull']); return q; },
     order(col, o = {}) { q._order = { col, asc: o.ascending !== false }; return q; },
     limit(n) { q._limit = n; return q; },
     range(a, b) { q._range = [a, b]; return q; },

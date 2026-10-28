@@ -100,3 +100,31 @@ export function daySummary(sales) {
 }
 
 export const PAYMENTS = [['cash', 'كاش'], ['card', 'فيزا'], ['wallet', 'محفظة / إنستاباي'], ['credit', 'آجل']];
+
+// ---------- Returns against a receipt ----------
+// What can still come back from a sale receipt: for each item, how many boxes (sold minus what earlier
+// returns of this receipt already took back), at the price actually paid per box (the line discount
+// and its share of a discount on the whole receipt taken off).
+export function returnableLines(sale, returns = []) {
+  const back = new Map();
+  for (const r of returns) {
+    if (r.kind !== 'return' || r.return_of !== sale.id) continue;
+    for (const l of r.lines || []) back.set(String(l.code), (back.get(String(l.code)) || 0) + (+l.qty || 0));
+  }
+  const lines = (sale.lines || []).filter((l) => +l.qty > 0);
+  const gross = lines.reduce((a, l) => a + (+l.price || 0) * +l.qty - (+l.discount || 0), 0);
+  const extra = Math.max(0, (+sale.discount || 0) - lines.reduce((a, l) => a + (+l.discount || 0), 0));
+  const by = new Map();
+  for (const l of lines) {
+    const code = String(l.code);
+    const net = (+l.price || 0) * +l.qty - (+l.discount || 0);
+    const paid = net - (gross > 0 ? (extra * net) / gross : 0);
+    const r = by.get(code) || { code, name: l.name || code, price: +l.price || 0, sold: 0, paid: 0 };
+    r.sold += +l.qty; r.paid += paid;
+    by.set(code, r);
+  }
+  return [...by.values()].map((r) => {
+    const left = Math.max(0, Math.round((r.sold - (back.get(r.code) || 0)) * 1000) / 1000);
+    return { code: r.code, name: r.name, price: r.price, sold: r.sold, left, unitOff: Math.max(0, Math.round((r.price - r.paid / r.sold) * 10000) / 10000) };
+  }).filter((r) => r.left > 0);
+}

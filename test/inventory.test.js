@@ -190,3 +190,16 @@ test('a batch cost survives saving and loading the stock', async () => {
   const p = again.items.find((i) => i.code === 'P1');
   assert.deepEqual(p.batches.map((b) => b.cost ?? p.cost).sort(), [40, 40, 60]);
 });
+
+test('a return of a receipt puts the boxes back on the batches they were sold from, at their cost', async () => {
+  const { ledger } = await import('../src/core.js');
+  const d = liveData(base, AT, { sales: [
+    { id: 'R1', sold_at: '2026-10-21T12:00:00Z', kind: 'sale', lines: [{ code: 'P1', qty: 7, price: 50 }] }, // 5 of 2026-12 + 2 of 2027-06
+    { id: 'R2', return_of: 'R1', sold_at: '2026-10-21T13:00:00Z', kind: 'return', lines: [{ code: 'P1', qty: 6, price: 50 }] },
+  ] });
+  const p = d.items.find((i) => i.code === 'P1');
+  const by = Object.fromEntries(p.batches.map((b) => [b.expiry.getFullYear(), b.qty]));
+  assert.deepEqual(by, { 2026: 5, 2027: 9 }, 'the 5 short-dated boxes went back to their batch, not a batch with no date');
+  const L = ledger(d, { taxRate: 0, overheadRate: 0 }, new Date(2026, 9, 21), new Date(2026, 9, 22));
+  assert.equal(Math.round(L.totals.cogs), 40); // 7 × 40 sold − 6 × 40 back
+});
