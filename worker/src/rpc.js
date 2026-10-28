@@ -27,10 +27,15 @@ async function branchOf(env, p, b) {
 // Saves an upload (the data goes to R2) and keeps the 10 newest of the branch.
 async function storeSnapshot(env, pharmacyId, branchId, userId, data, createdAt = null) {
   if (!data || !Array.isArray(data.items)) throw new ApiError('bad snapshot');
-  const text = JSON.stringify(data);
-  if (text.length > 20 * 1024 * 1024) throw new ApiError('snapshot too large');
+  return storeSnapshotText(env, pharmacyId, branchId, userId, JSON.stringify(data), data.items.length, createdAt);
+}
+// The same with the data as text, not parsed here: an upload can be several MB, and parsing it would
+// take more time than the free Workers plan gives a request. Only its outline is checked.
+export async function storeSnapshotText(env, pharmacyId, branchId, userId, text, itemCount, createdAt = null) {
+  if (typeof text !== 'string' || text.length > 20 * 1024 * 1024) throw new ApiError('snapshot too large');
+  if (!/^\s*\{/.test(text.slice(0, 64)) || !/\}\s*$/.test(text.slice(-64)) || !text.includes('"items":[')) throw new ApiError('bad snapshot');
   const r = await one(env, 'INSERT INTO snapshots (pharmacy_id, branch_id, created_at, created_by, item_count) VALUES (?, ?, ?, ?, ?) RETURNING id',
-    pharmacyId, branchId, createdAt && !Number.isNaN(Date.parse(createdAt)) ? new Date(createdAt).toISOString() : nowIso(), userId, data.items.length);
+    pharmacyId, branchId, createdAt && !Number.isNaN(Date.parse(createdAt)) ? new Date(createdAt).toISOString() : nowIso(), userId, Math.max(0, Math.trunc(+itemCount || 0)));
   await env.FILES.put(blobKey('snapshots', r.id), text, { httpMetadata: { contentType: 'application/json' } });
   const old = await all(env, 'SELECT id FROM snapshots WHERE branch_id IS ? AND pharmacy_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET 10', branchId, pharmacyId);
   if (old.length) {
@@ -39,6 +44,7 @@ async function storeSnapshot(env, pharmacyId, branchId, userId, data, createdAt 
   }
   return r.id;
 }
+export { branchOf };
 
 async function trialFor(env) { return (await one(env, 'SELECT trial_days FROM app_config WHERE id = 1'))?.trial_days ?? 14; }
 
@@ -93,11 +99,11 @@ export const RPC = {
     return t;
   },
   // Called by the connector on the pharmacy computer with its token (no account).
-  async upload_snapshot(env, ctx, { p_token, p_data }) {
+  async upload_snapshot(env, ctx, { p_token, p_data, p_data_text }) {
     const ct = await one(env, 'SELECT id, pharmacy_id, branch_id FROM connector_tokens WHERE token_hash = ? AND revoked = 0', await sha256(String(p_token || '')));
     if (!ct) throw new ApiError('invalid token');
     const b = ct.branch_id || await mainBranch(env, ct.pharmacy_id);
-    const id = await storeSnapshot(env, ct.pharmacy_id, b, null, p_data);
+    const id = p_data_text !== undefined ? await storeSnapshotText(env, ct.pharmacy_id, b, null, p_data_text, 0) : await storeSnapshot(env, ct.pharmacy_id, b, null, p_data);
     await env.DB.prepare('UPDATE connector_tokens SET last_used_at = ? WHERE id = ?').bind(nowIso(), ct.id).run();
     return id;
   },
@@ -294,7 +300,8 @@ async function importBackup(env, ctx, pharmacyId, dump) {
     snaps += 1;
   }
   counts.snapshots = snaps;
-  return counts;
+  // Where each old branch went, so the app can upload the snapshots of the backup itself.
+  return { ...counts, branches: Object.fromEntries(oldBranches.map((x) => [x.id, ids.get(x.id)])) };
 }
 
 // ---------- For the scheduled jobs (morning report, patient reminders) ----------

@@ -5,14 +5,14 @@ const KEY = 'sd-cf-auth';
 const read = () => { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } };
 const write = (s) => { try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* blocked */ } };
 
-async function call(path, payload, method = 'POST') {
+async function call(path, payload, method = 'POST', raw = null) {
   const s = read();
   let res;
   try {
     res = await fetch(path, {
       method,
       headers: { 'Content-Type': 'application/json', ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}) },
-      ...(method === 'POST' ? { body: JSON.stringify(payload ?? {}) } : {}),
+      ...(method === 'POST' ? { body: raw ?? JSON.stringify(payload ?? {}) } : {}),
     });
   } catch (e) {
     return { data: null, error: { message: `TypeError: Failed to fetch (${e?.message ?? e})` } };
@@ -56,7 +56,16 @@ export function createCloudflareClient() {
   return {
     cloudflare: true,
     from: builder,
-    rpc: (name, params = {}) => call(`/api/rpc/${name}`, params),
+    rpc(name, params = {}) {
+      // An upload (several MB) goes as its own body, so the server stores it without reading it all.
+      if (name === 'save_snapshot') {
+        const q = new URLSearchParams({ pharmacy: params.p_pharmacy, items: String(params.p_data?.items?.length ?? 0) });
+        if (params.p_branch) q.set('branch', params.p_branch);
+        if (params.p_at) q.set('at', params.p_at);
+        return call(`/api/snapshot?${q}`, null, 'POST', JSON.stringify(params.p_data));
+      }
+      return call(`/api/rpc/${name}`, params);
+    },
     auth: {
       storageKey: KEY,
       async getSession() {

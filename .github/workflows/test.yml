@@ -35,7 +35,7 @@ jobs:
           printf 'PIN_PEPPER=ci-pepper\nSIGNUP_PER_HOUR=10000\n' > .dev.vars
           npx wrangler d1 migrations apply saydaliti --local
           nohup npx wrangler dev --local --port 8787 > ../wrangler.log 2>&1 &
-          for i in $(seq 1 90); do curl -sf http://localhost:8787/api/config && exit 0; sleep 1; done
+          for i in $(seq 1 90); do curl -sf http://localhost:8787/api/config && curl -sf -o /dev/null http://localhost:8787/ && exit 0; sleep 1; done
           cat ../wrangler.log; exit 1
       - name: Cloudflare server rules and the whole app on it
         env:

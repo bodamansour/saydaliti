@@ -24,6 +24,7 @@ function user() {
     select: (table, cols, filters = [], extra = {}) => call('/api/db', { op: 'select', table, cols, filters, ...extra }),
     insert: (table, rows) => call('/api/db', { op: 'upsert', table, rows, ignoreDuplicates: true }),
     call,
+    token: () => token,
     logout() { token = null; },
   };
   return u;
@@ -134,7 +135,14 @@ test('uploads are kept in R2 and come back whole; the connector uploads with its
   const token = (await owner.rpc('create_connector_token', { p_pharmacy: P, p_branch: B })).data;
   const r = await user().call('/rest/v1/rpc/upload_snapshot', { p_token: token, p_data: { ...data, items: [...data.items, { code: 'B2', name: 'x' }] } });
   assert.equal(r.error, null);
-  assert.equal((await owner.select('snapshots', 'item_count', [['pharmacy_id', 'eq', P]], { order: { col: 'created_at', asc: false }, limit: 1 })).data[0].item_count, 2);
+  assert.equal((await owner.select('snapshots', 'data', [['pharmacy_id', 'eq', P]], { order: { col: 'created_at', asc: false }, limit: 1 })).data[0].data.items.length, 2);
+  // The app's own uploads go as a plain body, stored without being read through.
+  const r2 = await fetch(`${BASE}/api/snapshot?pharmacy=${P}&items=1`, { method: 'POST', headers: { Authorization: `Bearer ${owner.token()}` }, body: JSON.stringify(data) });
+  assert.equal((await r2.json()).error, null);
+  const r3 = await fetch(`${BASE}/api/snapshot?pharmacy=${P}&items=1`, { method: 'POST', headers: { Authorization: `Bearer ${partner.token()}` }, body: JSON.stringify(data) });
+  assert.equal(r3.status, 403);
+  const r4 = await fetch(`${BASE}/api/snapshot?pharmacy=${P}`, { method: 'POST', headers: { Authorization: `Bearer ${owner.token()}` }, body: 'not json' });
+  assert.match((await r4.json()).error.message, /bad snapshot/);
   assert.match((await user().call('/rest/v1/rpc/upload_snapshot', { p_token: 'sdl_bad', p_data: data })).error.message, /invalid token/);
 });
 
@@ -156,6 +164,7 @@ test('a full backup moves into a new, empty pharmacy', { skip }, async () => {
   const r = await mover.rpc('import_backup', { p_pharmacy: NP, p_dump: dump });
   assert.equal(r.error, null);
   assert.equal(r.data.catalog_items, 1);
+  assert.ok(Object.values(r.data.branches).every(Boolean), 'each old branch maps to one here');
   assert.equal((await mover.select('pos_sales', 'number', [['pharmacy_id', 'eq', NP]])).data[0].number, 'OLD1');
   assert.match((await mover.rpc('import_backup', { p_pharmacy: NP, p_dump: dump })).error.message, /not empty/);
 });

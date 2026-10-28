@@ -7,7 +7,8 @@
 //   POST /rest/v1/rpc/upload_snapshot (the pharmacy connector, same address shape as before)
 import { ApiError, select, insert, update, remove } from './db.js';
 import { signUp, signIn, signOut, userOf, changePassword } from './auth.js';
-import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent } from './rpc.js';
+import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
+import { requireRole } from './db.js';
 import { runMorning } from '../../src/morning-job.js';
 import { runReminders } from '../../src/reminders-job.js';
 
@@ -73,6 +74,23 @@ async function api(req, env, url) {
     if (q.op === 'update') { await update(ctx, env, q); return json({ data: null, error: null }); }
     if (q.op === 'delete') { await remove(ctx, env, q); return json({ data: null, error: null }); }
     throw new ApiError('bad op');
+  }
+  // An upload from the app: the data is the body, as text (not parsed here, see storeSnapshotText).
+  //   POST /api/snapshot?pharmacy=<id>&branch=<id>&items=<count>&at=<time>
+  if (path === '/api/snapshot') {
+    const ctx = await contextOf(env, req);
+    const p = url.searchParams.get('pharmacy');
+    requireRole(ctx, p, ['owner']);
+    if (+(req.headers.get('Content-Length') || 0) > 20 * 1024 * 1024) throw new ApiError('snapshot too large', '413', 413);
+    const id = await storeSnapshotText(env, p, await branchOf(env, p, url.searchParams.get('branch') || null), ctx.user.id, await req.text(), url.searchParams.get('items'), url.searchParams.get('at'));
+    return json({ data: id, error: null });
+  }
+  // The connector sends {"p_token":"…","p_data":<the data>}: the data is taken out as text.
+  if (/^\/(?:api\/rpc|rest\/v1\/rpc)\/upload_snapshot$/.test(path)) {
+    const text = await req.text();
+    const head = /^\s*\{\s*"p_token"\s*:\s*("(?:[^"\\]|\\.)*")\s*,\s*"p_data"\s*:/.exec(text.slice(0, 400));
+    const args = head ? { p_token: JSON.parse(head[1]), p_data_text: text.slice(head[0].length, text.lastIndexOf('}')) } : JSON.parse(text);
+    return json({ data: await RPC.upload_snapshot(env, { user: null, roles: new Map() }, args), error: null });
   }
   const m = /^\/(?:api\/rpc|rest\/v1\/rpc)\/([a-z_]+)$/.exec(path);
   if (m) {

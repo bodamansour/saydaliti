@@ -25,6 +25,9 @@ bucket_name = "saydaliti-files"
 
 [vars]
 MORNING_CRON = "0 6 * * *"
+# Password hashing strength: 10000 fits the free Workers plan; raise to 100000 on Workers Paid
+# (each account is redone at its next sign-in).
+PBKDF2_ITER = "10000"
 SITE_URL = "https://saydaliti.workers.dev"
 
 [triggers]
