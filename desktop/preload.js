@@ -6,4 +6,12 @@ contextBridge.exposeInMainWorld('saydalitiDesktop', {
   printSilent: () => ipcRenderer.invoke('print:silent'),
   // The start page: online (the account on the Cloudflare site) or on this computer only.
   setMode: (mode) => ipcRenderer.invoke('mode:set', mode),
+  // Live sync with United (Genius) on this computer.
+  genius: {
+    find: (o) => ipcRenderer.invoke('genius:find', o),
+    enable: (o) => ipcRenderer.invoke('genius:enable', o),
+    disable: () => ipcRenderer.invoke('genius:disable'),
+    status: () => ipcRenderer.invoke('genius:status'),
+    now: () => ipcRenderer.invoke('genius:now'),
+  },
 });
