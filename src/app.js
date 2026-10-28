@@ -11,6 +11,7 @@ import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { subscriptionState, monthlyPrice } from './subscription.js';
+import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -1893,6 +1894,33 @@ $('exportBox').addEventListener('click', (e) => {
     if (b.dataset.export === 'print') exportPrint(which);
     $('exportMsg').textContent = b.dataset.export === 'print' ? 'اختار «حفظ كـ PDF» في نافذة الطباعة لو عايز ملف PDF.' : 'اتنزّل الملف.';
   } catch (err) { $('exportMsg').textContent = err.message; }
+});
+
+// ---------- Corrections for United (Genius) ----------
+$('geniusFix').addEventListener('click', () => {
+  const msg = (t) => { $('geniusFixMsg').textContent = t; };
+  const b = BRANCH === 'all' ? (multi() ? null : BRANCHES[0]) : BRANCHES.find((x) => key(x.id) === BRANCH);
+  if (!b) return msg('اختار الفرع الأول (كل فرع ليه ملف).');
+  const s = SNAP.get(key(b.id ?? null));
+  if (!s) return msg('ارفع باك اب المتحدة للفرع ده الأول، عشان أعرف الفرق.');
+  const mine = inBranch(b);
+  const changes = { catalog: CATALOG, moves: MOVES.filter(mine), purchases: PURCHASES.filter(mine) };
+  const barcodes = new Map();
+  for (const c of CATALOG) if (c.barcode) barcodes.set(String(c.code), c.barcode);
+  for (const l of LEARNED || []) if (!barcodes.has(String(l.code))) barcodes.set(String(l.code), l.barcode);
+  const c = geniusCorrections({ base: s.data, live: branchData(b), since: s.at, changes, barcodes });
+  if (!c.items.length && !c.added.length) return msg('مفيش حاجة اتعدلت هنا من بعد آخر باك اب رفعته.');
+  c.branch = b.name; c.pharmacy = SESS.pharmacy.name;
+  const day = isoDay(new Date());
+  download(`saydaliti-genius-fix-${day}.json`, new Blob([JSON.stringify(c, null, 1)], { type: 'application/json' }));
+  if (typeof XLSX !== 'undefined') {
+    const wb = XLSX.utils.book_new(); wb.Workbook = { Views: [{ RTL: true }] };
+    const rows = correctionRows(c);
+    if (rows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'التعديلات');
+    if (c.added.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(c.added.map((x) => ({ 'الكود هنا': x.code, 'الصنف': x.name, 'باركود': x.barcode || '', 'سعر البيع': x.price, 'سعر الشراء': x.cost, 'الرصيد': x.batches.reduce((a, y) => a + y.qty, 0) }))), 'أصناف ضيفها في المتحدة');
+    download(`saydaliti-genius-fix-${day}.xlsx`, new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  }
+  msg(`اتنزّل: ${c.items.length} صنف متعدل${c.added.length ? ` و${c.added.length} صنف جديد (ضيفهم في المتحدة بإيدك، تفاصيلهم في ملف Excel)` : ''}. راجع ملف Excel، وبعدين حط ملف JSON في فولدر الوصلة على جهاز المتحدة.`);
 });
 
 // ---------- Branches & data ----------
