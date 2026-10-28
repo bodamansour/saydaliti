@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
-const siteUrl = String.fromEnvironment('SITE_URL', defaultValue: 'https://saydaliti-ivory.vercel.app');
+const siteUrl = String.fromEnvironment('SITE_URL', defaultValue: 'https://saydaliti.mosaedapp.workers.dev');
 const brand = Color(0xFF0B6B57);
 
 void main() {
