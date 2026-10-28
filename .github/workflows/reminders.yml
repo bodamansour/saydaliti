@@ -2,7 +2,7 @@
 # Vercel's free plan only allows daily cron jobs, so GitHub calls the site's /api/reminders instead
 # (Vercel also calls it once a day as a backup, see vercel.json).
 # Needs two repository secrets (Settings → Secrets and variables → Actions):
-#   SITE_URL     e.g. https://saydaliti-ivory.vercel.app
+#   SITE_URL     e.g. https://saydaliti.mosaedapp.workers.dev
 #   CRON_SECRET  the same value as CRON_SECRET in Vercel
 name: Patient reminders
 

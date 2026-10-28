@@ -28,7 +28,7 @@ MORNING_CRON = "0 6 * * *"
 # Password hashing strength: 10000 fits the free Workers plan; raise to 100000 on Workers Paid
 # (each account is redone at its next sign-in).
 PBKDF2_ITER = "10000"
-SITE_URL = "https://saydaliti.workers.dev"
+SITE_URL = "https://saydaliti.mosaedapp.workers.dev"
 
 [triggers]
 # 06:00 UTC = 09:00 Cairo: morning report. Every hour at :15: patient reminders.
