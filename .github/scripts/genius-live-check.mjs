@@ -10,8 +10,11 @@ const { GeniusLiveSync, parseFind } = require('../../desktop/genius-live.js');
 const [findFile, ...readFiles] = process.argv.slice(2);
 const SOURCE = await readFile(new URL('../../src/genius.js', import.meta.url), 'utf8');
 
+// A failure is shown on the pull request (the job log may not be readable).
+process.on('uncaughtException', (e) => { console.log(`::error::${String(e.message).replace(/\n/g, '%0A')}`); process.exit(1); });
 const find = parseFind(await readFile(findFile, 'utf8'));
 console.log('find:', JSON.stringify(find));
+console.log(`::notice::find: ${JSON.stringify(find)}`);
 assert.ok(find.databases.some((d) => d.database === 'GeniusTest' && d.items === 3), 'the United database is found, with its 3 items');
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -21,6 +24,7 @@ for (const f of readFiles) {
   assert.ok(!/customer|0100000/.test(text), 'nothing about customers is read');
   let sent = null;
   const sync = new GeniusLiveSync({ converterSource: SOURCE, site: 'https://x', readGenius: async () => text, post: async (_u, body) => { sent = JSON.parse(body); return { status: 200, text: '1' }; } });
+  console.log(`::notice::${f}: ${text.split(/\r?\n/).slice(0, 40).join(' | ').slice(0, 3000)}`);
   const { data } = await sync.run({ server: 'localhost', database: 'GeniusTest', token: 't' });
   assert.ok(sent && sent.p_token === 't');
   assert.deepEqual(data.items.map((i) => [i.code, i.name, i.category]).sort(), [['1', 'بانادول إكسترا', 'أدوية'], ['2', 'كريم شمس', 'غير دوائي']], 'Arabic names from the Arabic database; not the stopped item');
