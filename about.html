@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>صيدليتي — برنامج الصيدلية</title>
+<meta name="description" content="برنامج صيدلية مصري: كاشير بالباركود، مخزون وصلاحيات، مشتريات وموردين، عملاء آجل وتأمين، فروع، ورديات، وشغال من غير نت. ينقل بياناتك من المتحدة (Genius) في دقايق.">
+<meta name="theme-color" content="#0b6b57">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./src/style.css">
+<style>
+  .hero { text-align: center; padding: 40px 16px 24px; }
+  .hero h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); margin: 12px 0 8px; }
+  .hero p { max-width: 640px; margin: 0 auto 18px; font-size: 1.1rem; }
+  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .feat .card h3 { margin-top: 0; }
+  .price { text-align: center; }
+  .price .v { font-size: 2.4rem; font-family: 'Readex Pro', sans-serif; color: var(--accent); }
+  footer.links { text-align: center; margin: 32px 0 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <img src="./icons/icon.svg" alt="" width="72" height="72">
+    <h1>صيدليتي</h1>
+    <p>برنامج صيدلية مصري سهل: كاشير، مخزون، صلاحيات، مشتريات، عملاء وتأمين، وفروع — شغال على الكمبيوتر والموبايل، ومن غير نت كمان.</p>
+    <div class="row" style="justify-content:center"><a class="btn primary" href="./index.html">ابدأ التجربة المجانية</a><a class="btn" href="#prices">الأسعار</a></div>
+  </section>
+
+  <section class="feat">
+    <div class="card"><h3>كاشير بالباركود</h3><p>امسح وبيع واطبع على الطابعة الحرارية. مرتجع من الفاتورة، آجل وتأمين، وكل كاشير برقمه السري ووردية بعدّ الدرج.</p></div>
+    <div class="card"><h3>المخزون والصلاحية</h3><p>الرصيد لكل تشغيلة بتاريخها وسعر شرائها. تنبيه باللي قرب ينتهي واللي راكد، وجرد وتالف ومرتجع للمورد.</p></div>
+    <div class="card"><h3>المشتريات والموردين</h3><p>طلبية وصلت بالبونص والصلاحية، حسابات الموردين واللي عليك، و«اطلب إيه» على حسب السحب الحقيقي.</p></div>
+    <div class="card"><h3>الحسابات والأرباح</h3><p>تكلفة البضاعة من تكلفة كل تشغيلة، الأرباح بالشهر واليوم، المصروفات، والشركاء ونصيب كل واحد.</p></div>
+    <div class="card"><h3>من غير نت</h3><p>الكاشير بيكمّل يبيع لو النت فصل، والفواتير بتترفع لوحدها لما يرجع. وفيه نسخة كمبيوتر شغالة من غير نت خالص.</p></div>
+    <div class="card"><h3>نقل من المتحدة في دقايق</h3><p>ارفع ملف الباك اب بتاع المتحدة (Genius) زي ما هو، والبرنامج يقرا منه الأصناف والرصيد والصلاحيات والمبيعات.</p></div>
+    <div class="card"><h3>فروع وموظفين</h3><p>كل فرع برصيده، تحويل بين الفروع، حضور وانصراف بالرقم السري، وسجل بمين عدّل إيه.</p></div>
+    <div class="card"><h3>بياناتك ملكك</h3><p>نزّل نسخة كاملة من بياناتك في أي وقت، وصدّر لـ Excel أو PDF. بيانات العملاء والمرضى ليك إنت بس.</p></div>
+  </section>
+
+  <section class="card price" id="prices" style="margin-top:16px">
+    <h2>الأسعار</h2>
+    <p>تجربة مجانية <b data-cfg="trial">14</b> يوم، من غير فيزا ومن غير التزام.</p>
+    <p data-when="priced" hidden>بعدها <span class="v n" data-cfg="price"></span> ج في الشهر لفرع واحد<span data-when="branch" hidden>، و<b class="n" data-cfg="branch"></b> ج لكل فرع زيادة</span>.</p>
+    <p class="note">الدفع بالتحويل (إنستاباي أو فودافون كاش)، والاشتراك بيتفعل في نفس اليوم. الكاشير عمره ما بيقف حتى لو الاشتراك خلص.</p>
+    <p data-when="phone" hidden><a class="btn primary" data-cfg="whatsapp" hidden target="_blank" rel="noopener">اسأل على واتساب</a> <span class="n" data-cfg="phone"></span></p>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>التحميل</h2>
+    <div class="row">
+      <a class="btn" href="https://github.com/bodamansour/saydaliti/releases/download/desktop-latest/Saydaliti-Setup.exe">برنامج الكمبيوتر (ويندوز، من غير نت)</a>
+      <a class="btn" href="https://github.com/bodamansour/saydaliti/releases/download/android-latest/saydaliti.apk">أبلكيشن أندرويد</a>
+    </div>
+    <p class="note">أو افتح البرنامج من المتصفح على أي جهاز، ومن الموبايل اختار «إضافة للشاشة الرئيسية».</p>
+  </section>
+
+  <footer class="links note"><a class="navlink" href="./privacy.html">سياسة الخصوصية</a> · <a class="navlink" href="./terms.html">شروط الاستخدام</a> · <a class="navlink" href="./index.html">ادخل البرنامج</a></footer>
+</div>
+<script type="module" src="./src/public.js"></script>
+</body>
+</html>

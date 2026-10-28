@@ -1,3 +1,4 @@
+import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
@@ -9,6 +10,7 @@ import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features
 import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
+import { subscriptionState, monthlyPrice } from './subscription.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -107,7 +109,7 @@ const SECTIONS = [
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
-  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'مبيعات الكاشير'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب']]],
+  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'مبيعات الكاشير'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -168,14 +170,14 @@ function render(background = false) {
 
   const nChanged = PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).length : 0;
   const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length, ...(nChanged ? { changes: nChanged } : {}) };
-  if (!TABS.some(([id]) => id === TAB) || !visibleSections().includes(sectionOf(TAB))) TAB = 'reorder';
+  if (!TABS.some(([id]) => id === TAB) || !visibleSections().includes(sectionOf(TAB)) || (TAB === 'log' && !isOwner())) TAB = 'reorder';
   const [secId, , secTabs] = sectionOf(TAB);
   LAST_TAB[secId] = TAB;
   store.set('saydaliti-tab-v1', TAB);
   const urgent = { stock: has ? A.reorder.length + A.expiring.length : 0 };
   $('sections').innerHTML = visibleSections().map(([id, t]) => `<button class="sec" data-sec="${id}" aria-pressed="${id === secId}">${t}${urgent[id] ? `<span class="cnt">${urgent[id]}</span>` : ''}</button>`).join('');
   $('tabs').hidden = secTabs.length < 2;
-  $('tabs').innerHTML = secTabs.map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
+  $('tabs').innerHTML = secTabs.filter(([id]) => id !== 'log' || isOwner()).map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
 
   let html;
   if (TAB === 'items') html = renderItems();
@@ -188,6 +190,8 @@ function render(background = false) {
   else if (TAB === 'supaccounts') html = renderSupplierAccounts();
   else if (TAB === 'expenses') html = renderExpenses();
   else if (TAB === 'pos') html = renderPosSales();
+  else if (TAB === 'shifts') html = renderShifts();
+  else if (TAB === 'log') html = renderLog();
   else if (TAB === 'shortages') html = renderShortages(full);
   else if (TAB === 'prices') html = renderPrices(A);
   else if (TAB === 'changes' && has) html = renderPriceChanges();
@@ -225,6 +229,7 @@ function render(background = false) {
   } else {
     html = renderCalc(A, s);
   }
+  if (subLocked()) html = renderLocked();
   const typed = [];
   const focused = document.activeElement?.closest?.('#panel') ? document.activeElement.id : null;
   if (background) for (const el of $('panel').querySelectorAll('input[id], select[id], textarea[id]')) if (el.type !== 'file' && el.value !== el.defaultValue) typed.push([el.id, el.value]);
@@ -566,10 +571,62 @@ function renderPosSales() {
     <div class="card"><h3>الأكتر بيعاً من الكاشير</h3><div class="ledger">${top.map((t) => `<div><span>${esc(t.name)} <span class="muted n">× ${fmt(t.qty)}</span></span><span class="n">${fmt(t.value, 2)}</span></div>`).join('') || '<div><span class="muted">لسه مفيش مبيعات في الفترة دي.</span><span></span></div>'}</div></div>
   </div>
   <p class="note">الفواتير دي من شاشة الكاشير بس. لحد ما الكاشير يبقى البرنامج الأساسي، مبيعات برنامج الصيدلية بتفضل هي اللي بتتحسب في الطلبيات والحسابات.</p>`
-  + (list.length ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>الأصناف</th><th>الإجمالي</th><th>الدفع</th></tr></thead><tbody>${list.slice(0, 300).map((x) => `<tr><td class="n">${esc(x.number)}</td>
+  + (list.length ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>الأصناف</th><th>الإجمالي</th><th>الدفع</th><th>الكاشير</th></tr></thead><tbody>${list.slice(0, 300).map((x) => `<tr><td class="n">${esc(x.number)}</td>
       <td class="n">${new Date(x.sold_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</td>
       ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ` <span class="pill crit" title="${esc(x.note)}">من غير فاتورة</span>` : ''}` : 'بيع'}</td>
-      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n">${fmt(x.total, 2)}</td><td>${esc(pay(x.payment))}</td></tr>`).join('')}</tbody></table></div>` : '');
+      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n">${fmt(x.total, 2)}</td><td>${esc(pay(x.payment))}</td><td>${esc(x.employee_name || '')}</td></tr>`).join('')}</tbody></table></div>` : '');
+}
+
+// ---------- Cashier shifts and the log of changes (database update 013) ----------
+// Read when the tab is opened (the latest ones only), not with everything else.
+let SHIFT_ROWS = null, LOG_ROWS = null, LOG_FILTER = '';
+async function loadLatest(table, cols, order, n) {
+  if (!isOnline()) return (await kvGet(cacheKey(table), null));
+  const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).range(0, n - 1);
+  if (error) return /fetch|network/i.test(error.message) ? await kvGet(cacheKey(table), null) : 'missing';
+  await kvSet(cacheKey(table), data);
+  return data;
+}
+function renderShifts() {
+  if (SHIFT_ROWS === null) { loadLatest('pos_shifts', 'id, branch_id, employee_name, opened_at, opening_cash, closed_at, expected_cash, counted_cash, totals, note', 'opened_at', 500).then((r) => { SHIFT_ROWS = r || []; render(true); }); return '<p class="note">لحظة…</p>'; }
+  if (SHIFT_ROWS === 'missing') return '<div class="card emptybox"><h3>الورديات محتاجة تحديث قاعدة البيانات 013</h3></div>';
+  const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
+  const list = SHIFT_ROWS.filter((x) => bid === 'all' || (x.branch_id ?? null) === bid);
+  const diffOf = (x) => (x.closed_at && x.counted_cash != null && x.expected_cash != null ? Math.round((x.counted_cash - x.expected_cash) * 100) / 100 : null);
+  const missing = list.reduce((a, x) => a + Math.min(0, diffOf(x) ?? 0), 0);
+  const t = (d) => new Date(d).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  return `<p class="note">كل كاشير بيدخل برقمه السري على جهاز الكاشير، وبيفتح وردية بالفلوس اللي في الدرج، ويقفلها بعدّ الدرج. الموظفين وأرقامهم من صفحة «الحضور والانصراف».</p>
+  ${missing < 0 ? `<p class="err">إجمالي العجز في الورديات اللي هنا: ${fmt(-missing, 2)} ج</p>` : ''}
+  ${list.length ? table(['الكاشير', 'من', 'لحد', 'مبيعات', 'المفروض في الدرج', 'اتعدّ', 'الفرق', 'ملاحظة'], list.map((x) => {
+    const d = diffOf(x);
+    return `<tr><td><b>${esc(x.employee_name)}</b></td><td class="n">${esc(t(x.opened_at))}</td><td>${x.closed_at ? `<span class="n">${esc(t(x.closed_at))}</span>` : '<span class="pill ok">مفتوحة</span>'}</td>
+      <td class="n">${x.totals ? fmt(x.totals.net, 2) : '—'}</td><td class="n">${x.expected_cash != null ? fmt(x.expected_cash, 2) : '—'}</td><td class="n">${x.counted_cash != null ? fmt(x.counted_cash, 2) : '—'}</td>
+      <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
+  })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
+}
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف' };
+const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
+// What changed in an edit: only the fields that differ (lists of lines are summed up).
+function logChanges(x) {
+  const show = (v) => (v === null || v === undefined || v === '' ? '—' : Array.isArray(v) ? `${v.length} سطر` : typeof v === 'object' ? '…' : String(v));
+  const skip = new Set(['id', 'pharmacy_id', 'created_at', 'updated_at', 'created_by']);
+  if (x.op === 'update') {
+    const keys = Object.keys({ ...x.old_row, ...x.new_row }).filter((k) => !skip.has(k) && JSON.stringify(x.old_row?.[k]) !== JSON.stringify(x.new_row?.[k]));
+    return keys.map((k) => `${k}: ${show(x.old_row?.[k])} ← ${show(x.new_row?.[k])}`).join('، ');
+  }
+  const r = x.new_row || x.old_row || {};
+  return [r.name, r.code, r.invoice_no, r.supplier_name, r.amount != null ? `${r.amount} ج` : '', r.qty != null ? `كمية ${r.qty}` : '', r.employee_name, r.note].filter(Boolean).join(' · ');
+}
+function renderLog() {
+  if (LOG_ROWS === null) { loadLatest('audit_log', 'id, at, user_id, table_name, op, row_id, old_row, new_row', 'at', 500).then((r) => { LOG_ROWS = r || []; render(true); }); return '<p class="note">لحظة…</p>'; }
+  if (LOG_ROWS === 'missing') return '<div class="card emptybox"><h3>سجل التعديلات محتاج تحديث قاعدة البيانات 013</h3></div>';
+  const who = (id) => (id === SESS.user.id ? 'إنت' : SESS.local ? 'الجهاز ده' : 'حساب تاني (شريك أو جهاز الصيدلية)');
+  const list = LOG_ROWS.filter((x) => !LOG_FILTER || x.table_name === LOG_FILTER);
+  return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button></div>
+  <p class="note">كل إضافة أو تعديل أو مسح في المشتريات والأصناف والرصيد والعملاء والفلوس والورديات بيتسجل هنا: مين وإمتى وإيه اللي اتغير. محدش يقدر يمسح السجل ده.</p>
+  ${list.length ? table(['إمتى', 'مين', 'إيه', 'العملية', 'التفاصيل'], list.slice(0, 500).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td>
+    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
+    <td class="name">${esc(logChanges(x))}</td></tr>`)) : '<p class="muted">لسه مفيش حاجة في السجل.</p>'}`;
 }
 
 // ---------- Shortages, market prices, patient reminders (migration 008) ----------
@@ -623,11 +680,13 @@ async function loadFeatures() {
       loadTable('shortages', 'id, code, name, note, status, created_at, resolved_at'),
       loadTable('market_prices', 'id, code, price, source, seen_on, created_by, created_at', 'seen_on'),
     ]);
-    // Customer columns arrived with 011, return columns with 012; an older database is read without them.
-    try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment, customer_id, credit, claim_no, return_of, note', 'sold_at'); POS_READY = true; } catch (e0) {
-    try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment, customer_id, credit, claim_no', 'sold_at'); POS_READY = true; } catch (e) {
-      try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment', 'sold_at'); POS_READY = true; } catch (e2) { if (e2.missing) POS_READY = false; }
-    } }
+    // Columns arrived with later database updates (011 customers, 012 returns, 013 cashier and shift);
+    // an older database is read without them.
+    const base = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
+    POS_READY = false;
+    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
+      try { POS_SALES = await loadTable('pos_sales', base + extra, 'sold_at'); POS_READY = true; break; } catch (e) { if (!e.missing) break; }
+    }
     if (isOwner()) {
       [PATIENTS, REMINDERS] = await Promise.all([
         loadTable('patients', 'id, name, phone, active, created_at'),
@@ -1369,6 +1428,9 @@ $('panel').addEventListener('keydown', (e) => {
   if (e.target.dataset?.count !== undefined) { e.preventDefault(); const all = [...document.querySelectorAll('[data-count]')]; all[all.indexOf(e.target) + 1]?.focus(); }
 });
 $('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); });
+$('panel').addEventListener('click', (e) => {
+  if (e.target.id === 'logReload') { LOG_ROWS = null; render(); }
+});
 $('panel').addEventListener('click', async (e) => {
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
   if (t('adjkind')) { ADJ.kind = t('adjkind'); ADJ_NOTE = ''; render(); }
@@ -1603,6 +1665,101 @@ $('panel').addEventListener('click', (e) => {
   if (t('closestmt')) { CUST_VIEW = null; render(); }
   if (t('sendstmt')) { const c = CUSTOMERS.find((x) => x.id === t('sendstmt')); const phone = normalizeEgPhone(c?.phone || ''); if (c) window.open(`https://wa.me/${phone || ''}?text=${encodeURIComponent(statementText(c))}`, '_blank', 'noopener'); }
   if (t('copyclaim') !== undefined) copyFrom($(`claimMsg${t('copyclaim')}`), $(`claimNote${t('copyclaim')}`));
+});
+
+// ---------- Subscription (database update 013) ----------
+// The online version: a free trial, then a paid period turned on by the app owner. The dashboard
+// locks a few days after the end; the cashier never does. The desktop version has no subscription.
+let SUB = null, APPCFG = {};
+const subNow = () => (SUB ? subscriptionState(SUB, APPCFG, TODAY) : { level: 'ok' });
+const subLocked = () => subNow().level === 'locked';
+async function loadSubscription() {
+  if (SESS.local) return;
+  const k = `sub:${SESS.pharmacy.id}`;
+  let got = await kvGet(k, null);
+  if (isOnline()) {
+    const [a, b] = await Promise.all([
+      SESS.client.from('subscriptions').select('status, trial_ends, paid_until, price_month').eq('pharmacy_id', SESS.pharmacy.id).limit(1),
+      SESS.client.from('app_config').select('trial_days, grace_days, price_month, price_branch, pay_note, support_phone').limit(1),
+    ]);
+    if (!a.error && !b.error) { got = { sub: a.data[0] || null, cfg: b.data[0] || {} }; await kvSet(k, got); }
+    const adm = await SESS.client.rpc('is_app_admin');
+    $('adminLink').hidden = adm.error || !adm.data;
+  }
+  SUB = got?.sub ?? null; APPCFG = got?.cfg ?? {};
+  renderSubBanner();
+  // A gentle reminder to keep a copy of everything, every two weeks.
+  const last = store.get(`saydaliti-cloud-backup-${SESS.pharmacy.id}`, 0);
+  if (isOwner() && Date.now() - last > 14 * 86400000 && !$('fileMsg').textContent) $('fileMsg').innerHTML = 'بقالك أكتر من أسبوعين من غير نسخة من بياناتك على جهازك. نزّلها من «نسخة احتياطية من كل بياناتك» تحت.';
+}
+function payInfo() {
+  const price = monthlyPrice(APPCFG, BRANCHES.filter((b) => b.id).length || 1, SUB?.price_month);
+  const wa = String(APPCFG.support_phone || '').replace(/\D/g, '').replace(/^0/, '20');
+  return `${price ? `<p>الاشتراك: <b class="n">${fmt(price)}</b> ج في الشهر${BRANCHES.length > 1 ? ' (لكل الفروع)' : ''}.</p>` : ''}
+    ${APPCFG.pay_note ? `<p style="white-space:pre-line">${esc(APPCFG.pay_note)}</p>` : ''}
+    ${wa ? `<p><a class="btn primary" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`عايز أجدد اشتراك صيدليتي: ${SESS.pharmacy.name}`)}" target="_blank" rel="noopener">كلّمنا على واتساب</a></p>` : ''}`;
+}
+function renderSubBanner() {
+  const st = subNow();
+  const box = $('subBanner');
+  box.hidden = st.level === 'ok' || st.level === 'locked';
+  if (box.hidden) return;
+  box.className = `card sub-${st.level}`;
+  box.innerHTML = `<b>${esc(st.text)}</b>${isOwner() ? `<details><summary>إزاي أدفع؟</summary>${payInfo()}</details>` : ''}`;
+}
+function renderLocked() {
+  const st = subNow();
+  return `<div class="card emptybox"><h3>${esc(st.text)}</h3>
+    ${isOwner() ? payInfo() : '<p>كلّم صاحب الصيدلية.</p>'}
+    <p class="note">بياناتك كلها محفوظة. تقدر تنزّل نسخة منها من «نسخة احتياطية من كل بياناتك» تحت، والكاشير شغال عادي.</p>
+    <a class="btn" href="./cashier.html">افتح الكاشير</a></div>`;
+}
+
+// ---------- A full copy of the pharmacy's online data ----------
+// Same shape as the desktop version's backup, so it can also be restored there.
+const CLOUD_TABLES = [
+  ['branches', '*'], ['employees', 'id, pharmacy_id, name, shift_start, shift_end, work_days, grace_minutes, active, created_at'], ['attendance', '*'],
+  ['expenses', '*'], ['shortages', '*'], ['market_prices', '*'], ['patients', '*'], ['reminders', '*'],
+  ['catalog_items', '*'], ['purchases', '*'], ['supplier_payments', '*'], ['stock_moves', '*'],
+  ['customers', '*'], ['customer_payments', '*'], ['pos_barcodes', '*'], ['pos_sales', '*'], ['pos_shifts', '*'],
+];
+async function cloudBackup() {
+  const out = { app: 'saydaliti', version: 1, kind: 'cloud', exported_at: new Date().toISOString(),
+    tables: { pharmacies: [{ id: SESS.pharmacy.id, name: SESS.pharmacy.name, settings: SESS.pharmacy.settings || {}, created_at: new Date().toISOString() }] } };
+  for (const [t, cols] of CLOUD_TABLES) {
+    $('cloudBackupMsg').textContent = `بنزّل ${t}…`;
+    const rows = [];
+    for (let from = 0; from < 500000; from += 1000) {
+      const r = await SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }).range(from, from + 999);
+      if (r.error) { if (!/fetch|network/i.test(r.error.message)) break; throw new Error('النت فصل. جرّب تاني.'); }
+      rows.push(...r.data);
+      if (r.data.length < 1000) break;
+    }
+    out.tables[t] = rows;
+  }
+  // The latest uploaded data of each branch (the starting stock).
+  $('cloudBackupMsg').textContent = 'بنزّل آخر رفع لكل فرع…';
+  const snaps = [];
+  for (const b of BRANCHES) {
+    let q = SESS.client.from('snapshots').select('id, pharmacy_id, branch_id, created_at, data').eq('pharmacy_id', SESS.pharmacy.id);
+    if (b.id) q = q.eq('branch_id', b.id);
+    const r = await q.order('created_at', { ascending: false }).limit(1);
+    if (!r.error && r.data[0]) snaps.push(r.data[0]);
+  }
+  out.tables.snapshots = snaps;
+  return out;
+}
+$('cloudBackupBtn').addEventListener('click', async () => {
+  if (!isOnline()) { $('cloudBackupMsg').textContent = 'النسخة الكاملة محتاجة نت.'; return; }
+  $('cloudBackupBtn').disabled = true;
+  try {
+    const dump = await cloudBackup();
+    download(`saydaliti-full-backup-${isoDay(new Date())}.json`, new Blob([JSON.stringify(dump)], { type: 'application/json' }));
+    store.set(`saydaliti-cloud-backup-${SESS.pharmacy.id}`, Date.now());
+    const n = Object.values(dump.tables).reduce((a, r) => a + r.length, 0);
+    $('cloudBackupMsg').textContent = `اتنزلت: ${fmt(n)} سطر. احتفظ بيها في مكان آمن.`;
+  } catch (e) { $('cloudBackupMsg').textContent = `ماتنزلتش: ${e.message}`; }
+  $('cloudBackupBtn').disabled = false;
 });
 
 // ---------- Offline desktop version: no accounts, backups to a file ----------
@@ -1926,9 +2083,10 @@ async function boot() {
   $('toCashier').hidden = !isOwner();
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
+  $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers()]);
+  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription()]);
   renderBranches(); setView(); render();
   sync();
 }
@@ -1938,6 +2096,7 @@ $('panel').addEventListener('change', (e) => {
   if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); }
   if (e.target.id === 'expPeriodSel') { EXP_PERIOD = e.target.value; render(); }
   if (e.target.id === 'posPeriodSel') { POS_PERIOD = e.target.value; render(); }
+  if (e.target.id === 'logFilter') { LOG_FILTER = e.target.value; render(); }
   if (e.target.matches('select[data-supfor]')) chooseSupplier(e.target.dataset.supfor, e.target.value);
 });
 $('panel').addEventListener('toggle', (e) => { if (e.target.id === 'supBox') SUP_OPEN = e.target.open; }, true);
@@ -2114,5 +2273,6 @@ $('installBtn').addEventListener('click', async () => { if (!installPrompt) retu
 addEventListener('appinstalled', () => { $('installBtn').hidden = true; });
 
 registerServiceWorker();
+watchErrors('dashboard', () => (SESS && SESS.mode === 'member' ? { client: SESS.client, pharmacyId: SESS.pharmacy?.id, local: SESS.local } : null));
 updateNet();
 boot();

@@ -70,7 +70,7 @@ test('dashboard opens with no example data, grouped in sections', async () => {
   assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'مبيعات الكاشير', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'مبيعات الكاشير', 'الورديات', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -625,6 +625,50 @@ test('two tabs queuing changes at the same moment lose none of them', async () =
   assert.equal(queued, 80);
   await a.evaluate(async () => { const { kvUpdate } = await import('./src/offline.js'); await kvUpdate('outbox', (q) => q.filter((e) => e.type !== 'test-only'), []); });
   await a.close(); await b.close();
+});
+
+test('subscription: a note while it runs, the dashboard locks after the grace days, the cashier never', async () => {
+  const setSub = (sub) => page.evaluate((sub) => {
+    window.__DB.subscriptions = sub ? [{ pharmacy_id: 'ph1', ...sub }] : [];
+    window.__DB.app_config = [{ grace_days: 7, price_month: 500, price_branch: 250, pay_note: 'إنستاباي: test@instapay', support_phone: '01000000000' }];
+    localStorage.setItem('__stubdb', JSON.stringify(window.__DB));
+  }, sub);
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  const soon = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  await setSub({ status: 'trial', trial_ends: soon });
+  await page.reload(); await page.waitForSelector('#app:not([hidden])');
+  assert.ok(await until(async () => /فاضل 2 يوم/.test(await text('#subBanner'))));
+  await setSub({ status: 'active', paid_until: '2020-01-01' });
+  await page.reload(); await page.waitForSelector('#app:not([hidden])');
+  assert.ok(await until(async () => /جدّد/.test(await text('#panel'))));
+  assert.match(await text('#panel'), /test@instapay/);
+  assert.match(await text('#panel'), /750/, '500 + 250 for the second branch');
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await setSub(null);
+});
+
+test('admin page: see each pharmacy and turn on a paid month', async () => {
+  await page.goto(`${base}admin.html`);
+  await page.waitForSelector('#app:not([hidden])');
+  assert.match(await text('#list'), /صيدلية أحمد منصور/);
+  await page.click('#list [data-edit]');
+  await page.selectOption('#eStatus', 'active');
+  await page.click('#eAdd [data-add="1"]');
+  assert.match(await page.inputValue('#ePaid'), /^\d{4}-\d{2}-\d{2}$/);
+  await page.fill('#eNote', 'دفع إنستاباي');
+  await page.click('#editForm button[type=submit]');
+  assert.ok(await until(async () => (await db('subscriptions'))[0]?.status === 'active'));
+  assert.equal((await db('subscriptions'))[0].note, 'دفع إنستاباي');
+  await page.evaluate(() => { window.__DB.subscriptions = []; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
+});
+
+test('public pages open', async () => {
+  for (const f of ['about.html', 'privacy.html', 'terms.html']) {
+    await page.goto(base + f);
+    assert.match(await text('h1'), /صيدليتي|الخصوصية|الشروط|شروط/);
+  }
 });
 
 test('no script errors', () => {

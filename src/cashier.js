@@ -1,5 +1,6 @@
 // Cashier screen: scan or search, bill, take payment, print an 80/58 mm receipt. Works offline:
 // receipts are saved on this device first and uploaded when the connection is back.
+import { watchErrors } from './errors.js';
 import { fromExport, startOfDay } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
@@ -7,6 +8,7 @@ import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onO
 import { normalize as normalizeText, lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
+import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -18,6 +20,7 @@ const DKEY = 'saydaliti-pos-v1';
 const dev = (() => { try { return JSON.parse(localStorage.getItem(DKEY)) || {}; } catch { return {}; } })();
 const saveDev = () => { try { localStorage.setItem(DKEY, JSON.stringify(dev)); } catch { /* blocked */ } };
 dev.paper ??= '80'; dev.autoPrint ??= true; dev.footer ??= ''; dev.tag ??= 'K1';
+dev.id ??= crypto.randomUUID(); // this cashier PC, to keep its own open shifts
 
 // ---------- State ----------
 let SESS = null;
@@ -36,9 +39,12 @@ let LINK_BARCODE = null;
 let CUSTOMERS = [], CUST_PAYMENTS = [], CREDIT_SALES = [], CUST_READY = false; // migration 011
 let CUST = null;            // the customer on this bill
 let RET = null;             // return mode: the sale receipt being returned ({ sale })
+let STAFF = { count: 0, list: [] }; // employees who can sell, and PIN checks kept for offline (migration 013)
+let CASHIER = null;         // who is selling now: { id, name }
+let SHIFTS = {};            // open shifts on this PC, by employee id
 
 const bkey = () => BRANCH ?? 'main';
-const K = { items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}`, cust: () => `pos-cust:${SESS.pharmacy.id}` };
+const K = { staff: () => `pos-staff:${SESS.pharmacy.id}`, shifts: () => `pos-shifts:${SESS.pharmacy.id}:${dev.id}`, items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}`, cust: () => `pos-cust:${SESS.pharmacy.id}` };
 const msg = (t, err = false) => { $('posMsg').innerHTML = err ? `<span class="err">${esc(t)}</span>` : esc(t); };
 const today = () => startOfDay();
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -148,6 +154,7 @@ async function loadBarcodes() {
 }
 
 const SALE_COLS = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
+const SALE_EXTRA = ['customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', 'customer_id, credit, claim_no, return_of, note']; // newest database first
 async function loadSales() {
   const cached = await kvGet(K.sales(), []);
   // With no upload, the stock is made only of what was entered here, so every receipt counts.
@@ -159,8 +166,9 @@ async function loadSales() {
     for (let from = 0; from < 50000; from += 1000) {
       const page = (cols) => SESS.client.from('pos_sales').select(cols)
         .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }).range(from, from + 999);
-      let { data, error } = await page(`${SALE_COLS}, customer_id, credit, claim_no, return_of, note`);
-      if (error && /column/i.test(error.message)) ({ data, error } = await page(SALE_COLS)); // database update 012 not applied yet
+      let { data, error } = await page(`${SALE_COLS}, ${SALE_EXTRA[0]}`);
+      if (error && /column/i.test(error.message)) ({ data, error } = await page(`${SALE_COLS}, ${SALE_EXTRA[1]}`)); // update 013 not applied yet
+      if (error && /column/i.test(error.message)) ({ data, error } = await page(SALE_COLS)); // update 012 not applied yet
       if (error) { server = null; break; }
       server.push(...data);
       if (data.length < 1000) break;
@@ -352,6 +360,119 @@ async function linkBarcode(itemCode) {
   focusSearch();
 }
 
+// ---------- Cashier PIN and shifts ----------
+async function loadStaff() {
+  STAFF = await kvGet(K.staff(), { count: 0, list: [] });
+  SHIFTS = await kvGet(K.shifts(), {});
+  if (isOnline()) {
+    const { data, error } = await SESS.client.rpc('cashier_staff', { p_pharmacy: SESS.pharmacy.id });
+    if (!error) { STAFF.count = +data || 0; await kvSet(K.staff(), STAFF); }
+  }
+  renderCashier();
+}
+// A PIN is asked when this PC is set to ask and the pharmacy has employees (added in «الحضور»).
+const needPin = () => !!dev.requirePin && STAFF.count > 0;
+function renderCashier() {
+  const on = needPin();
+  $('cashierChip').hidden = !on || !CASHIER;
+  $('cashierChip').textContent = CASHIER ? `الكاشير: ${CASHIER.name}` : '';
+  $('switchCashier').hidden = !on || !CASHIER;
+  $('closeShift').hidden = !on || !CASHIER || !SHIFTS[CASHIER.id];
+}
+function showPin() {
+  CASHIER = null; PIN_FOUND = null; renderCashier();
+  $('pinIn').value = ''; $('pinMsg').textContent = ''; $('openCashWrap').hidden = true; $('pinIn').hidden = false;
+  $('pinTitle').textContent = 'مين بيبيع؟'; $('pinOk').textContent = 'ادخل';
+  if (!$('pinDlg').open) $('pinDlg').showModal();
+  $('pinIn').focus();
+}
+let PIN_FOUND = null; // employee found, waiting for the opening cash
+async function onPin(e) {
+  e.preventDefault();
+  if (PIN_FOUND) return openShift(PIN_FOUND);
+  const pin = $('pinIn').value.trim();
+  if (!/^\d{4,6}$/.test(pin)) { $('pinMsg').textContent = 'الرقم السري 4 لـ 6 أرقام.'; return; }
+  $('pinMsg').textContent = 'لحظة…';
+  let found = null, checked = false;
+  if (isOnline()) {
+    const { data, error } = await SESS.client.rpc('cashier_pin', { p_pharmacy: SESS.pharmacy.id, p_pin: pin });
+    if (!error) {
+      checked = true;
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row?.employee_id) {
+        found = { id: row.employee_id, name: row.employee_name };
+        // Kept so the same PIN works with no connection.
+        const verifier = await pinVerifier(SESS.pharmacy.id, found.id, pin);
+        STAFF.list = [...STAFF.list.filter((x) => x.id !== found.id), { ...found, verifier }];
+        await kvSet(K.staff(), STAFF);
+      }
+    } else if (!/fetch|network/i.test(error.message)) { $('pinMsg').textContent = arabicError(error).message; return; }
+  }
+  if (!checked) found = await matchPin(SESS.pharmacy.id, STAFF.list, pin);
+  if (!found) { $('pinMsg').textContent = checked || STAFF.list.length ? 'الرقم السري غلط.' : 'مفيش نت، والرقم ده مااتجربش على الجهاز ده قبل كده. ادخل بيه مرة والنت شغال.'; $('pinIn').select(); return; }
+  CASHIER = found;
+  if (SHIFTS[found.id]) { $('pinDlg').close(); renderCashier(); msg(`أهلاً ${found.name}. ورديتك مفتوحة من ${new Date(SHIFTS[found.id].opened_at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}.`); focusSearch(); return; }
+  PIN_FOUND = found;
+  $('pinTitle').textContent = `أهلاً ${found.name} — وردية جديدة`;
+  $('pinIn').hidden = true; $('openCashWrap').hidden = false; $('openCash').value = '0'; $('pinOk').textContent = 'افتح الوردية'; $('pinMsg').textContent = '';
+  $('openCash').select();
+}
+async function openShift(emp) {
+  const shift = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH, employee_id: emp.id, employee_name: emp.name,
+    opened_at: new Date().toISOString(), opening_cash: Math.max(0, +$('openCash').value || 0), created_by: SESS.user.id };
+  SHIFTS[emp.id] = shift;
+  await kvSet(K.shifts(), SHIFTS);
+  await enqueue('insert', { table: 'pos_shifts', row: shift });
+  PIN_FOUND = null; CASHIER = emp;
+  $('pinDlg').close(); renderCashier(); msg(`اتفتحت وردية ${emp.name}.`); focusSearch(); sync();
+}
+function openClose() {
+  const shift = SHIFTS[CASHIER?.id]; if (!shift) return;
+  const sum = shiftSummary(shift, SALES);
+  $('shName').textContent = shift.employee_name;
+  $('shSum').innerHTML = `<div><span>من</span><span>${esc(new Date(shift.opened_at).toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span></div>
+    <div><span>فواتير</span><span class="n">${sum.receipts}</span></div><div><span>مبيعات</span><span class="n">${fmt(sum.sales)}</span></div>
+    ${sum.returns ? `<div><span>مرتجعات (${sum.returns})</span><span class="n">${fmt(sum.returned)}</span></div>` : ''}
+    ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
+    <div><span>في الدرج من الأول</span><span class="n">${fmt(shift.opening_cash)}</span></div>
+    <div class="tot"><span>المفروض في الدرج</span><span class="n">${fmt(sum.expected)}</span></div>`;
+  $('shCount').value = ''; $('shNote').value = ''; $('shDiff').textContent = '—'; $('shMsg').textContent = '';
+  $('shiftDlg').showModal(); $('shCount').focus();
+}
+function showDiff() {
+  const shift = SHIFTS[CASHIER?.id]; if (!shift || $('shCount').value === '') { $('shDiff').textContent = '—'; return; }
+  const d = cashDifference(shiftSummary(shift, SALES).expected, +$('shCount').value);
+  $('shDiffLabel').textContent = d < 0 ? 'ناقص' : d > 0 ? 'زيادة' : 'الفرق';
+  $('shDiff').textContent = fmt(Math.abs(d));
+}
+async function closeShift(e) {
+  e.preventDefault();
+  const shift = SHIFTS[CASHIER?.id]; if (!shift) return;
+  if ($('shCount').value === '' || !(+$('shCount').value >= 0)) { $('shMsg').textContent = 'اكتب الفلوس اللي في الدرج.'; $('shCount').focus(); return; }
+  const sum = shiftSummary(shift, SALES);
+  const patch = { closed_at: new Date().toISOString(), expected_cash: sum.expected, counted_cash: +$('shCount').value, note: $('shNote').value.trim() || null,
+    totals: { receipts: sum.receipts, returns: sum.returns, sales: sum.sales, returned: sum.returned, discount: sum.discount, net: sum.net, byPayment: sum.byPayment } };
+  await enqueue('update', { table: 'pos_shifts', id: shift.id, patch });
+  const closed = { ...shift, ...patch };
+  delete SHIFTS[CASHIER.id]; await kvSet(K.shifts(), SHIFTS);
+  $('shiftDlg').close();
+  printHtml(shiftSlip(closed, sum));
+  sync();
+  showPin();
+}
+function shiftSlip(sh, sum) {
+  const t = (d) => new Date(d).toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const diff = cashDifference(sh.expected_cash, sh.counted_cash);
+  return `<div class="rc-head"><b>${esc(SESS.pharmacy.name)}</b><div>إقفال وردية: ${esc(sh.employee_name)}</div><div>${esc(t(sh.opened_at))} ← ${esc(t(sh.closed_at))}</div></div>
+    <div class="rc-tot"><div><span>فواتير</span><span class="n">${sum.receipts}</span></div><div><span>مبيعات</span><span class="n">${fmt(sum.sales)}</span></div>
+    <div><span>مرتجعات</span><span class="n">${fmt(sum.returned)}</span></div>
+    ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
+    <div><span>بداية الدرج</span><span class="n">${fmt(sh.opening_cash)}</span></div><div><span>المفروض</span><span class="n">${fmt(sh.expected_cash)}</span></div>
+    <div><span>اتعدّ</span><span class="n">${fmt(sh.counted_cash)}</span></div>
+    <div class="big"><span>${diff < 0 ? 'ناقص' : diff > 0 ? 'زيادة' : 'مظبوط'}</span><span class="n">${fmt(Math.abs(diff))}</span></div></div>
+    ${sh.note ? `<div class="rc-foot">${esc(sh.note)}</div>` : ''}`;
+}
+
 // ---------- Return against a sale receipt ----------
 const lineOff = (l) => Math.round(l.unitOff * l.qty * 100) / 100; // the discount the customer got on these boxes
 async function findReceipt() {
@@ -394,6 +515,7 @@ async function findReceipt() {
 // ---------- Checkout & printing ----------
 async function checkout() {
   if (!CART.length) return;
+  if (needPin() && !CASHIER) { showPin(); return; }
   const t = totals();
   if (PAYMENT === 'credit' && !CUST) { msg('الآجل محتاج عميل: اختاره أو ضيفه من خانة العميل.', true); $('custQ').focus(); return; }
   const sp = splitBill(t.total, CUST, PAYMENT);
@@ -420,6 +542,8 @@ async function checkout() {
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
     // A return says which receipt it came from, or why there was none (database update 012).
     ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()}` }) : {}),
+    // Who sold it, and in which shift (database update 013).
+    ...(CASHIER ? { employee_id: CASHIER.id, employee_name: CASHIER.name, ...(SHIFTS[CASHIER.id] ? { shift_id: SHIFTS[CASHIER.id].id } : {}) } : {}),
   };
   const custName = CUST?.name;
   SALES.unshift({ ...sale, pending: true });
@@ -445,7 +569,7 @@ function receiptHtml(sale) {
     ${sale.customer_id ? `<div><span>العميل</span><span>${esc(CUSTOMERS.find((c) => c.id === sale.customer_id)?.name ?? '')}</span></div>${sale.claim_no ? `<div><span>رقم الموافقة</span><span class="n">${esc(sale.claim_no)}</span></div>` : ''}` : ''}
     ${sale.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(sale.credit))}</span></div>` : ''}
     ${!ret && sale.payment === 'cash' && sale.paid ? `<div><span>المدفوع</span><span class="n">${fmt(sale.paid)}</span></div><div><span>الباقي</span><span class="n">${fmt(sale.paid - (sale.total - (sale.credit || 0)))}</span></div>` : ''}
-    <div><span>الدفع</span><span>${esc(PAYMENTS.find(([k]) => k === sale.payment)?.[1] ?? '')}</span></div></div>
+    <div><span>الدفع</span><span>${esc(PAYMENTS.find(([k]) => k === sale.payment)?.[1] ?? '')}</span></div>${sale.employee_name ? `<div><span>الكاشير</span><span>${esc(sale.employee_name)}</span></div>` : ''}</div>
     <div class="rc-foot">${dev.footer ? `<div>${esc(dev.footer)}</div>` : ''}<div>ألف سلامة عليك</div></div>`;
 }
 function printHtml(html) {
@@ -473,7 +597,7 @@ function renderDay() {
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
     <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net)}</span></div>`;
   $('dayList').innerHTML = list.slice(0, 200).map((s) => `<tr class="${s.pending ? 'pend' : ''}"><td class="n">${esc(s.number)}</td>
-    <td class="n">${new Date(s.sold_at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}</td>
+    <td class="n">${new Date(s.sold_at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
     <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
     <td class="n">${fmt(s.total)}</td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
     <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>';
@@ -544,9 +668,12 @@ async function boot() {
   $('posBranch').innerHTML = BRANCHES.map((b) => `<option value="${esc(b.id ?? '')}" ${b.id === BRANCH ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
   $('silentWrap').hidden = !window.saydalitiDesktop?.printSilent; $('silentPrint').checked = !!dev.silent; $('kioskNote').hidden = !!window.saydalitiDesktop;
   $('paper').value = dev.paper; $('autoPrint').checked = !!dev.autoPrint; $('footer').value = dev.footer; $('deviceTag').value = dev.tag;
+  // The pharmacy device asks for a PIN by default; the owner's own computer only if turned on.
+  dev.requirePin ??= SESS.role === 'device'; $('requirePin').checked = !!dev.requirePin;
   renderPay(); renderCart();
   await reload();
-  focusSearch();
+  await loadStaff();
+  if (needPin()) showPin(); else focusSearch();
   sync();
 }
 async function reload() {
@@ -615,6 +742,14 @@ $('retNoReceipt').addEventListener('change', () => {
   if ($('retNoReceipt').checked) { if (RET) { RET = null; CART = []; $('retInfo').textContent = ''; renderCart(); } $('retReason').focus(); }
 });
 $('printDay').addEventListener('click', printDay);
+$('pinForm').addEventListener('submit', onPin);
+$('pinDlg').addEventListener('cancel', (e) => { if (needPin() && !CASHIER) e.preventDefault(); }); // no selling until someone signs in
+$('switchCashier').addEventListener('click', () => { if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) { newBill(); showPin(); } });
+$('closeShift').addEventListener('click', () => { if (CART.length) { msg('خلّص الفاتورة اللي مفتوحة الأول.', true); return; } openClose(); });
+$('shCount').addEventListener('input', showDiff);
+$('shiftForm').addEventListener('submit', closeShift);
+$('shCancel').addEventListener('click', () => $('shiftDlg').close());
+$('requirePin').addEventListener('change', (e) => { dev.requirePin = e.target.checked; saveDev(); renderCashier(); if (needPin() && !CASHIER) showPin(); });
 $('stuckChip').addEventListener('click', async () => { await retryStuck(); sync(); });
 $('posBranch').addEventListener('change', async (e) => { BRANCH = e.target.value || null; dev.branch = BRANCH; saveDev(); newBill(); await reload(); });
 $('paper').addEventListener('change', (e) => { dev.paper = e.target.value; saveDev(); });
@@ -623,7 +758,7 @@ $('silentPrint').addEventListener('change', (e) => { dev.silent = e.target.check
 $('footer').addEventListener('input', (e) => { dev.footer = e.target.value; saveDev(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
-  if ($('unknownDlg').open || $('custDlg').open) return;
+  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open) return;
   if (e.key === 'F2') { e.preventDefault(); checkout(); }
   if (e.key === 'Escape') { e.preventDefault(); if (!$('results').hidden) { showResults([]); $('q').value = ''; } else if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) newBill(); }
 });
@@ -637,5 +772,6 @@ $('logout').addEventListener('click', async () => {
 });
 
 registerServiceWorker();
+watchErrors('cashier', () => (SESS && SESS.mode === 'member' ? { client: SESS.client, pharmacyId: SESS.pharmacy?.id, local: SESS.local } : null));
 updateNet();
 boot();

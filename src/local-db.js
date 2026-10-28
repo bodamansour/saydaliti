@@ -52,6 +52,17 @@ export async function createLocalClient() {
   const branches = (pid) => [...table('branches').values()].filter((b) => b.pharmacy_id === pid).sort((a, b) => a.created_at.localeCompare(b.created_at));
   const mainBranch = (pid) => branches(pid)[0]?.id ?? null;
 
+  // Who changed what, like the online database's log (database update 013).
+  const AUDITED = new Set(['catalog_items', 'purchases', 'stock_moves', 'supplier_payments', 'customers', 'customer_payments', 'expenses', 'pos_shifts', 'employees']);
+  const strip = (r) => { if (!r) return null; const { pin_hash, ...x } = r; return x; };
+  const audit = (t, op, before, after) => {
+    if (!AUDITED.has(t)) return [];
+    const r = after || before;
+    const row = { id: uuid(), pharmacy_id: r.pharmacy_id ?? pharmacy()?.id, at: now(), user_id: USER.id, table_name: t, op, row_id: String(r.id), old_row: strip(before), new_row: strip(after) };
+    table('audit_log').set(row.id, row);
+    return [['put', 'audit_log', row]];
+  };
+
   // ---------- Queries ----------
   function from(t) {
     const q = { filters: [], op: 'select' };
@@ -74,19 +85,23 @@ export async function createLocalClient() {
             if (same && q.ignore) continue;
             if (t === 'catalog_items' && [...table(t).values()].some((x) => x.code === r.code && x.id !== r.id && x.pharmacy_id === r.pharmacy_id)) return err('duplicate key value violates unique constraint');
             if (t === 'pos_barcodes' && [...table(t).values()].some((x) => x.barcode === r.barcode && x.id !== r.id)) return err('duplicate key value violates unique constraint');
-            await put(t, same ? { ...same, ...r } : r);
+            const saved = same ? { ...same, ...r } : r;
+            await put(t, saved);
+            const log = audit(t, same ? 'update' : 'insert', same || null, saved);
+            if (log.length) await write(log);
           }
           return { data: null, error: null };
         }
         if (q.op === 'update') {
-          const list = [...table(t).values()].filter(match).map((r) => ({ ...r, ...q.patch }));
+          const before = [...table(t).values()].filter(match);
+          const list = before.map((r) => ({ ...r, ...q.patch }));
           for (const r of list) table(t).set(String(r.id), r);
-          await write(list.map((r) => ['put', t, r]));
+          await write([...list.map((r) => ['put', t, r]), ...list.flatMap((r, i) => audit(t, 'update', before[i], r))]);
           return { data: null, error: null };
         }
         if (q.op === 'delete') {
           const gone = [...table(t).values()].filter(match);
-          const ops = gone.map((r) => ['del', t, r.id]);
+          const ops = [...gone.map((r) => ['del', t, r.id]), ...gone.flatMap((r) => audit(t, 'delete', r, null))];
           for (const r of gone) table(t).delete(String(r.id));
           // The online database removes these along with their parent.
           const cascade = { patients: ['reminders', 'patient_id'], customers: ['customer_payments', 'customer_id'] }[t];
@@ -169,6 +184,15 @@ export async function createLocalClient() {
       await put('employees', { ...e, pin_hash: h });
       return { data: null, error: null };
     },
+    async cashier_staff({ p_pharmacy }) {
+      return { data: [...table('employees').values()].filter((e) => e.pharmacy_id === p_pharmacy && e.active).length, error: null };
+    },
+    async cashier_pin({ p_pharmacy, p_pin }) {
+      const h = await hashPin(p_pin);
+      const e = [...table('employees').values()].find((x) => x.pharmacy_id === p_pharmacy && x.active && x.pin_hash === h);
+      return { data: e ? [{ employee_id: e.id, employee_name: e.name }] : [], error: null };
+    },
+    async log_client_error() { return { data: null, error: null }; },
     async clock({ p_pharmacy, p_pin }) {
       const h = await hashPin(p_pin);
       const e = [...table('employees').values()].find((x) => x.pharmacy_id === p_pharmacy && x.active && x.pin_hash === h);

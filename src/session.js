@@ -140,11 +140,13 @@ export function renderSignIn(box, onDone, mode = 'in') {
       <label>الإيميل<input id="email" type="email" autocomplete="email" inputmode="email" required></label>
       <label>كلمة المرور<input id="password" type="password" autocomplete="${up ? 'new-password' : 'current-password'}" minlength="${PW_MIN}" required></label>
       ${up ? `<label>تأكيد كلمة المرور<input id="password2" type="password" autocomplete="new-password" minlength="${PW_MIN}" required></label>
-      <p class="note">${PW_MIN} حروف أو أكتر.</p>` : ''}
+      <p class="note">${PW_MIN} حروف أو أكتر.</p>
+      <p class="note">بعمل الحساب إنت موافق على <a class="navlink" href="./terms.html" target="_blank">شروط الاستخدام</a> و<a class="navlink" href="./privacy.html" target="_blank">سياسة الخصوصية</a>.</p>` : ''}
       <button class="btn primary wide" type="submit">${up ? 'اعمل الحساب' : 'دخول'}</button>
     </form>
     <p class="note" id="authMsg" role="status"></p>
-    <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>`;
+    <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>
+    <p class="note" style="text-align:center"><a class="navlink" href="./about.html">إيه هو صيدليتي؟ والأسعار</a></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
   box.querySelector('#switchMode').addEventListener('click', () => renderSignIn(box, onDone, up ? 'in' : 'up'));
   box.querySelector('#loginForm').addEventListener('submit', async (e) => {
