@@ -55,7 +55,7 @@ jobs:
         run: |
           flutter --version | head -1 | sed 's/^/::notice::/'
           set +e
-          flutter build apk --release --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }} --dart-define=SITE_URL=https://saydaliti-ivory.vercel.app 2>&1 | tee build.log
+          flutter build apk --release --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }} --dart-define=SITE_URL=https://saydaliti.mosaedapp.workers.dev 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             # Surface the reason as annotations (readable on the run page and through the API).
