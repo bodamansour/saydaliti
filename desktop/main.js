@@ -1,12 +1,25 @@
-// صيدليتي — the Windows program. It opens the same screens as the website, from files inside the
-// program, and keeps all the data on this computer (no internet, no account).
+// صيدليتي — the Windows program. Two ways to run, chosen at the first start (menu: «طريقة التشغيل»):
+//   online: the pharmacy's account on the website (same data as the phone and browser); it keeps
+//           selling with no connection and uploads when it's back (the site's own offline support).
+//   local:  the same screens from files inside the program, all data on this computer, no account.
 const { app, BrowserWindow, Menu, protocol, net, ipcMain, shell, dialog } = require('electron');
 const { join, normalize, sep } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 
 const APP_DIR = join(__dirname, 'app');
-const HOME = 'app://saydaliti/index.html';
+const LOCAL_HOME = 'app://saydaliti/index.html';
+const START = 'app://saydaliti/start.html';
+const SITE = (process.env.SAYDALITI_SITE || 'https://saydaliti.mosaedapp.workers.dev').replace(/\/$/, '');
+const SITE_ORIGIN = new URL(SITE).origin;
+
+// The choice is kept in a small file next to the program's data.
+const modeFile = () => join(app.getPath('userData'), 'mode.json');
+async function readMode() { try { return JSON.parse(await fs.readFile(modeFile(), 'utf8')).mode || null; } catch { return null; } }
+async function writeMode(mode) { await fs.writeFile(modeFile(), JSON.stringify({ mode }), 'utf8'); }
+let MODE = null;
+const home = (page = 'index.html') => (MODE === 'online' ? `${SITE}/${page}` : `app://saydaliti/${page}`);
+const ours = (url) => url.startsWith('app://') || (MODE === 'online' && url.startsWith(SITE_ORIGIN + '/'));
 
 // A private address for the app's files, treated like a secure website (storage, crypto, fetch).
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
@@ -22,6 +35,22 @@ function serve(req) {
   return net.fetch(pathToFileURL(file).toString());
 }
 
+// The same for Electron 22 (the last one that runs on Windows 7 and 32-bit Windows), which has no
+// protocol.handle: the file is read here and handed over with its type.
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' };
+async function serveLegacy(req, callback) {
+  const url = new URL(req.url);
+  if (url.pathname === '/api/config') return callback({ mimeType: 'application/json', data: Buffer.from(JSON.stringify({ configured: true, local: true })) });
+  const file = normalize(join(APP_DIR, decodeURIComponent(url.pathname)));
+  if (!file.startsWith(APP_DIR + sep)) return callback({ statusCode: 404, data: Buffer.from('not found') });
+  try {
+    const ext = file.slice(file.lastIndexOf('.')).toLowerCase();
+    const type = TYPES[ext] || 'application/octet-stream';
+    callback({ mimeType: type, ...(/^text|json|svg|manifest/.test(type) ? { charset: 'utf-8' } : {}), data: await fs.readFile(file) });
+  } catch { callback({ statusCode: 404, data: Buffer.from('not found') }); }
+}
+
 let win = null;
 function createWindow() {
   win = new BrowserWindow({
@@ -30,20 +59,24 @@ function createWindow() {
     icon: join(APP_DIR, 'icons', 'icon-512.png'),
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
   });
-  win.loadURL(HOME);
+  win.loadURL(MODE ? home() : START);
+  // Online with no connection the first time: the start page explains, instead of a blank window.
+  win.webContents.on('did-fail-load', (_e, code, _d, url, isMain) => {
+    if (isMain && MODE === 'online' && url.startsWith(SITE_ORIGIN) && code !== -3) win.loadURL(`${START}?offline=1`);
+  });
   // WhatsApp and other links open in the normal browser; the app's own pages stay inside.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('app://') || url === 'about:blank' || url === '') return { action: 'allow' }; // the app's pages, and print views
+    if (ours(url) || url === 'about:blank' || url === '') return { action: 'allow' }; // the app's pages, and print views
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('app://')) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); }
+    if (!ours(url)) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); }
   });
 }
 
 function menu() {
-  const go = (page) => () => win?.loadURL(`app://saydaliti/${page}`);
+  const go = (page) => () => win?.loadURL(home(page));
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'اللوحة', accelerator: 'F1', click: go('index.html') },
@@ -51,6 +84,7 @@ function menu() {
       { label: 'الحضور والانصراف', click: go('attendance.html') },
       { type: 'separator' },
       { label: 'فولدر النسخ الاحتياطية', click: async () => shell.openPath(await backupDir()) },
+      { label: 'طريقة التشغيل (أونلاين / على الجهاز ده)', click: () => win?.loadURL(START) },
       { type: 'separator' },
       { label: 'خروج', role: 'quit' },
     ] },
@@ -79,6 +113,13 @@ ipcMain.handle('backup:save', async (_e, name, json, manual) => {
   for (const old of all.slice(0, Math.max(0, all.length - 30))) await fs.rm(join(dir, old), { force: true });
   return file;
 });
+ipcMain.handle('mode:set', async (e, mode) => {
+  if (!['online', 'local'].includes(mode) || !e.senderFrame?.url?.startsWith('app://')) return null; // only the start page
+  MODE = mode;
+  await writeMode(mode);
+  win?.loadURL(home());
+  return mode;
+});
 ipcMain.handle('print:silent', async (e) => {
   // Receipt printing straight to the default printer (thermal printer), with no print window.
   const wc = e.sender;
@@ -86,8 +127,10 @@ ipcMain.handle('print:silent', async (e) => {
 });
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-app.whenReady().then(() => {
-  protocol.handle('app', serve);
+app.whenReady().then(async () => {
+  MODE = await readMode();
+  if (protocol.handle) protocol.handle('app', serve);
+  else protocol.registerBufferProtocol('app', serveLegacy); // Electron 22: the Windows 7 / 32-bit version
   menu();
   createWindow();
 });

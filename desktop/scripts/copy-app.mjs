@@ -14,6 +14,7 @@ await mkdir(join(OUT, 'vendor'), { recursive: true });
 for (const f of ['index.html', 'cashier.html', 'attendance.html', 'about.html', 'privacy.html', 'terms.html', 'manifest.webmanifest']) await cp(join(ROOT, f), join(OUT, f));
 for (const d of ['src', 'icons']) await cp(join(ROOT, d), join(OUT, d), { recursive: true });
 await cp(join(NM, 'xlsx/dist/xlsx.full.min.js'), join(OUT, 'vendor/xlsx.full.min.js'));
+await cp(join(HERE, 'pages', 'start.html'), join(OUT, 'start.html')); // first start: online or on this computer
 
 // Fonts: only the Arabic and Latin files the pages use.
 const fonts = [['readex-pro', ['500', '700']], ['ibm-plex-sans-arabic', ['400', '500', '600']], ['ibm-plex-mono', ['500']]];

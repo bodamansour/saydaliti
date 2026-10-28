@@ -2,7 +2,7 @@
   "name": "saydaliti-desktop",
   "productName": "Saydaliti",
   "version": "1.0.0",
-  "description": "صيدليتي — نسخة الكمبيوتر اللي بتشتغل من غير نت",
+  "description": "صيدليتي — برنامج الكمبيوتر: أونلاين بحسابك أو من غير نت على الجهاز",
   "author": "abdelrahman mansour",
   "private": true,
   "main": "main.js",
