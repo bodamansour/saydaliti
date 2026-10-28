@@ -1,3 +1,4 @@
+﻿# (Saved with a BOM so Windows PowerShell reads the Arabic as UTF-8.)
 # CI: a small database shaped like United (Genius) on the SQL Server installed on the runner, for the
 # live sync test. Made-up items only. Dates are relative to today, like a pharmacy working now.
 $ErrorActionPreference = 'Stop'
