@@ -2,7 +2,9 @@
 //   online: the pharmacy's account on the website (same data as the phone and browser); it keeps
 //           selling with no connection and uploads when it's back (the site's own offline support).
 //   local:  the same screens from files inside the program, all data on this computer, no account.
-const { app, BrowserWindow, Menu, protocol, net, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, protocol, net, ipcMain, shell, dialog, Tray, nativeImage, safeStorage } = require('electron');
+const { spawn } = require('node:child_process');
+const { GeniusLiveSync, parseFind, sqlMessage } = require('./genius-live.js');
 const { join, normalize, sep } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
@@ -25,6 +27,10 @@ const ours = (url) => url.startsWith('app://') || (MODE === 'online' && url.star
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 
 if (!app.requestSingleInstanceLock()) app.quit();
+// Started with Windows for the United sync: no window until it's opened from the tray icon.
+const BACKGROUND = process.argv.includes('--background');
+let quitting = false;
+app.on('before-quit', () => { quitting = true; });
 
 function serve(req) {
   const url = new URL(req.url);
@@ -60,6 +66,9 @@ function createWindow() {
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
   });
   win.loadURL(MODE ? home() : START);
+  // While the United sync is on, closing the window keeps the program running next to the clock.
+  win.on('close', (e) => { if (SYNC?.enabled && !quitting) { e.preventDefault(); win.hide(); } });
+  win.on('closed', () => { win = null; });
   // Online with no connection the first time: the start page explains, instead of a blank window.
   win.webContents.on('did-fail-load', (_e, code, _d, url, isMain) => {
     if (isMain && MODE === 'online' && url.startsWith(SITE_ORIGIN) && code !== -3) win.loadURL(`${START}?offline=1`);
@@ -126,13 +135,145 @@ ipcMain.handle('print:silent', async (e) => {
   return new Promise((resolve) => wc.print({ silent: true, printBackground: true }, (ok, why) => resolve(ok ? 'ok' : why || 'failed')));
 });
 
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+// ---------- Live sync with United (Genius) on this computer ----------
+// genius-live.ps1 reads the United database (read-only) every few minutes; genius-live.js converts the
+// rows and uploads them with the pharmacy's connector code when something changed.
+const syncFile = () => join(app.getPath('userData'), 'genius-sync.json');
+let SYNC = null;       // { enabled, server, database, user, minutes, token, password }
+let syncer = null, syncTimer = null, syncBusy = false, nextAt = null, tray = null;
+const seal = (o) => { const s = JSON.stringify(o); return safeStorage.isEncryptionAvailable() ? { enc: safeStorage.encryptString(s).toString('base64') } : { plain: s }; };
+const unseal = (x) => { try { return JSON.parse(x?.enc ? safeStorage.decryptString(Buffer.from(x.enc, 'base64')) : x?.plain || '{}'); } catch { return {}; } };
+async function loadSync() {
+  try { const f = JSON.parse(await fs.readFile(syncFile(), 'utf8')); const { secret, ...rest } = f; SYNC = { ...rest, ...unseal(secret) }; } catch { SYNC = null; }
+}
+async function saveSync() {
+  const { token, password, ...rest } = SYNC;
+  await fs.writeFile(syncFile(), JSON.stringify({ ...rest, secret: seal({ token, password }) }), 'utf8');
+}
+
+// For tests: a file standing in for what genius-live.ps1 reads.
+const FAKE = process.env.SAYDALITI_GENIUS_FAKE || '';
+async function runPs(args, password) {
+  const dir = app.getPath('userData');
+  const script = join(dir, 'genius-live.ps1');
+  await fs.writeFile(script, await fs.readFile(join(__dirname, 'genius-live.ps1'))); // outside the package, so PowerShell can open it
+  const out = join(dir, `genius-read-${Date.now()}.txt`);
+  try {
+    const code = await new Promise((resolve, reject) => {
+      const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, ...args, '-Out', out],
+        { windowsHide: true, env: { ...process.env, SAYDALITI_SQL_PASSWORD: password || '' } });
+      const timer = setTimeout(() => p.kill(), 15 * 60000);
+      p.on('error', (e) => { clearTimeout(timer); reject(new Error(`PowerShell مش شغال على الجهاز ده (${e.message}).`)); });
+      p.on('exit', (c) => { clearTimeout(timer); resolve(c); });
+    });
+    if (code !== 0) throw new Error(sqlMessage(await fs.readFile(`${out}.err`, 'utf8').catch(() => `PowerShell وقف (${code}).`)));
+    return await fs.readFile(out, 'utf8');
+  } finally {
+    await fs.rm(out, { force: true }); await fs.rm(`${out}.err`, { force: true });
+  }
+}
+const readGenius = ({ server, database, user, password, from }) => (FAKE ? fs.readFile(FAKE, 'utf8')
+  : runPs(['-Server', server, '-Database', database, '-From', from, ...(user ? ['-User', user] : [])], password));
+async function findGenius({ server, user, password } = {}) {
+  if (FAKE) return { servers: [{ name: '.', running: true }], databases: [{ server: '.', database: 'Genius', items: 1 }], errors: [] };
+  const r = parseFind(await runPs(['-Find', ...(server ? ['-Server', server] : []), ...(user ? ['-User', user] : [])], password));
+  r.errors = r.errors.map((e) => ({ ...e, message: sqlMessage(e.message) }));
+  return r;
+}
+function post(url, body) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ method: 'POST', url });
+    req.setHeader('Content-Type', 'application/json; charset=utf-8');
+    req.on('response', (res) => {
+      const parts = [];
+      res.on('data', (c) => parts.push(Buffer.from(c)));
+      res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(parts).toString('utf8') }));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+async function newSyncer() {
+  syncer = new GeniusLiveSync({ readGenius, post, site: SITE, converterSource: await fs.readFile(join(APP_DIR, 'src', 'genius.js'), 'utf8') });
+}
+function syncState() {
+  const { token, password, ...s } = SYNC || {};
+  return { ...s, enabled: !!SYNC?.enabled, busy: syncBusy, nextAt, ...(syncer?.status || {}) };
+}
+function schedule(ms) {
+  clearTimeout(syncTimer); nextAt = null;
+  if (!SYNC?.enabled) return;
+  const wait = ms ?? Math.max(5, Math.min(60, +SYNC.minutes || 10)) * 60000;
+  nextAt = new Date(Date.now() + wait).toISOString();
+  syncTimer = setTimeout(syncOnce, wait);
+}
+async function syncOnce() {
+  if (!SYNC?.enabled || syncBusy || !syncer) return syncState();
+  syncBusy = true; clearTimeout(syncTimer); nextAt = null;
+  try { await syncer.run(SYNC); } catch (e) { console.error('genius sync', e.message); }
+  finally { syncBusy = false; schedule(); updateTray(); }
+  return syncState();
+}
+function updateTray() {
+  if (!SYNC?.enabled) { tray?.destroy(); tray = null; return; }
+  if (!tray) {
+    tray = new Tray(nativeImage.createFromPath(join(APP_DIR, 'icons', 'icon-512.png')).resize({ width: 16, height: 16 }));
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'افتح صيدليتي', click: showWindow },
+      { label: 'زامن مع المتحدة دلوقتي', click: () => syncOnce() },
+      { type: 'separator' },
+      { label: 'خروج', click: () => { quitting = true; app.quit(); } },
+    ]));
+    tray.on('click', showWindow);
+  }
+  const s = syncer?.status;
+  tray.setToolTip(`صيدليتي — مزامنة المتحدة${s?.lastError ? ' (فيه مشكلة)' : s?.lastUpload ? ' شغالة' : ''}`);
+}
+function showWindow() {
+  if (!win) createWindow();
+  else { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+}
+function startWithWindows(on) {
+  if (process.platform === 'win32' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: on, args: ['--background'] });
+}
+// Only the program's own pages (and the pharmacy's website) may use the sync.
+const trusted = (e) => { const u = e.senderFrame?.url || ''; return u.startsWith('app://') || u.startsWith(SITE_ORIGIN + '/'); };
+const text = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+ipcMain.handle('genius:status', (e) => (trusted(e) ? syncState() : null));
+ipcMain.handle('genius:find', async (e, o = {}) => {
+  if (!trusted(e)) return null;
+  try { return await findGenius({ server: text(o.server), user: text(o.user), password: text(o.password, 500) }); }
+  catch (err) { return { servers: [], databases: [], errors: [{ server: text(o.server) || '', message: err.message }] }; }
+});
+ipcMain.handle('genius:enable', async (e, o = {}) => {
+  if (!trusted(e)) return null;
+  const s = { enabled: true, server: text(o.server), database: text(o.database), user: text(o.user), password: text(o.password, 500), token: text(o.token, 500), minutes: Math.max(5, Math.min(60, Math.round(+o.minutes || 10))) };
+  if (!s.server || !s.database || !s.token) throw new Error('ناقص اسم السيرفر أو قاعدة البيانات أو الكود.');
+  SYNC = s;
+  await saveSync();
+  await newSyncer();
+  startWithWindows(true);
+  updateTray();
+  return syncOnce();
+});
+ipcMain.handle('genius:disable', async (e) => {
+  if (!trusted(e)) return null;
+  if (SYNC) { SYNC = { ...SYNC, enabled: false, token: '', password: '' }; await saveSync(); }
+  schedule(); startWithWindows(false); updateTray();
+  return syncState();
+});
+ipcMain.handle('genius:now', (e) => (trusted(e) ? syncOnce() : null));
+
+app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   MODE = await readMode();
   if (protocol.handle) protocol.handle('app', serve);
   else protocol.registerBufferProtocol('app', serveLegacy); // Electron 22: the Windows 7 / 32-bit version
   menu();
-  createWindow();
+  await loadSync();
+  if (SYNC?.enabled) { await newSyncer(); updateTray(); schedule(30000); }
+  if (!(BACKGROUND && SYNC?.enabled)) createWindow();
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { if (!SYNC?.enabled) app.quit(); });
 process.on('uncaughtException', (err) => { dialog.showErrorBox('صيدليتي', String(err?.stack || err)); });

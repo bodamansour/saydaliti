@@ -32,6 +32,8 @@
     "files": [
       "main.js",
       "preload.js",
+      "genius-live.js",
+      "genius-live.ps1",
       "app/**/*"
     ],
     "win": {

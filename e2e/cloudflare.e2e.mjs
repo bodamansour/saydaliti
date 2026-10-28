@@ -195,6 +195,38 @@ test('moving: a full backup goes into a new, empty pharmacy', { skip }, async ()
   assert.ok(await until(m, async () => /12/.test(await text(m, '#itemsBody tr'))), `the same stock as the old pharmacy: ${await text(m, '#itemsBody')} / ${await text(m, '#cloudBackupMsg')} / ${await text(m, '#fileMsg')}`);
 });
 
+test('the Windows program: turning on the sync with United makes a working connector code', { skip }, async () => {
+  // The bridge the Windows program gives the page (here a stand-in that keeps what it was asked).
+  await owner.addInitScript(() => {
+    let st = { enabled: false };
+    window.__enable = [];
+    window.saydalitiDesktop = { genius: {
+      status: async () => st,
+      find: async () => ({ servers: [{ name: '.\\GENIUS', running: true }], databases: [{ server: '.\\GENIUS', database: 'Pharmacy', items: 62974 }], errors: [] }),
+      enable: async (o) => { window.__enable.push(o); st = { enabled: true, server: o.server, database: o.database, minutes: o.minutes, lastCheck: new Date().toISOString(), lastUpload: new Date().toISOString(), items: 62974, stockDay: 20261028 }; return st; },
+      disable: async () => { st = { ...st, enabled: false }; return st; },
+      now: async () => st,
+    } };
+  });
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+  await owner.click('#geniusLiveBox summary');
+  await owner.click('#glFind');
+  await owner.waitForSelector('#glFound:not([hidden])');
+  assert.match(await text(owner, '#glDb'), /Pharmacy/);
+  await owner.selectOption('#glMin', '5');
+  await owner.click('#glOn');
+  assert.ok(await until(owner, async () => /شغالة من «Pharmacy»/.test(await text(owner, '#glStatus')) && /28\/10\/2026/.test(await text(owner, '#glStatus'))), await text(owner, '#geniusLiveBox'));
+  const [o] = await owner.evaluate(() => window.__enable);
+  assert.deepEqual([o.server, o.database, o.minutes], ['.\\GENIUS', 'Pharmacy', 5]);
+  // The code the page made works for uploading, like the program will.
+  const r = await fetch(`${BASE}/rest/v1/rpc/upload_snapshot`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: `{"p_token":${JSON.stringify(o.token)},"p_data":{"exportedAt":"2026-10-28T10:00:00Z","source":"genius-live","items":[{"code":"1","name":"بانادول","price":50,"cost":40}],"batches":[],"sales":[],"purchases":[]}}` });
+  assert.equal(r.status, 200, await r.text());
+  await owner.click('#glOff');
+  assert.ok(await until(owner, async () => /مقفولة/.test(await text(owner, '#glStatus'))));
+});
+
 test('signing out and in again', { skip }, async () => {
   await owner.click('#logout');
   await owner.waitForSelector('#loginForm');

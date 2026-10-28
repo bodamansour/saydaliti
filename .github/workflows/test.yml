@@ -41,3 +41,40 @@ jobs:
         env:
           WORKER_URL: http://localhost:8787
         run: node --test worker/test/api.test.mjs e2e/cloudflare.e2e.mjs
+
+  # The live sync with United on a real SQL Server, read by Windows PowerShell like on the pharmacy PC.
+  united-sync:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: SQL Server
+        uses: potatoqualitee/mssqlsuite@v2
+        with:
+          install: sqlengine
+          version: 2019
+      - name: A small United (Genius) database
+        shell: powershell
+        run: .github/scripts/genius-test-db.ps1
+      - name: Find it and read it (Windows sign-in, then a SQL login)
+        shell: powershell
+        run: |
+          $s = 'desktop/genius-live.ps1'
+          $from = (Get-Date).AddDays(-365).ToString('yyyyMMdd')
+          powershell -NoProfile -ExecutionPolicy Bypass -File $s -Find -Out find.txt
+          if ($LASTEXITCODE) { Get-Content find.txt.err; exit 1 }
+          Get-Content find.txt
+          powershell -NoProfile -ExecutionPolicy Bypass -File $s -Server localhost -Database GeniusTest -From $from -Out read.txt
+          if ($LASTEXITCODE) { Get-Content read.txt.err; exit 1 }
+          $env:SAYDALITI_SQL_PASSWORD = 'dbatools.I0'
+          powershell -NoProfile -ExecutionPolicy Bypass -File $s -Server localhost -Database GeniusTest -User sa -From $from -Out read-sa.txt
+          if ($LASTEXITCODE) { Get-Content read-sa.txt.err; exit 1 }
+          $env:SAYDALITI_SQL_PASSWORD = 'wrong'
+          powershell -NoProfile -ExecutionPolicy Bypass -File $s -Server localhost -Database GeniusTest -User sa -From $from -Out bad.txt
+          if (-not $LASTEXITCODE -or -not (Get-Content bad.txt.err | Select-String 'Login failed')) { 'a wrong password must fail with Login failed'; exit 1 }
+          exit 0
+      - name: The rows give the expected items, stock and sales
+        run: node .github/scripts/genius-live-check.mjs find.txt read.txt read-sa.txt

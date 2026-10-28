@@ -12,6 +12,7 @@ import { isGeniusBackup } from './genius.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
+import { setupGeniusLive } from './genius-live-ui.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -2132,6 +2133,7 @@ async function boot() {
   }
   $('connectorBox').hidden = !isOwner();
   if (SESS.local) setupLocal();
+  else if (isOwner()) setupGeniusLive({ $, esc, desk: desktop(), makeToken: () => connectorToken(BRANCH !== 'all' ? BRANCH : ($('tokenBranch').value || key(BRANCHES[0].id))) });
   $('toCashier').hidden = !isOwner();
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
@@ -2291,15 +2293,22 @@ function copyFrom(textarea, note) {
   if (!navigator.clipboard) return fallback();
   navigator.clipboard.writeText(textarea.value).then(() => { note.textContent = 'اتنسخ.'; }, fallback);
 }
+// A new connector code for a branch (the old one of that branch stops working).
+async function connectorToken(k) {
+  if (!isOnline()) throw new Error('الكود محتاج نت.');
+  const bid = BRANCHES.find((b) => key(b.id) === k)?.id;
+  const { data, error } = await SESS.client.rpc('create_connector_token', { p_pharmacy: SESS.pharmacy.id, ...(bid ? { p_branch: bid } : {}) });
+  if (error) throw new Error(arabicError(error).message);
+  return data;
+}
 $('tokenBtn').addEventListener('click', async () => {
   if (!isOnline()) { $('tokenMsg').textContent = 'الكود محتاج نت.'; return; }
   $('tokenMsg').textContent = 'لحظة…';
   const k = $('tokenBranch').value || key(BRANCHES[0].id);
-  const bid = BRANCHES.find((b) => key(b.id) === k)?.id;
-  const { data, error } = await SESS.client.rpc('create_connector_token', { p_pharmacy: SESS.pharmacy.id, ...(bid ? { p_branch: bid } : {}) });
-  if (error) { $('tokenMsg').textContent = arabicError(error).message; return; }
+  let data;
+  try { data = await connectorToken(k); } catch (e) { $('tokenMsg').textContent = e.message; return; }
   $('tokenMsg').textContent = `اتعمل كود جديد${multi() ? ` لـ«${branchName(k)}»` : ''}، وأي كود قديم للفرع ده بطل.`;
-  $('tokenJson').value = JSON.stringify({ supabaseUrl: SESS.config.url, publishableKey: SESS.config.key, token: data,
+  $('tokenJson').value = JSON.stringify({ supabaseUrl: SESS.config?.url || location.origin, publishableKey: SESS.config?.key || 'none', token: data,
     server: '.\\SQLEXPRESS', database: 'SaydalitiCopy', sqlUser: '', sqlPassword: '' }, null, 2);
   $('tokenOut').hidden = false;
 });

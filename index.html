@@ -144,6 +144,25 @@
     </div>
   </details>
 
+  <details class="help" id="geniusLiveBox" hidden>
+    <summary>مزامنة مع المتحدة على الكمبيوتر ده</summary>
+    <p>البرنامج بيقرا من المتحدة كل كام دقيقة ويرفع هنا الأصناف والرصيد والصلاحية والمبيعات والمشتريات. بيقرا بس، ومش بيعدّل أي حاجة في المتحدة. شغّلها من صيدليتي على الجهاز اللي عليه المتحدة، وهي بتفضل شغالة جنب الساعة حتى لو قفلت الشباك، وبتبدأ لوحدها مع الويندوز.</p>
+    <p class="err">خلي بالك: أي تعديل في الأصناف أو الرصيد تعمله هنا بيتغطّى بأرقام المتحدة في القراية اللي بعدها. لو لسه بتظبط البيانات، خلّص وصدّر «ملف تصحيح للمتحدة» ونزّله عليها الأول.</p>
+    <p id="glStatus" role="status"></p>
+    <div id="glSetup">
+      <details><summary>لو المتحدة بتدخل SQL Server باسم مستخدم وكلمة سر</summary>
+        <div class="row"><label>اسم المستخدم<input id="glUser" autocomplete="off" dir="ltr"></label><label>كلمة السر<input id="glPass" type="password" autocomplete="off" dir="ltr"></label></div>
+      </details>
+      <div class="row"><button class="btn" type="button" id="glFind">دوّر على المتحدة</button><span class="note" id="glFindMsg" role="status"></span></div>
+      <div class="row" id="glFound" hidden>
+        <label>قاعدة البيانات<select id="glDb"></select></label>
+        <label>كل<select id="glMin"><option value="5">5 دقايق</option><option value="10" selected>10 دقايق</option><option value="15">15 دقيقة</option><option value="30">30 دقيقة</option></select></label>
+        <button class="btn primary" type="button" id="glOn">شغّل المزامنة</button>
+      </div>
+    </div>
+    <div class="row" id="glRunning" hidden><button class="btn" type="button" id="glNow">اقرا من المتحدة دلوقتي</button><button class="btn" type="button" id="glOff">وقّف المزامنة</button></div>
+  </details>
+
   <details class="help">
     <summary>شكل الملفات المطلوبة من برنامج الصيدلية</summary>
     <p><b>أسهل طريقة:</b> ارفع ملف الباك اب بتاع برنامج المتحدة (Genius) زي ما هو (<code>.Gen</code>)، والبرنامج بيقرا منه كل الأصناف والرصيد والصلاحية والمبيعات والمشتريات لوحده، من غير SQL Server ومن غير باسورد الباك اب. الملف بيتقري على الجهاز، ومش بيترفع كله.</p>
