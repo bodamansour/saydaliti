@@ -1,0 +1,16 @@
+{
+  "name": "saydaliti-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/copy-site.mjs",
+    "dev": "npm run build && wrangler dev --local",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.45.0"
+  },
+  "dependencies": {
+    "bcryptjs": "2.4.3"
+  }
+}

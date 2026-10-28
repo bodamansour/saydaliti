@@ -85,7 +85,7 @@ test('the cashier sells with no internet, and stock goes down', async () => {
   await page.press('#q', 'Enter');
   await page.keyboard.press('F2');
   assert.ok(await until(async () => /الفاتورة اتسجلت/.test(await text('#posMsg'))));
-  assert.match(await text('#netChip'), /محفوظ على الجهاز/);
+  assert.ok(await until(async () => /محفوظ على الجهاز/.test(await text('#netChip'))));
   await page.fill('#q', 'شاش');
   assert.ok(await until(async () => /رصيد 14/.test(await text('#results'))));
 });

@@ -6,6 +6,10 @@ const fmt = (n) => (+n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 
 async function load() {
   try {
     const cfg = await (await fetch('./api/config')).json();
+    if (cfg?.backend === 'cloudflare') {
+      const r = await fetch('./api/db', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'select', table: 'app_config', cols: 'trial_days, price_month, price_branch, support_phone', limit: 1 }) });
+      return r.ok ? (await r.json()).data?.[0] || null : null;
+    }
     if (!cfg?.url || cfg.local) return null;
     const res = await fetch(`${cfg.url}/rest/v1/app_config?select=trial_days,price_month,price_branch,support_phone&limit=1`, { headers: { apikey: cfg.key } });
     if (!res.ok) return null;

@@ -1,4 +1,5 @@
-// Shared sign-in for every page: config from /api/config, Supabase session, pharmacy membership and branches.
+// Shared sign-in for every page: config from /api/config, the session (Supabase or the Cloudflare server),
+// pharmacy membership and branches.
 // The last good config and membership are kept on the device so the app still opens with no connection.
 import { arabicError } from './supabase-store.js';
 import { clearLocal, setAlwaysOnline } from './offline.js';
@@ -91,8 +92,14 @@ async function loadSession() {
     return { mode: 'member', client, user: { id: '00000000-0000-4000-8000-000000000001', email: 'على الجهاز ده' }, config: cfg, offline: false, local: true, ...m };
   }
   if (!client) {
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
-    client = createClient(cfg.url, cfg.key, { auth: { lock: lockWithTimeout, storage: authStorage } });
+    if (cfg.backend === 'cloudflare') {
+      // The Cloudflare server (worker/): same calls, its own sign-in.
+      const { createCloudflareClient } = await import('./cf-client.js');
+      client = createCloudflareClient();
+    } else {
+      const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
+      client = createClient(cfg.url, cfg.key, { auth: { lock: lockWithTimeout, storage: authStorage } });
+    }
   }
   const { data: { session }, error: authError } = await client.auth.getSession();
   const saved = cache.get(MEM);
