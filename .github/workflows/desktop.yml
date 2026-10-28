@@ -1,4 +1,5 @@
-# Builds the Windows program (desktop/) — the offline version that keeps its data on the computer —
+# Builds the Windows program (desktop/) — online with the pharmacy's account, or offline with the data on
+# the computer —
 # and publishes the installer on the "desktop-latest" release:
 #   https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest
 name: Windows program
@@ -36,7 +37,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist
-      - name: Check it starts, works with no internet, and keeps its data
+      - name: Check it starts online and offline, works with no internet, and keeps its data
         run: node smoke.mjs
       - name: Keep the installer (pull request)
         if: github.event_name == 'pull_request'
