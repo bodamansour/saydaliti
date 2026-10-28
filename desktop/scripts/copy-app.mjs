@@ -11,7 +11,7 @@ const NM = join(HERE, 'node_modules');
 
 await rm(OUT, { recursive: true, force: true });
 await mkdir(join(OUT, 'vendor'), { recursive: true });
-for (const f of ['index.html', 'cashier.html', 'attendance.html', 'manifest.webmanifest']) await cp(join(ROOT, f), join(OUT, f));
+for (const f of ['index.html', 'cashier.html', 'attendance.html', 'about.html', 'privacy.html', 'terms.html', 'manifest.webmanifest']) await cp(join(ROOT, f), join(OUT, f));
 for (const d of ['src', 'icons']) await cp(join(ROOT, d), join(OUT, d), { recursive: true });
 await cp(join(NM, 'xlsx/dist/xlsx.full.min.js'), join(OUT, 'vendor/xlsx.full.min.js'));
 
@@ -27,7 +27,7 @@ await writeFile(join(OUT, 'vendor/fonts/fonts.css'), css);
 
 // Point the pages at the bundled copies.
 const FONTS_LINK = /<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com">\s*<link href="https:\/\/fonts\.googleapis\.com[^"]*" rel="stylesheet">/;
-for (const f of ['index.html', 'cashier.html', 'attendance.html']) {
+for (const f of ['index.html', 'cashier.html', 'attendance.html', 'about.html', 'privacy.html', 'terms.html']) {
   let html = await readFile(join(OUT, f), 'utf8');
   html = html.replace(FONTS_LINK, '<link rel="stylesheet" href="./vendor/fonts/fonts.css">');
   html = html.replace(/https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/xlsx\/[\d.]+\/xlsx\.full\.min\.js/, './vendor/xlsx.full.min.js');

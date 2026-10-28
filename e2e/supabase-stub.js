@@ -105,6 +105,16 @@ export function createClient() {
         }
         if (name === 'create_invite') { const code = `CODE${DB.invites.length + 1}`; DB.invites.push({ code, role: args.p_role }); persist(); return { data: code, error: null }; }
         if (name === 'create_connector_token') return { data: 'sdl_test', error: null };
+        if (name === 'admin_pharmacies') {
+          const sub = (DB.subscriptions || [])[0] || {};
+          return { data: [{ pharmacy_id: 'ph1', name: DB.members[0].pharmacies.name, created_at: '2026-10-25T10:00:00Z', owner_email: 'owner@test', branches: DB.members[0].pharmacies.branches.length, employees: 1,
+            status: sub.status || 'trial', trial_ends: sub.trial_ends || '2026-11-08', paid_until: sub.paid_until || null, price_month: null, note: sub.note || null, last_sale: null, sales_30d: (DB.pos_sales || []).length }], error: null };
+        }
+        if (name === 'admin_set_subscription') {
+          DB.subscriptions = [{ pharmacy_id: args.p_pharmacy, status: args.p_status, trial_ends: args.p_trial_ends, paid_until: args.p_paid_until, price_month: args.p_price, note: args.p_note }];
+          persist(); return { data: null, error: null };
+        }
+        if (name === 'admin_errors') return { data: [], error: null };
         if (name === 'save_settings') { DB.members[0].pharmacies.settings = args.p_settings; persist(); return { data: null, error: null }; }
         return { data: null, error: null };
       });

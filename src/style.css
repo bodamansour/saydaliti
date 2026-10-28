@@ -212,3 +212,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 520px) { .sections { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sec { padding: 8px 4px; font-size: .92rem; } }
 /* .card sets a display; a closed dialog must still stay hidden. */
 dialog:not([open]) { display: none; }
+
+/* Subscription notice on the dashboard */
+.sub-info { border-inline-start: 4px solid var(--accent); }
+.sub-warn { border-inline-start: 4px solid var(--warn); background: var(--warn-soft); }
+.sub-expired { border-inline-start: 4px solid var(--crit); background: var(--crit-soft); }
+#subBanner details { margin-top: 6px; }
