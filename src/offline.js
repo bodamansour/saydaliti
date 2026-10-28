@@ -25,6 +25,25 @@ export async function kvGet(key, fallback = null) {
     q.onerror = () => res(fallback);
   });
 }
+// Read-change-write of one key in a single database transaction, so two tabs (cashier and
+// dashboard) writing at the same moment can't overwrite each other's change.
+export async function kvUpdate(key, change, fallback = null) {
+  const d = await db();
+  if (!d) {
+    let next;
+    try { next = change(JSON.parse(localStorage.getItem(`sd:${key}`)) ?? fallback); localStorage.setItem(`sd:${key}`, JSON.stringify(next)); } catch { /* full or blocked */ }
+    return next;
+  }
+  return new Promise((res, rej) => {
+    const t = d.transaction(STORE, 'readwrite');
+    const s = t.objectStore(STORE);
+    let next;
+    const q = s.get(key);
+    q.onsuccess = () => { next = change(q.result ?? fallback); s.put(next, key); };
+    t.oncomplete = () => res(next);
+    t.onerror = t.onabort = () => rej(t.error);
+  });
+}
 export async function kvSet(key, value) {
   const d = await db();
   if (!d) { try { localStorage.setItem(`sd:${key}`, JSON.stringify(value)); } catch { /* full or blocked */ } return; }
@@ -61,16 +80,35 @@ export const isOnline = () => ALWAYS_ONLINE || typeof navigator === 'undefined' 
 const isNetworkError = (e) => /fetch|network|Failed to fetch|NetworkError|Load failed|مفيش اتصال/i.test(String(e?.message ?? e));
 // The table isn't there yet (database update not applied) or the server had a hiccup: try again later.
 const isRetryLater = (e) => /schema cache|does not exist|PGRST20[45]|42P01|timeout|503|502|500/i.test(`${e?.code ?? ''} ${e?.message ?? e}`);
-// Money records are never thrown away, even if the server refuses them: they wait aside on the device.
-const MUST_KEEP = new Set(['pos_sales']);
+// Nothing the server refuses is thrown away: sales, purchases, expenses, stock moves, payments… wait
+// aside on the device with the reason, until they are sent again, saved to a file, or discarded by hand.
+// Only an uploaded data file is not kept (it is large, and can simply be uploaded again).
 const STUCK = 'outbox-stuck';
 export const stuck = () => kvGet(STUCK, []);
-export async function retryStuck() {
-  const s = await kvGet(STUCK, []);
-  if (!s.length) return;
-  await kvSet(OUTBOX, [...(await kvGet(OUTBOX, [])), ...s]);
-  await kvSet(STUCK, []);
+export async function retryStuck(ids = null) {
+  let moved = [];
+  await kvUpdate(STUCK, (s) => { moved = s.filter((e) => !ids || ids.includes(e.id)); return s.filter((e) => !moved.includes(e)); }, []);
+  if (!moved.length) return;
+  await kvUpdate(OUTBOX, (q) => [...q, ...moved.map(({ error, failedAt, ...e }) => e)], []);
   await notify();
+}
+// Throws away refused entries for good (the owner chose to, after seeing why they were refused).
+export async function discardStuck(ids) {
+  let gone = [];
+  await kvUpdate(STUCK, (s) => { gone = s.filter((e) => ids.includes(e.id)); return s.filter((e) => !ids.includes(e.id)); }, []);
+  await notify();
+  return gone;
+}
+// A short Arabic description of a queued change, for the list of refused ones.
+const TABLE_NAMES = { pos_sales: 'فاتورة كاشير', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', expenses: 'مصروف',
+  supplier_payments: 'دفعة لمورد', customer_payments: 'دفعة من عميل', customers: 'عميل', catalog_items: 'صنف', suppliers: 'مورد',
+  pos_barcodes: 'باركود', shortages: 'نواقص', market_prices: 'سعر في السوق', patients: 'مريض', reminders: 'تذكير', branches: 'فرع' };
+export function describe(e) {
+  const p = e.payload || {};
+  const what = e.type === 'expense' || e.type === 'deleteExpense' ? 'مصروف' : e.type === 'settings' ? 'الإعدادات' : TABLE_NAMES[p.table] || p.table || e.type;
+  const verb = e.type === 'update' ? 'تعديل ' : e.type === 'delete' || e.type === 'deleteExpense' ? 'مسح ' : '';
+  const ref = p.row?.number || p.row?.name || p.row?.invoice_no || '';
+  return `${verb}${what}${ref ? ` «${ref}»` : ''}`;
 }
 
 // ---------- Outbox ----------
@@ -81,12 +119,9 @@ export const onOutboxChange = (fn) => listeners.add(fn);
 const notify = async () => { const q = await kvGet(OUTBOX, []); listeners.forEach((fn) => fn(q)); };
 
 export async function enqueue(type, payload) {
-  const q = await kvGet(OUTBOX, []);
   // Only the latest settings / snapshot per branch matter; replace older queued ones.
   const same = (e) => e.type === type && (type === 'settings' || (type === 'snapshot' && e.payload.p_branch === payload.p_branch));
-  const next = q.filter((e) => !same(e));
-  next.push({ id: crypto.randomUUID(), type, payload, at: Date.now() });
-  await kvSet(OUTBOX, next);
+  await kvUpdate(OUTBOX, (q) => [...q.filter((e) => !same(e)), { id: crypto.randomUUID(), type, payload, at: Date.now() }], []);
   await notify();
 }
 export const pending = () => kvGet(OUTBOX, []);
@@ -109,7 +144,7 @@ async function send(client, e) {
 
 let flushing = null;
 // Sends queued writes in order. Stops at the first network error (try again later);
-// an entry the server refuses is dropped and reported, so it can't block the rest.
+// an entry the server refuses is set aside with the reason (see stuck), so it can't block the rest.
 export function flush(client, onRejected = () => {}) {
   if (flushing || !client) return flushing;
   flushing = (async () => {
@@ -118,11 +153,11 @@ export function flush(client, onRejected = () => {}) {
       const [e] = q;
       try { await send(client, e); } catch (err) {
         if (isNetworkError(err) || isRetryLater(err)) break;
-        if (e.type === 'insert' && MUST_KEEP.has(e.payload.table)) await kvSet(STUCK, [...(await kvGet(STUCK, [])), e]);
-        else onRejected(e, arabicError(err));
+        const why = arabicError(err);
+        if (e.type !== 'snapshot') await kvUpdate(STUCK, (s) => [...s.filter((x) => x.id !== e.id), { ...e, error: why.message, failedAt: Date.now() }], []);
+        onRejected(e, why);
       }
-      q = (await kvGet(OUTBOX, [])).filter((x) => x.id !== e.id);
-      await kvSet(OUTBOX, q);
+      q = await kvUpdate(OUTBOX, (all) => all.filter((x) => x.id !== e.id), []);
       await notify();
     }
   })().finally(() => { flushing = null; });

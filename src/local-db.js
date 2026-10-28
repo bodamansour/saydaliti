@@ -60,6 +60,7 @@ export async function createLocalClient() {
       if (op === 'eq') return String(x) === String(v);
       if (op === 'gte') return String(x) >= String(v);
       if (op === 'lt') return String(x) < String(v);
+      if (op === 'notnull') return x !== null && x !== undefined;
       return true;
     });
     const run = async () => {
@@ -108,6 +109,7 @@ export async function createLocalClient() {
       select(cols) { q.cols = cols; return q; },
       eq(k, v) { q.filters.push([k, 'eq', v]); return q; },
       gte(k, v) { q.filters.push([k, 'gte', v]); return q; },
+      not(k, op, v) { if (op === 'is' && v === null) q.filters.push([k, 'notnull']); return q; },
       lt(k, v) { q.filters.push([k, 'lt', v]); return q; },
       order(col, o = {}) { q._order = { col, asc: o.ascending !== false }; return q; },
       limit(n) { q._limit = n; return q; },
@@ -196,13 +198,34 @@ export async function createLocalClient() {
     async exportAll() {
       return { app: 'saydaliti', version: 1, exported_at: now(), tables: Object.fromEntries(Object.entries(T).map(([t, m]) => [t, [...m.values()]])) };
     },
+    // Replaces everything with a backup — only once the whole file has been checked, and in one step:
+    // a broken or partial file leaves the data on this computer exactly as it was.
     async importAll(dump) {
-      if (dump?.app !== 'saydaliti' || !dump.tables) throw new Error('الملف ده مش نسخة احتياطية من صيدليتي.');
-      await new Promise((resolve, reject) => { const tx = idb.transaction('rows', 'readwrite'); tx.objectStore('rows').clear(); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+      const bad = (why) => { throw new Error(`النسخة الاحتياطية دي فيها مشكلة (${why})، والبيانات اللي على الجهاز ماتغيرتش.`); };
+      if (dump?.app !== 'saydaliti' || !dump.tables || typeof dump.tables !== 'object' || Array.isArray(dump.tables)) throw new Error('الملف ده مش نسخة احتياطية من صيدليتي.');
+      const rows = [];
+      for (const [t, list] of Object.entries(dump.tables)) {
+        if (!/^[a-z_]{1,40}$/.test(t) || !Array.isArray(list)) bad(`جدول «${t}»`);
+        const ids = new Set();
+        for (const r of list) {
+          if (!r || typeof r !== 'object' || Array.isArray(r) || r.id === undefined || r.id === null || r.id === '') bad(`صف ناقص في «${t}»`);
+          if (ids.has(String(r.id))) bad(`صف متكرر في «${t}»`);
+          ids.add(String(r.id));
+          rows.push([t, r]);
+        }
+      }
+      if (!dump.tables.pharmacies?.length) bad('مفيهاش بيانات الصيدلية');
+      await new Promise((resolve, reject) => {
+        const tx = idb.transaction('rows', 'readwrite');
+        const st = tx.objectStore('rows');
+        st.clear();
+        for (const [t, r] of rows) st.put({ k: `${t}:${r.id}`, t, v: r });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('الاسترجاع اتلغى، والبيانات اللي على الجهاز ماتغيرتش.'));
+      });
       for (const k of Object.keys(T)) delete T[k];
-      const ops = [];
-      for (const [t, rows] of Object.entries(dump.tables)) for (const r of rows) { table(t).set(String(r.id), r); ops.push(['put', t, r]); }
-      await write(ops);
+      for (const [t, r] of rows) table(t).set(String(r.id), r);
     },
   };
 }

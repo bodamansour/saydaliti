@@ -180,7 +180,7 @@ export function renderPharmacyChoice(box, onDone) {
   } else box.innerHTML = `<h2>أهلاً! الحساب ده لسه مش مربوط بصيدلية</h2>
     <form id="createForm" class="stack"><b>صاحب صيدلية؟</b><label>اسم الصيدلية<input id="phNameNew" required placeholder="صيدلية أحمد منصور"></label><button class="btn primary wide" type="submit">اعمل الصيدلية</button></form>
     <hr>
-    <form id="joinForm" class="stack"><b>شريك أو جهاز الصيدلية؟</b><label>كود الدعوة<input id="joinCode" required placeholder="A1B2C3D4" autocapitalize="characters"></label><button class="btn wide" type="submit">ادخل بالكود</button></form>
+    <form id="joinForm" class="stack"><b>شريك أو جهاز الصيدلية؟</b><label>كود الدعوة<input id="joinCode" required placeholder="ABCD-EFGH-JKMN" autocapitalize="characters" autocomplete="off"></label><button class="btn wide" type="submit">ادخل بالكود</button></form>
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch"><button class="linkbtn" type="button" id="outBtn">خروج</button></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
@@ -195,8 +195,9 @@ export function renderPharmacyChoice(box, onDone) {
   });
   box.querySelector('#joinForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const { error } = await client.rpc('join_pharmacy', { p_code: box.querySelector('#joinCode').value });
+    const { data, error } = await client.rpc('join_pharmacy', { p_code: box.querySelector('#joinCode').value });
     if (error) return msg(arabicError(error).message);
+    if (!data) return msg(arabicError({ message: 'invalid code' }).message);
     onDone();
   });
 }

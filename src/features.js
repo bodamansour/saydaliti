@@ -76,7 +76,8 @@ export function dueReminders(reminders, now = new Date(), tz = 'Africa/Cairo') {
     const last = r.last_sent_at ? new Date(r.last_sent_at) : null;
     if (r.kind === 'dose') {
       for (const t of r.dose_times || []) {
-        const diff = minutes - toMin(t);
+        // Minutes since the dose time, across midnight too (a 23:30 dose checked at 00:20 is 50 late).
+        const diff = (minutes - toMin(t) + 1440) % 1440;
         if (diff < 0 || diff >= DOSE_WINDOW_MIN) continue;
         const doseAt = new Date(now.getTime() - diff * 60000);
         if (!last || last < new Date(doseAt.getTime() - 60000)) { due.push({ ...r, dueTime: t }); break; }

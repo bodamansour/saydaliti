@@ -3,8 +3,8 @@
 import { fromExport, startOfDay } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
-import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
-import { normalize as normalizeText, lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS } from './pos.js';
+import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
+import { normalize as normalizeText, lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 
@@ -33,8 +33,9 @@ let CART = [];              // [{ code, name, price, qty, discount }]
 let MODE = 'sale';          // 'sale' | 'return'
 let PAYMENT = 'cash';
 let LINK_BARCODE = null;
-let CUSTOMERS = [], CUST_PAYMENTS = [], CUST_READY = false; // migration 011
+let CUSTOMERS = [], CUST_PAYMENTS = [], CREDIT_SALES = [], CUST_READY = false; // migration 011
 let CUST = null;            // the customer on this bill
+let RET = null;             // return mode: the sale receipt being returned ({ sale })
 
 const bkey = () => BRANCH ?? 'main';
 const K = { items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}`, cust: () => `pos-cust:${SESS.pharmacy.id}` };
@@ -97,19 +98,38 @@ async function loadCustomers() {
   const cached = await kvGet(K.cust(), { customers: [], payments: [], ready: false });
   let next = cached;
   if (isOnline()) {
-    const [c, p] = await Promise.all([
-      SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).range(0, 4999),
-      SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).range(0, 9999),
+    // The server sends at most 1,000 rows at a time: read page by page.
+    const all = async (make) => {
+      const rows = [];
+      for (let from = 0; from < 200000; from += 1000) {
+        const r = await make().range(from, from + 999);
+        if (r.error) return { error: r.error };
+        rows.push(...r.data);
+        if (r.data.length < 1000) break;
+      }
+      return { data: rows };
+    };
+    const [c, p, cr] = await Promise.all([
+      all(() => SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
+      all(() => SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
+      // Every bill on account, however old (not just those since the last upload), for the balance.
+      all(() => SESS.client.from('pos_sales').select('id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true })),
     ]);
-    if (!c.error && !p.error) next = { customers: c.data, payments: p.data, ready: true };
+    const credit = cr.error ? null : cr.data;
+    if (!c.error && !p.error) next = { customers: c.data, payments: p.data, credit: credit ?? cached.credit ?? [], ready: true };
     else if (c.error && !/fetch|network/i.test(c.error.message)) next = { customers: [], payments: [], ready: false };
   }
   const local = cached.customers.filter((x) => x.pending && !next.customers.some((y) => y.id === x.id));
   next = { ...next, customers: [...next.customers, ...local] };
-  CUSTOMERS = next.customers; CUST_PAYMENTS = next.payments; CUST_READY = next.ready || local.length > 0;
+  CUSTOMERS = next.customers; CUST_PAYMENTS = next.payments; CREDIT_SALES = next.credit || []; CUST_READY = next.ready || local.length > 0;
   await kvSet(K.cust(), next);
 }
-const owedBy = (id) => customerBalances(CUSTOMERS, SALES, CUST_PAYMENTS).find((c) => c.id === id)?.owed ?? 0;
+// What a customer owes: all their bills on account (loaded above) plus any made here since.
+function owedBy(id) {
+  const bills = new Map(CREDIT_SALES.map((x) => [x.id, x]));
+  for (const x of SALES) if (x.customer_id) bills.set(x.id, x);
+  return customerBalances(CUSTOMERS, [...bills.values()], CUST_PAYMENTS).find((c) => c.id === id)?.owed ?? 0;
+}
 
 const stockOf = (code) => ITEMS.find((i) => i.code === code)?.qty ?? 0;
 
@@ -127,6 +147,7 @@ async function loadBarcodes() {
   BARCODES = new Map([...BARCODES, ...rows.map((r) => [r.barcode, r.code])]);
 }
 
+const SALE_COLS = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
 async function loadSales() {
   const cached = await kvGet(K.sales(), []);
   // With no upload, the stock is made only of what was entered here, so every receipt counts.
@@ -136,8 +157,10 @@ async function loadSales() {
     // Every receipt since the last upload counts toward the shelf stock: read them page by page.
     server = [];
     for (let from = 0; from < 50000; from += 1000) {
-      const { data, error } = await SESS.client.from('pos_sales').select('id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment')
+      const page = (cols) => SESS.client.from('pos_sales').select(cols)
         .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }).range(from, from + 999);
+      let { data, error } = await page(`${SALE_COLS}, customer_id, credit, claim_no, return_of, note`);
+      if (error && /column/i.test(error.message)) ({ data, error } = await page(SALE_COLS)); // database update 012 not applied yet
       if (error) { server = null; break; }
       server.push(...data);
       if (data.length < 1000) break;
@@ -154,6 +177,13 @@ const branchSales = () => SALES.filter((s) => (s.branch_id ?? null) === BRANCH);
 
 // ---------- Cart ----------
 function addItem(it) {
+  if (MODE === 'return' && RET) {
+    // A return against a receipt: only what that receipt sold, up to what's left of it.
+    const line = CART.find((l) => l.code === it.code);
+    if (!line) { msg(`«${it.name}» مش في فاتورة ${RET.sale.number}.`, true); return; }
+    if (line.qty >= line.max) { msg(`«${it.name}»: اترجع كل اللي اتباع منه في الفاتورة دي (${line.max}).`, true); return; }
+    line.qty += 1; line.discount = lineOff(line); renderCart(); return;
+  }
   const w = expiryWarning(it, today());
   if (w?.level === 'expired' && MODE === 'sale') {
     msg(`«${it.name}» أقرب تشغيلة منه منتهية الصلاحية. اتأكد من تاريخ العلبة قبل ما تبيعها.`, true);
@@ -173,8 +203,8 @@ function renderCart() {
   $('cart').innerHTML = CART.map((l, i) => `<tr>
     <td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span></td>
     <td class="n">${fmt(l.price)}</td>
-    <td><div class="qty"><button class="btn" data-dec="${i}" aria-label="أقل">−</button><input class="n" type="number" min="1" step="1" value="${l.qty}" data-qty="${i}" aria-label="الكمية"><button class="btn" data-inc="${i}" aria-label="أكتر">+</button></div></td>
-    <td><input class="n disc" type="number" min="0" step="0.5" value="${l.discount || ''}" placeholder="0" data-disc="${i}" aria-label="خصم على الصنف"></td>
+    <td><div class="qty"><button class="btn" data-dec="${i}" aria-label="أقل">−</button><input class="n" type="number" min="1" ${l.max ? `max="${l.max}"` : ''} step="1" value="${l.qty}" data-qty="${i}" aria-label="الكمية"><button class="btn" data-inc="${i}" aria-label="أكتر">+</button></div></td>
+    <td><input class="n disc" type="number" min="0" step="0.5" value="${l.discount ? Math.round(l.discount * 100) / 100 : ''}" placeholder="0" data-disc="${i}" aria-label="خصم على الصنف" ${l.max ? 'readonly title="نفس الخصم اللي اتعمل في فاتورة البيع"' : ''}></td>
     <td class="n"><b>${fmt(l.price * l.qty - (+l.discount || 0))}</b></td>
     <td><button class="btn" data-del="${i}" aria-label="شيل الصنف">✕</button></td></tr>`).join('');
   $('cartEmpty').hidden = CART.length > 0;
@@ -199,10 +229,14 @@ const totals = () => cartTotals(CART, +$('extraDisc').value || 0);
 
 function newBill() {
   CART = []; $('extraDisc').value = 0; $('paid').value = ''; PAYMENT = 'cash'; setCustomer(null); setMode('sale');
+  $('retNo').value = ''; $('retReason').value = ''; $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
   renderPay(); renderCart(); focusSearch();
 }
 function setMode(m) {
+  if (m !== MODE || m === 'sale') { if (RET) CART = []; RET = null; $('retInfo').textContent = ''; }
   MODE = m;
+  $('retBox').hidden = m !== 'return';
+  $('extraDisc').disabled = false;
   $('modeSale').classList.toggle('sel', m === 'sale'); $('modeSale').setAttribute('aria-pressed', m === 'sale');
   $('modeReturn').classList.toggle('sel', m === 'return'); $('modeReturn').setAttribute('aria-pressed', m === 'return');
   document.body.classList.toggle('returning', m === 'return');
@@ -245,7 +279,7 @@ async function addCustomer(e) {
   const kind = $('ncKind').value;
   const row = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, name, phone: $('ncPhone').value.trim() || null, kind, coverage_pct: kind === 'insurance' ? Math.max(0, Math.min(100, +$('ncCov').value || 0)) : 0, created_by: SESS.user.id };
   CUSTOMERS.push({ ...row, pending: true });
-  await kvSet(K.cust(), { customers: CUSTOMERS, payments: CUST_PAYMENTS, ready: true });
+  await kvSet(K.cust(), { customers: CUSTOMERS, payments: CUST_PAYMENTS, credit: CREDIT_SALES, ready: true });
   await enqueue('insert', { table: 'customers', row });
   CUST_READY = true;
   $('custDlg').close();
@@ -318,6 +352,45 @@ async function linkBarcode(itemCode) {
   focusSearch();
 }
 
+// ---------- Return against a sale receipt ----------
+const lineOff = (l) => Math.round(l.unitOff * l.qty * 100) / 100; // the discount the customer got on these boxes
+async function findReceipt() {
+  const no = $('retNo').value.trim();
+  if (!no) { $('retNo').focus(); return; }
+  $('retInfo').textContent = 'بدوّر…';
+  let sale = SALES.find((s) => s.kind === 'sale' && s.number === no);
+  let returns = SALES.filter((s) => s.kind === 'return');
+  if (isOnline()) {
+    // An older receipt (or one from another device), and every return already made against it.
+    const cols = `${SALE_COLS}, customer_id, credit, claim_no, return_of`;
+    if (!sale) {
+      const r = await SESS.client.from('pos_sales').select(cols).eq('pharmacy_id', SESS.pharmacy.id).eq('number', no).eq('kind', 'sale').limit(1);
+      if (r.error) { $('retInfo').textContent = `مقدرتش أدوّر: ${r.error.message}`; return; }
+      sale = r.data[0];
+    }
+    if (sale) {
+      const r = await SESS.client.from('pos_sales').select('id, kind, lines, return_of').eq('pharmacy_id', SESS.pharmacy.id).eq('return_of', sale.id);
+      if (!r.error) returns = [...returns.filter((x) => !r.data.some((y) => y.id === x.id)), ...r.data];
+    }
+  }
+  if (!sale) {
+    $('retInfo').textContent = isOnline() ? `مفيش فاتورة بيع رقمها ${no}.` : `فاتورة ${no} مش على الجهاز ده، ومحتاج نت عشان أدوّر عليها. لو العميل معاهوش الفاتورة علّم تحت واكتب السبب.`;
+    return;
+  }
+  const lines = returnableLines(sale, returns);
+  if (!lines.length) { $('retInfo').textContent = `كل اللي في فاتورة ${no} اترجع قبل كده.`; return; }
+  RET = { sale };
+  $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
+  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0 }));
+  for (const l of CART) l.discount = lineOff(l);
+  $('extraDisc').value = 0; $('extraDisc').disabled = true;
+  const cust = sale.customer_id && CUSTOMERS.find((c) => c.id === sale.customer_id);
+  setCustomer(cust || null);
+  if (!cust) { PAYMENT = sale.payment === 'credit' ? 'cash' : sale.payment; renderPay(); }
+  $('retInfo').textContent = `فاتورة ${no} — ${new Date(sale.sold_at).toLocaleDateString('ar-EG')}. شيل اللي مش راجع أو قلّل الكمية.`;
+  renderCart();
+}
+
 // ---------- Checkout & printing ----------
 async function checkout() {
   if (!CART.length) return;
@@ -327,6 +400,11 @@ async function checkout() {
   const cash = PAYMENT === 'cash' && MODE === 'sale' && sp.now > 0;
   const paid = cash ? ($('paid').value === '' ? sp.now : +$('paid').value) : sp.now;
   if (cash && changeDue(sp.now, paid) === null) { msg('المدفوع أقل من المطلوب.', true); $('paid').focus(); return; }
+  if (MODE === 'return' && !RET && !($('retNoReceipt').checked && $('retReason').value.trim())) {
+    msg($('retNoReceipt').checked ? 'اكتب سبب المرتجع من غير فاتورة.' : 'اكتب رقم فاتورة البيع ودوس «هات الفاتورة»، أو علّم إن العميل معاهوش الفاتورة واكتب السبب.', true);
+    ($('retNoReceipt').checked ? $('retReason') : $('retNo')).focus();
+    return;
+  }
   if (MODE === 'sale' && CUST && sp.credit && +CUST.credit_limit > 0 && owedBy(CUST.id) + sp.credit > +CUST.credit_limit
     && !confirm(`«${CUST.name}» هيعدّي حد الآجل بتاعه (${fmt(CUST.credit_limit)} ج). تكمّل؟`)) return;
   const now = new Date();
@@ -340,13 +418,15 @@ async function checkout() {
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
+    // A return says which receipt it came from, or why there was none (database update 012).
+    ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()}` }) : {}),
   };
   const custName = CUST?.name;
   SALES.unshift({ ...sale, pending: true });
   await kvSet(K.sales(), SALES);
   await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
   try { refreshItems(); } catch (err) { console.error(err); }
-  if (dev.autoPrint) printReceipt(sale);
+  if (dev.autoPrint) printReceipt({ ...sale, return_no: RET?.sale.number });
   msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
   newBill();
   renderDay();
@@ -358,7 +438,7 @@ function receiptHtml(sale) {
   const branch = BRANCHES.length > 1 ? BRANCHES.find((b) => b.id === sale.branch_id)?.name : '';
   const ret = sale.kind === 'return';
   return `<div class="rc-head"><b>${esc(SESS.pharmacy.name)}</b>${branch ? `<div>${esc(branch)}</div>` : ''}
-    <div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(sale.number)}</span></div><div>${esc(when)}</div></div>
+    <div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(sale.number)}</span></div>${sale.return_no ? `<div>من فاتورة <span class="n">${esc(sale.return_no)}</span></div>` : ''}<div>${esc(when)}</div></div>
     <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
     <div class="rc-tot">${sale.discount ? `<div><span>الخصم</span><span class="n">${fmt(sale.discount)}</span></div>` : ''}
     <div class="big"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(sale.total))}</span></div>
@@ -396,7 +476,7 @@ function renderDay() {
     <td class="n">${new Date(s.sold_at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}</td>
     <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
     <td class="n">${fmt(s.total)}</td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
-    <td><button class="btn" data-reprint="${esc(s.id)}">اطبع</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>';
+    <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>';
 }
 function printDay() {
   const sum = daySummary(todaysSales());
@@ -415,12 +495,13 @@ async function updateNet() {
   $('netChip').textContent = SESS?.local ? (q.length ? `بيحفظ ${q.length}…` : 'محفوظ على الجهاز') : on ? (q.length ? `بيرفع ${q.length}…` : 'متصل') : `من غير نت${q.length ? ` · ${q.length} مستني يترفع` : ''}`;
   $('netChip').className = `chip ${on ? 'real' : ''}`;
   $('stuckChip').hidden = !st.length;
-  $('stuckChip').textContent = `${st.length} فاتورة مارضيتش تترفع — دوس هنا عشان تحاول تاني`;
+  $('stuckChip').textContent = `${st.length} حاجة مارضيتش تترفع — دوس هنا عشان تحاول تاني`;
+  $('stuckChip').title = st.map((e) => `${describe(e)}: ${e.error || ''}`).join('\n');
 }
 async function sync() {
   if (!SESS || !isOnline()) return updateNet();
   await flush(SESS.client, (entry, err) => msg(`ماترفعش: ${err.message}`, true));
-  const q = await pending();
+  const q = [...(await pending()), ...(await stuck())]; // refused ones are still waiting
   const waiting = new Set(q.filter((e) => e.type === 'insert').map((e) => e.payload.row.id));
   let changed = false;
   for (const s of SALES) if (s.pending && !waiting.has(s.id)) { s.pending = false; changed = true; }
@@ -430,7 +511,7 @@ async function sync() {
   if (itemsDone) await kvSet(K.stock(), STOCK);
   let custDone = false;
   for (const c of CUSTOMERS) if (c.pending && !waiting.has(c.id)) { c.pending = false; custDone = true; }
-  if (custDone) await kvSet(K.cust(), { customers: CUSTOMERS, payments: CUST_PAYMENTS, ready: true });
+  if (custDone) await kvSet(K.cust(), { customers: CUSTOMERS, payments: CUST_PAYMENTS, credit: CREDIT_SALES, ready: true });
   updateNet();
 }
 onOutboxChange(updateNet);
@@ -499,15 +580,17 @@ $('custDlgCancel').addEventListener('click', () => $('custDlg').close());
 $('cart').addEventListener('click', (e) => {
   const t = e.target.closest('button'); if (!t) return;
   const i = +(t.dataset.inc ?? t.dataset.dec ?? t.dataset.del);
-  if (t.dataset.inc !== undefined) CART[i].qty += 1;
+  if (t.dataset.inc !== undefined) CART[i].qty = CART[i].max ? Math.min(CART[i].max, CART[i].qty + 1) : CART[i].qty + 1;
   if (t.dataset.dec !== undefined) CART[i].qty = Math.max(1, CART[i].qty - 1);
+  if (CART[i]?.max) CART[i].discount = lineOff(CART[i]);
   if (t.dataset.del !== undefined) CART.splice(i, 1);
   renderCart(); focusSearch();
 });
 $('cart').addEventListener('change', (e) => {
   const i = +(e.target.dataset.qty ?? e.target.dataset.disc);
-  if (e.target.dataset.qty !== undefined) CART[i].qty = Math.max(1, Math.round(+e.target.value || 1));
-  if (e.target.dataset.disc !== undefined) CART[i].discount = Math.max(0, +e.target.value || 0);
+  if (e.target.dataset.qty !== undefined) CART[i].qty = Math.min(CART[i].max || Infinity, Math.max(1, Math.round(+e.target.value || 1)));
+  if (e.target.dataset.disc !== undefined && !CART[i].max) CART[i].discount = Math.max(0, +e.target.value || 0);
+  if (CART[i]?.max) CART[i].discount = lineOff(CART[i]);
   renderCart();
 });
 $('payMethods').addEventListener('click', (e) => {
@@ -521,7 +604,16 @@ $('checkout').addEventListener('click', checkout);
 $('clearCart').addEventListener('click', newBill);
 $('modeSale').addEventListener('click', () => setMode('sale'));
 $('modeReturn').addEventListener('click', () => setMode('return'));
-$('dayList').addEventListener('click', (e) => { const b = e.target.closest('[data-reprint]'); if (b) printReceipt(SALES.find((s) => s.id === b.dataset.reprint)); });
+$('dayList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-reprint]'); if (b) printReceipt(SALES.find((s) => s.id === b.dataset.reprint));
+  const r = e.target.closest('[data-retid]'); if (r) { const s = SALES.find((x) => x.id === r.dataset.retid); setMode('return'); $('retNo').value = s.number; findReceipt(); }
+});
+$('retFind').addEventListener('click', findReceipt);
+$('retNo').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); findReceipt(); } });
+$('retNoReceipt').addEventListener('change', () => {
+  $('retReasonWrap').hidden = !$('retNoReceipt').checked;
+  if ($('retNoReceipt').checked) { if (RET) { RET = null; CART = []; $('retInfo').textContent = ''; renderCart(); } $('retReason').focus(); }
+});
 $('printDay').addEventListener('click', printDay);
 $('stuckChip').addEventListener('click', async () => { await retryStuck(); sync(); });
 $('posBranch').addEventListener('change', async (e) => { BRANCH = e.target.value || null; dev.branch = BRANCH; saveDev(); newBill(); await reload(); });
