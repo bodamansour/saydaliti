@@ -13,3 +13,5 @@ connector/mapping.json
 connector/connector.json
 connector/connector.log
 connector/connection.json
+__pycache__/
+*.pyc
