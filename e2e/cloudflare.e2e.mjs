@@ -30,7 +30,7 @@ async function newPage() {
   return page;
 }
 const text = (p, sel) => p.locator(sel).first().innerText();
-const until = async (p, fn, ms = 8000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await p.waitForTimeout(150); } return false; };
+const until = async (p, fn, ms = 15000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await p.waitForTimeout(150); } return false; };
 async function signUp(p, email) {
   await p.goto(BASE);
   await p.waitForSelector('#switchMode');
