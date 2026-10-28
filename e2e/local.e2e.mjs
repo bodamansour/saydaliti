@@ -201,6 +201,45 @@ test('a United (Genius) backup file is read straight away', async () => {
   assert.match(await text('#itemsBody tr'), /خلصان/, 'items with no stock are in the list too');
 });
 
+test('each cashier signs in with a PIN, opens a shift with the drawer, and closes it with a count', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  await page.click('#pos details.help summary');
+  await page.check('#requirePin');
+  await page.waitForSelector('#pinDlg[open]');
+  await page.fill('#pinIn', '9999');
+  await page.click('#pinOk');
+  assert.ok(await until(async () => /غلط/.test(await text('#pinMsg'))));
+  await page.fill('#pinIn', '1234');
+  await page.click('#pinOk');
+  await page.waitForSelector('#openCashWrap:not([hidden])');
+  await page.fill('#openCash', '100');
+  await page.click('#pinOk');
+  assert.ok(await until(async () => /سارة/.test(await text('#cashierChip'))));
+  await page.fill('#q', 'بانادول');
+  await page.press('#q', 'Enter');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /الفاتورة اتسجلت/.test(await text('#posMsg'))));
+  assert.match(await text('#dayList'), /سارة/, 'the receipt says who sold it');
+  await page.click('#closeShift');
+  await page.waitForSelector('#shiftDlg[open]');
+  const expected = Number((await text('#shSum .tot .n')).replace(/,/g, ''));
+  assert.ok(expected > 100, 'the drawer: 100 at the start plus the cash sale');
+  await page.fill('#shCount', String(expected - 5));
+  assert.match(await text('#shDiffLabel'), /ناقص/);
+  await page.click('#shiftForm button[type=submit]');
+  await page.waitForSelector('#pinDlg[open]');
+  // The owner sees the shift, the shortfall, and the log of changes.
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=shifts]');
+  assert.ok(await until(async () => /سارة/.test(await text('#panel')) && /ناقص/.test(await text('#panel'))));
+  await page.click('[data-tab=log]');
+  assert.ok(await until(async () => /وردية/.test(await text('#panel'))));
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });

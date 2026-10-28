@@ -23,6 +23,9 @@
     <div><b id="posTitle">الكاشير</b> <span class="muted" id="posWho"></span></div>
     <div class="row">
       <span class="chip" id="netChip" role="status"></span>
+      <span class="chip real" id="cashierChip" hidden></span>
+      <button class="btn" id="switchCashier" hidden>بدّل الكاشير</button>
+      <button class="btn" id="closeShift" hidden>اقفل الوردية</button>
       <label class="owner" id="posBranchWrap" hidden>الفرع<select id="posBranch"></select></label>
       <a class="btn" href="./index.html" id="toDashboard">اللوحة</a>
       <button class="btn" id="logout">خروج</button>
@@ -75,6 +78,7 @@
           <label class="checkline" id="silentWrap" hidden><input id="silentPrint" type="checkbox"> اطبع على الطابعة الافتراضية من غير ما يسأل</label>
           <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
           <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
+          <label class="checkline"><input id="requirePin" type="checkbox"> كل كاشير يدخل برقمه السري (PIN) قبل ما يبيع، وتتقفل له وردية</label>
           <p class="note" id="kioskNote">عشان الطباعة تطلع من غير نافذة كل مرة، شغّل كروم بالاختيار <code>--kiosk-printing</code> وخلّي الطابعة الحرارية هي الافتراضية.</p>
         </div>
       </details>
@@ -112,6 +116,27 @@
     <label>النوع<select id="ncKind"><option value="person">عميل (بيشتري آجل)</option><option value="insurance">شركة تأمين / تعاقد</option></select></label>
     <label id="ncCovWrap" hidden>الشركة بتدفع كام % من الفاتورة<input id="ncCov" type="number" min="0" max="100" step="1" inputmode="numeric" value="80"></label>
     <div class="row"><button class="btn primary" type="submit">ضيفه</button><button class="btn" type="button" id="custDlgCancel">إلغاء</button><span class="note" id="ncMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="pinDlg" class="card">
+  <form id="pinForm" class="stack" novalidate>
+    <h3 id="pinTitle">مين بيبيع؟</h3>
+    <p class="note" id="pinNote">اكتب الرقم السري بتاعك (نفس رقم الحضور والانصراف).</p>
+    <input id="pinIn" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري">
+    <label id="openCashWrap" hidden>الفلوس اللي في الدرج دلوقتي (بداية الوردية)<input id="openCash" class="n big-in" type="number" min="0" step="1" inputmode="decimal" value="0"></label>
+    <div class="row"><button class="btn primary" type="submit" id="pinOk">ادخل</button><span class="note" id="pinMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="shiftDlg" class="card">
+  <form id="shiftForm" class="stack" novalidate>
+    <h3>إقفال وردية <span id="shName"></span></h3>
+    <div class="ledger" id="shSum"></div>
+    <label>الفلوس اللي في الدرج فعلاً (عدّها)<input id="shCount" class="n big-in" type="number" min="0" step="0.5" inputmode="decimal"></label>
+    <div class="ledger"><div class="tot"><span id="shDiffLabel">الفرق</span><span class="n" id="shDiff">—</span></div></div>
+    <label>ملاحظة (اختياري)<input id="shNote" maxlength="300"></label>
+    <div class="row"><button class="btn primary" type="submit">اقفل واطبع</button><button class="btn" type="button" id="shCancel">رجوع</button><span class="note" id="shMsg" role="status"></span></div>
   </form>
 </dialog>
 

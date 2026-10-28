@@ -44,6 +44,7 @@
   </div>
   <p class="note" id="fileMsg" role="status"></p>
   <div class="card" id="stuckBox" hidden></div>
+  <div class="card" id="subBanner" role="status" hidden></div>
 
   <section class="tiles" id="tiles" aria-label="ملخص"></section>
   <nav class="sections" id="sections" aria-label="الأقسام"></nav>
@@ -61,7 +62,7 @@
     <div id="inviteBox" hidden>
       <hr>
       <b>دعوة شريك أو جهاز الصيدلية</b>
-      <p class="note">اعمل كود وابعته. الشريك (أو جهاز الصيدلية) يعمل حساب بإيميله ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 7 أيام. الشريك بيشوف الأرقام بس ومبيعدّلش، وجهاز الصيدلية بيسجّل الحضور بس.</p>
+      <p class="note">اعمل كود وابعته. الشريك (أو جهاز الصيدلية) يعمل حساب بإيميله ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 3 أيام. الشريك بيشوف الأرقام بس ومبيعدّلش، وجهاز الصيدلية بيسجّل الحضور بس.</p>
       <div class="row"><button class="btn" type="button" data-invite="partner">كود لشريك</button><button class="btn" type="button" data-invite="device">كود لجهاز الصيدلية</button></div>
       <div class="row" id="inviteOut" role="status" hidden><span id="inviteText"></span><button class="btn" type="button" id="inviteShare">ابعته على واتساب</button></div>
     </div>
@@ -74,6 +75,12 @@
     <div class="row"><button class="btn primary" type="button" id="backupBtn">اعمل نسخة احتياطية دلوقتي</button>
       <label class="btn" for="restoreFile">رجّع من نسخة احتياطية<input id="restoreFile" type="file" accept=".json" hidden></label>
       <span class="note" id="backupMsg" role="status"></span></div>
+  </details>
+
+  <details class="help" id="cloudBackupBox" hidden>
+    <summary>نسخة احتياطية من كل بياناتك</summary>
+    <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>
+    <div class="row"><button class="btn primary" type="button" id="cloudBackupBtn">نزّل نسخة كاملة دلوقتي</button><span class="note" id="cloudBackupMsg" role="status"></span></div>
   </details>
 
   <details class="help" id="exportBox">
@@ -146,7 +153,7 @@
     </div>
   </details>
 
-  <p class="note"><a class="navlink" href="./attendance.html">الحضور والانصراف ←</a></p>
+  <p class="note"><a class="navlink" href="./attendance.html">الحضور والانصراف ←</a> · <a class="navlink" href="./about.html">عن صيدليتي والأسعار</a> · <a class="navlink" href="./privacy.html">الخصوصية</a> · <a class="navlink" href="./terms.html">شروط الاستخدام</a><span id="adminLink" hidden> · <a class="navlink" href="./admin.html">لوحة إدارة الاشتراكات</a></span></p>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
