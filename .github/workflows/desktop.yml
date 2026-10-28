@@ -1,4 +1,5 @@
-# Builds the Windows program (desktop/) — the offline version that keeps its data on the computer —
+# Builds the Windows program (desktop/) — online with the pharmacy's account, or offline with the data on
+# the computer —
 # and publishes the installer on the "desktop-latest" release:
 #   https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest
 name: Windows program
@@ -36,7 +37,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist
-      - name: Check it starts, works with no internet, and keeps its data
+      - name: Check it starts online and offline, works with no internet, and keeps its data
         run: node smoke.mjs
       - name: Keep the installer (pull request)
         if: github.event_name == 'pull_request'
@@ -49,12 +50,54 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: desktop-latest
-          name: صيدليتي — برنامج الكمبيوتر (من غير نت)
+          name: صيدليتي — برنامج الكمبيوتر
           body: |
-            نزّل `Saydaliti-Setup.exe` على كمبيوتر الصيدلية وافتحه عشان يتسطب.
+            نزّل `Saydaliti-Setup.exe` على كمبيوتر الصيدلية وافتحه عشان يتسطب (ويندوز 10 و11، 64 بت).
+            لو الكمبيوتر ويندوز 7 أو 8 أو 32 بت (رسالة «64-bit Windows is required»)، نزّل `Saydaliti-Setup-Win7.exe`.
             لو ويندوز قال «Windows protected your PC»، دوس More info ثم Run anyway (البرنامج مش موقّع بشهادة مدفوعة).
-            البرنامج بيشتغل من غير نت خالص، والبيانات بتتحفظ على الجهاز، ونسخة احتياطية كل يوم في Documents\Saydaliti\backups.
+            أول مرة بيسأل: أونلاين بحسابك (نفس بيانات الموبايل والموقع)، ولا على الجهاز ده بس من غير نت (نسخة احتياطية كل يوم في Documents\Saydaliti\backups).
             التحديث: نزّل الملف الجديد وسطّبه فوق القديم، والبيانات بتفضل زي ما هي.
             الإصدار: 1.0.${{ github.run_number }}
           files: desktop/dist/Saydaliti-Setup.exe
+          make_latest: false
+
+  # The same program on Electron 22, the last one that runs on Windows 7/8 and on 32-bit Windows
+  # (one installer for 32 and 64 bit).
+  build-win7:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Electron 22 (Windows 7 and 32-bit)
+        run: npm i --no-save electron@22.3.27
+      - name: Version
+        run: npm pkg set version=1.0.${{ github.run_number }}
+      - name: Build the installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run app && npx electron-builder --win nsis --ia32 --x64 --publish never -c.electronVersion=22.3.27 '-c.artifactName=Saydaliti-Setup-Win7.${ext}'
+      - name: Check it starts online and offline on Electron 22
+        run: node smoke.mjs
+      - name: Keep the installer (pull request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: saydaliti-setup-win7
+          path: desktop/dist/Saydaliti-Setup-Win7.exe
+      - name: Publish on the desktop-latest release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-latest
+          files: desktop/dist/Saydaliti-Setup-Win7.exe
           make_latest: false

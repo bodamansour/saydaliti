@@ -15,6 +15,9 @@ let app = await launch();
 let win = await app.firstWindow();
 win.on('pageerror', (e) => errors.push(e.message));
 await win.route(/^https?:\/\//, (r) => { errors.push(`internet: ${r.request().url()}`); r.abort(); });
+// First start: choose how to run. This part of the test is the computer-only version.
+await win.waitForSelector('#local', { timeout: 20000 });
+await win.click('#local');
 await win.waitForSelector('#phNameNew', { timeout: 20000 });
 await win.fill('#phNameNew', 'صيدلية أحمد منصور');
 await win.click('#createForm button[type=submit]');
@@ -38,5 +41,33 @@ await win.waitForSelector('#app:not([hidden])', { timeout: 20000 });
 assert.equal(await win.locator('#phTitle').innerText(), 'صيدلية أحمد منصور');
 await win.screenshot({ path: join(data, 'dashboard.png') });
 await app.close();
+
+// Online: the program opens the website (here a copy served on this computer) and keeps its bridge.
+const { createServer } = await import('node:http');
+const { readFile } = await import('node:fs/promises');
+const SITE_ROOT = join(HERE, 'app');
+const server = createServer(async (req, res) => {
+  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  if (path === '/api/config') { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ configured: true, local: true })); return; }
+  try { const body = await readFile(join(SITE_ROOT, path === '/' ? 'index.html' : path)); res.writeHead(200, { 'Content-Type': path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8' }).end(body); } catch { res.writeHead(404).end(); }
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const site = `http://127.0.0.1:${server.address().port}`;
+const data2 = await mkdtemp(join(tmpdir(), 'saydaliti-desktop-online-'));
+app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_SITE: site } });
+win = await app.firstWindow();
+win.on('pageerror', (e) => errors.push(e.message));
+await win.waitForSelector('#online', { timeout: 20000 });
+await win.click('#online');
+await win.waitForURL(`${site}/index.html`, { timeout: 20000 });
+await win.waitForSelector('#phNameNew, #app:not([hidden])', { timeout: 20000 });
+assert.ok(await win.evaluate(() => !!window.saydalitiDesktop?.printSilent), 'silent printing works on the website too');
+await app.close();
+// Next time it opens online straight away.
+app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_SITE: site } });
+win = await app.firstWindow();
+await win.waitForURL(`${site}/index.html`, { timeout: 20000 });
+await app.close();
+server.close();
 assert.deepEqual(errors, []);
 console.log('desktop smoke test passed; screenshots in', data);
