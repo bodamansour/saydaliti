@@ -240,6 +240,24 @@ test('each cashier signs in with a PIN, opens a shift with the drawer, and close
   assert.ok(await until(async () => /وردية/.test(await text('#panel'))));
 });
 
+test('fixes made here become a correction file for United', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'كريم شمس');
+  await page.click('#itemsBody [data-edititem]');
+  await page.fill('#itPrice', '450');
+  await page.click('#itemForm button[type=submit]');
+  await page.click('#exportBox summary');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#geniusFix')]);
+  const fix = JSON.parse(await readFile(await dl.path(), 'utf8'));
+  assert.equal(fix.kind, 'genius-corrections');
+  const k = fix.items.find((x) => x.code === '5002');
+  assert.deepEqual([k.price, k.oldPrice], [450, 420]);
+  assert.ok(!fix.items.some((x) => x.code === '5004'), 'items not touched here are left as United has them');
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });

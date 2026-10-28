@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>صيدليتي</title>
+<meta name="theme-color" content="#0b6b57">
+<meta name="description" content="لوحة صاحب الصيدلية: الطلبيات، الصلاحية، الراكد، المصروفات، والمكسب الصافي لكل فرع.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="صيدليتي">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+
+<!-- Sign-in comes first; the dashboard stays hidden until the account is linked to a pharmacy. -->
+<main id="gate" class="gate">
+  <div class="brand"><img src="./icons/icon.svg" alt="" width="56" height="56"><h1>صيدليتي</h1><p>لوحة صاحب الصيدلية</p></div>
+  <section id="auth" class="card authcard"><p class="note">لحظة…</p></section>
+</main>
+
+<div class="wrap" id="app" hidden>
+  <header class="top">
+    <div>
+      <h1 id="phTitle">صيدليتي</h1>
+      <p id="whoLine" class="muted"></p>
+    </div>
+    <div class="src">
+      <span class="chip" id="netChip" role="status"></span>
+      <button class="btn" id="installBtn" hidden>نزّل الأبلكيشن</button>
+      <a class="btn primary" href="./cashier.html" id="toCashier" hidden>الكاشير</a>
+      <button class="btn" id="logout">خروج</button>
+    </div>
+  </header>
+
+  <div class="bar">
+    <label class="owner" id="branchWrap">الفرع<select id="branchSel"></select></label>
+    <label class="owner" id="ownerWrap" hidden>بضاعة مين؟<select id="ownerSel"></select></label>
+    <label class="btn primary" for="file" id="uploadBtn">ارفع بيانات الفرع<input id="file" type="file" accept=".xlsx,.xls,.csv,.json,.gen,.bak" multiple hidden></label>
+  </div>
+  <p class="note" id="fileMsg" role="status"></p>
+  <div class="card" id="stuckBox" hidden></div>
+  <div class="card" id="subBanner" role="status" hidden></div>
+
+  <section class="tiles" id="tiles" aria-label="ملخص"></section>
+  <nav class="sections" id="sections" aria-label="الأقسام"></nav>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <section id="panel" class="panel"></section>
+
+  <details class="help" id="branchBox">
+    <summary>الفروع والشركاء</summary>
+    <div id="branchList"></div>
+    <form id="branchForm" class="row" style="margin-top:10px">
+      <label style="flex:1">اسم فرع جديد<input id="branchName" maxlength="80" placeholder="فرع شارع الجمهورية"></label>
+      <button class="btn primary" type="submit">ضيف الفرع</button>
+    </form>
+    <p class="note" id="branchMsg" role="status"></p>
+    <div id="inviteBox" hidden>
+      <hr>
+      <b>دعوة شريك أو جهاز الصيدلية</b>
+      <p class="note">اعمل كود وابعته. الشريك (أو جهاز الصيدلية) يعمل حساب بإيميله ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 3 أيام. الشريك بيشوف الأرقام بس ومبيعدّلش، وجهاز الصيدلية بيسجّل الحضور بس.</p>
+      <div class="row"><button class="btn" type="button" data-invite="partner">كود لشريك</button><button class="btn" type="button" data-invite="device">كود لجهاز الصيدلية</button></div>
+      <div class="row" id="inviteOut" role="status" hidden><span id="inviteText"></span><button class="btn" type="button" id="inviteShare">ابعته على واتساب</button></div>
+    </div>
+  </details>
+
+  <details class="help" id="localBox" hidden>
+    <summary>النسخ الاحتياطي (البيانات على الجهاز ده)</summary>
+    <p>النسخة دي شغالة من غير نت، وكل البيانات محفوظة على الكمبيوتر ده. <b>لو الجهاز باظ من غير نسخة احتياطية، البيانات هتضيع.</b></p>
+    <p class="note" id="backupWhere"></p>
+    <div class="row"><button class="btn primary" type="button" id="backupBtn">اعمل نسخة احتياطية دلوقتي</button>
+      <label class="btn" for="restoreFile">رجّع من نسخة احتياطية<input id="restoreFile" type="file" accept=".json" hidden></label>
+      <span class="note" id="backupMsg" role="status"></span></div>
+  </details>
+
+  <details class="help" id="cloudBackupBox" hidden>
+    <summary>نسخة احتياطية من كل بياناتك</summary>
+    <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>
+    <div class="row"><button class="btn primary" type="button" id="cloudBackupBtn">نزّل نسخة كاملة دلوقتي</button><span class="note" id="cloudBackupMsg" role="status"></span></div>
+    <div id="cloudImport" hidden>
+      <hr>
+      <p><b>نقل من النسخة القديمة:</b> لو الصيدلية دي جديدة وفاضية، رجّع فيها النسخة الكاملة اللي نزلتها من البرنامج القديم: الأصناف والرصيد والفواتير والعملاء والموظفين كلهم هيتنقلوا. الأرقام السرية للموظفين لازم تتكتب تاني من صفحة الحضور.</p>
+      <label class="btn" for="cloudImportFile">رجّع نسخة كاملة هنا<input id="cloudImportFile" type="file" accept=".json" hidden></label>
+    </div>
+  </details>
+
+  <details class="help" id="exportBox">
+    <summary>تصدير البيانات (Excel، CSV، PDF…)</summary>
+    <p>بيصدّر اللي ظاهر في اللوحة دلوقتي: الفرع المختار، أو كل الفروع.</p>
+    <div class="row"><button class="btn primary" type="button" data-export="xlsx">Excel (كل حاجة في ملف واحد)</button>
+      <button class="btn" type="button" data-export="json">ملف صيدليتي (JSON يترفع تاني)</button></div>
+    <div class="row" style="margin-top:8px"><label class="owner">جدول<select id="exportWhich">
+      <option>الأصناف</option><option>الصلاحيات</option><option>المبيعات</option><option>المشتريات</option><option>فواتير الكاشير</option><option>الموردين</option><option>العملاء</option><option>المصروفات</option><option>جرد وتعديلات</option></select></label>
+      <button class="btn" type="button" data-export="csv">CSV</button><button class="btn" type="button" data-export="print">اطبع / PDF</button></div>
+    <p class="note" id="exportMsg" role="status"></p>
+    <p class="note">ملف الباك اب بتاع المتحدة (<code>.Gen</code>) ميتعملش من برا برنامج المتحدة: ده نسخة كاملة من قاعدة بياناته بالباسورد بتاعها، والمتحدة بس اللي يقدر يعمله ويرجّعه. لو المتحدة فيه شاشة «استيراد أصناف من Excel»، ملف Excel هنا فيه الكود والاسم والأسعار والرصيد والصلاحية، وقولّي الأعمدة اللي بيطلبها وأظبطها عليها.</p>
+  </details>
+
+  <details class="help" id="settingsBox">
+    <summary>الإعدادات (ضرايب، تقدير المصاريف، طلبيات)</summary>
+    <div class="grid2" style="margin-top:10px">
+      <label>نظام الضرايب
+        <select id="taxMode">
+          <option value="unsure">مش متأكد (من غير ضرايب في الحسبة)</option>
+          <option value="simplified">النظام المبسط (قانون 6 لسنة 2025)</option>
+          <option value="custom">نسبة أكتبها بنفسي</option>
+        </select>
+      </label>
+      <label id="customTaxWrap" hidden>نسبة الضريبة من المبيعات %<input id="customTax" type="number" min="0" step="0.1" value="1"></label>
+      <label>اسم الصيدلية (للعروض)<input id="phName" type="text" placeholder="صيدلية أحمد منصور"></label>
+      <label>أرقام واتساب لتقرير الصبح<input id="waNumbers" type="text" inputmode="tel" placeholder="01xxxxxxxxx، 01yyyyyyyyy"></label>
+      <label>المكسب اللي عايزه على الأقل %<input id="target" type="number" min="0" step="1" value="10"></label>
+      <label>تنبيه الصلاحية قبلها بكام يوم<input id="expWin" type="number" min="7" step="1" value="90"></label>
+      <label>المخزن بيوصّل بعد كام يوم<input id="lead" type="number" min="1" step="1" value="3"></label>
+      <label>عايز المخزون يكفي كام يوم<input id="cover" type="number" min="7" step="1" value="30"></label>
+    </div>
+    <p class="note" style="margin-top:14px"><b>تقدير المصاريف في الشهر:</b> بيتحسب في مكسب كل علبة لحد ما تسجّل مصروفات فعلية في تبويب «المصروفات». بعدها البرنامج بياخد متوسط اللي سجلته.</p>
+    <div class="grid2">
+      <label>الإيجار في الشهر<input id="exRent" type="number" min="0" step="100" placeholder="0"></label>
+      <label>الكهربا والمية في الشهر<input id="exUtil" type="number" min="0" step="100" placeholder="0"></label>
+      <label>المرتبات في الشهر<input id="exSal" type="number" min="0" step="100" placeholder="0"></label>
+      <label>مصاريف تانية في الشهر<input id="exOther" type="number" min="0" step="100" placeholder="0"></label>
+    </div>
+    <p class="note" id="taxNote" style="margin-top:8px"></p>
+    <p class="note" id="settingsMsg" role="status"></p>
+  </details>
+
+  <details class="help" id="connectorBox" hidden>
+    <summary>الوصلة على جهاز الكاشير (رفع البيانات كل يوم لوحدها)</summary>
+    <p>الوصلة بتقرا المخزون والمبيعات من برنامج الصيدلية كل يوم الصبح، وبترفعها هنا لوحدها. كل فرع ليه كود خاص بيه.</p>
+    <div class="row"><label class="owner">كود لفرع<select id="tokenBranch"></select></label><button class="btn primary" id="tokenBtn">اعمل كود للوصلة</button><span class="note" id="tokenMsg"></span></div>
+    <div id="tokenOut" hidden>
+      <p><b>انسخ ده واحفظه في ملف اسمه <code>connector.json</code> جنب سكريبتات الوصلة على جهاز الكاشير بتاع الفرع ده.</b> الكود ده بيظهر مرة واحدة بس، ولو ضاع اعمل واحد جديد (القديم بيبطل لوحده).</p>
+      <textarea id="tokenJson" readonly aria-label="ملف connector.json"></textarea>
+      <div class="row"><button class="btn" id="copyToken">انسخ</button><span class="note" id="copyTokenMsg"></span></div>
+      <p class="note">غيّر <code>database</code> لاسم قاعدة بيانات برنامج الصيدلية، ولو البرنامج بيدخل SQL Server باسم وكلمة سر، اكتبهم في <code>sqlUser</code> و<code>sqlPassword</code>. الملف ده يفضل على جهاز الكاشير بس، ومتبعتهوش لحد.</p>
+    </div>
+  </details>
+
+  <details class="help">
+    <summary>شكل الملفات المطلوبة من برنامج الصيدلية</summary>
+    <p><b>أسهل طريقة:</b> ارفع ملف الباك اب بتاع برنامج المتحدة (Genius) زي ما هو (<code>.Gen</code>)، والبرنامج بيقرا منه كل الأصناف والرصيد والصلاحية والمبيعات والمشتريات لوحده، من غير SQL Server ومن غير باسورد الباك اب. الملف بيتقري على الجهاز، ومش بيترفع كله.</p>
+    <p>أو ملف الأصناف (Excel أو CSV) فيه الأعمدة دي، بالعربي أو الإنجليزي:
+      <code>الكود</code> <code>الصنف</code> <code>النوع</code> (دواء / تجميل / مستلزمات) <code>سعر الشراء</code> <code>سعر البيع</code> <code>الكمية</code> <code>الصلاحية</code>، و<code>الشريك</code> لو البضاعة ليها أكتر من صاحب.</p>
+    <p>وملف المبيعات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code>، ولو موجود <code>السعر</code> اللي اتباع بيه فعلاً و<code>الخصم</code>. وملف المشتريات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>سعر الشراء</code>. وملف الهالك: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>السبب</code>. ممكن يبقوا شيتات في ملف واحد. <b>متحطش أسماء أو أرقام زباين.</b></p>
+    <hr>
+    <p><b>ربط برنامج الصيدلية:</b> بعد ما تشغّل <code>restore-and-discover.ps1</code>، ارفع ملف <code>schema.json</code> هنا، وأنا أقترح <code>mapping.json</code>.</p>
+    <label class="btn" for="schemaFile" style="display:inline-block">ارفع schema.json<input id="schemaFile" type="file" accept=".json" hidden></label>
+    <div id="mapOut" hidden>
+      <div id="mapSummary"></div>
+      <textarea id="mapJson" readonly aria-label="mapping.json" style="min-height:260px"></textarea>
+      <div class="row"><button class="btn primary" id="copyMap">انسخ mapping.json</button><span class="note" id="copyMapMsg"></span></div>
+      <p class="note">احفظه باسم <code>mapping.json</code> جنب سكريبتات الوصلة، وشغّل <code>export.ps1</code>.</p>
+    </div>
+  </details>
+
+  <p class="note"><a class="navlink" href="./attendance.html">الحضور والانصراف ←</a> · <a class="navlink" href="./about.html">عن صيدليتي والأسعار</a> · <a class="navlink" href="./privacy.html">الخصوصية</a> · <a class="navlink" href="./terms.html">شروط الاستخدام</a><span id="adminLink" hidden> · <a class="navlink" href="./admin.html">لوحة إدارة الاشتراكات</a></span></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>
