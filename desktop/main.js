@@ -35,6 +35,22 @@ function serve(req) {
   return net.fetch(pathToFileURL(file).toString());
 }
 
+// The same for Electron 22 (the last one that runs on Windows 7 and 32-bit Windows), which has no
+// protocol.handle: the file is read here and handed over with its type.
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' };
+async function serveLegacy(req, callback) {
+  const url = new URL(req.url);
+  if (url.pathname === '/api/config') return callback({ mimeType: 'application/json', data: Buffer.from(JSON.stringify({ configured: true, local: true })) });
+  const file = normalize(join(APP_DIR, decodeURIComponent(url.pathname)));
+  if (!file.startsWith(APP_DIR + sep)) return callback({ statusCode: 404, data: Buffer.from('not found') });
+  try {
+    const ext = file.slice(file.lastIndexOf('.')).toLowerCase();
+    const type = TYPES[ext] || 'application/octet-stream';
+    callback({ mimeType: type, ...(/^text|json|svg|manifest/.test(type) ? { charset: 'utf-8' } : {}), data: await fs.readFile(file) });
+  } catch { callback({ statusCode: 404, data: Buffer.from('not found') }); }
+}
+
 let win = null;
 function createWindow() {
   win = new BrowserWindow({
@@ -113,7 +129,8 @@ ipcMain.handle('print:silent', async (e) => {
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(async () => {
   MODE = await readMode();
-  protocol.handle('app', serve);
+  if (protocol.handle) protocol.handle('app', serve);
+  else protocol.registerBufferProtocol('app', serveLegacy); // Electron 22: the Windows 7 / 32-bit version
   menu();
   createWindow();
 });
