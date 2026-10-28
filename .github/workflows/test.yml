@@ -27,3 +27,17 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Dashboard test (sign-in, branches, expenses, offline, phone size)
         run: npm run e2e
+      - name: Cloudflare server on this machine (D1 and R2 kept locally)
+        working-directory: worker
+        run: |
+          npm ci
+          npm run build
+          printf 'PIN_PEPPER=ci-pepper\nSIGNUP_PER_HOUR=10000\n' > .dev.vars
+          npx wrangler d1 migrations apply saydaliti --local
+          nohup npx wrangler dev --local --port 8787 > ../wrangler.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf http://localhost:8787/api/config && curl -sf -o /dev/null http://localhost:8787/ && exit 0; sleep 1; done
+          cat ../wrangler.log; exit 1
+      - name: Cloudflare server rules and the whole app on it
+        env:
+          WORKER_URL: http://localhost:8787
+        run: node --test worker/test/api.test.mjs e2e/cloudflare.e2e.mjs
