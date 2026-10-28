@@ -26,4 +26,9 @@ jobs:
       - name: Browser for the dashboard test
         run: npx playwright install --with-deps chromium
       - name: Dashboard test (sign-in, branches, expenses, offline, phone size)
-        run: npm run e2e
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee e2e.log
+      - name: Show what failed
+        if: failure()
+        run: grep -E "not ok|message:|actual:|expected:|Error" e2e.log | head -40 | sed 's/^/::error::/'
