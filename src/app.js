@@ -8,7 +8,7 @@ import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
-import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
+import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -113,7 +113,8 @@ const SECTIONS = [
 ];
 const TABS = SECTIONS.flatMap(([, , tabs]) => tabs);
 const sectionOf = (tab) => SECTIONS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) ?? SECTIONS[0];
-const visibleSections = () => SECTIONS.filter(([id]) => id !== 'patients' || isOwner());
+// Patients' and customers' names and phones are for the owner (and the cashier) only, not partners.
+const visibleSections = () => SECTIONS.filter(([id]) => (id !== 'patients' && id !== 'customers') || isOwner());
 const LAST_TAB = {}; // last tab opened in each section
 const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
 
@@ -167,7 +168,7 @@ function render(background = false) {
 
   const nChanged = PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).length : 0;
   const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length, ...(nChanged ? { changes: nChanged } : {}) };
-  if (!TABS.some(([id]) => id === TAB) || (TAB === 'patients' && !isOwner())) TAB = 'reorder';
+  if (!TABS.some(([id]) => id === TAB) || !visibleSections().includes(sectionOf(TAB))) TAB = 'reorder';
   const [secId, , secTabs] = sectionOf(TAB);
   LAST_TAB[secId] = TAB;
   store.set('saydaliti-tab-v1', TAB);
@@ -567,7 +568,7 @@ function renderPosSales() {
   <p class="note">الفواتير دي من شاشة الكاشير بس. لحد ما الكاشير يبقى البرنامج الأساسي، مبيعات برنامج الصيدلية بتفضل هي اللي بتتحسب في الطلبيات والحسابات.</p>`
   + (list.length ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>الأصناف</th><th>الإجمالي</th><th>الدفع</th></tr></thead><tbody>${list.slice(0, 300).map((x) => `<tr><td class="n">${esc(x.number)}</td>
       <td class="n">${new Date(x.sold_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</td>
-      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}</td>
+      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ` <span class="pill crit" title="${esc(x.note)}">من غير فاتورة</span>` : ''}` : 'بيع'}</td>
       <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n">${fmt(x.total, 2)}</td><td>${esc(pay(x.payment))}</td></tr>`).join('')}</tbody></table></div>` : '');
 }
 
@@ -622,10 +623,11 @@ async function loadFeatures() {
       loadTable('shortages', 'id, code, name, note, status, created_at, resolved_at'),
       loadTable('market_prices', 'id, code, price, source, seen_on, created_by, created_at', 'seen_on'),
     ]);
-    // Customer columns arrived with 011; an older database is read without them.
+    // Customer columns arrived with 011, return columns with 012; an older database is read without them.
+    try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment, customer_id, credit, claim_no, return_of, note', 'sold_at'); POS_READY = true; } catch (e0) {
     try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment, customer_id, credit, claim_no', 'sold_at'); POS_READY = true; } catch (e) {
       try { POS_SALES = await loadTable('pos_sales', 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment', 'sold_at'); POS_READY = true; } catch (e2) { if (e2.missing) POS_READY = false; }
-    }
+    } }
     if (isOwner()) {
       [PATIENTS, REMINDERS] = await Promise.all([
         loadTable('patients', 'id, name, phone, active, created_at'),
@@ -1638,7 +1640,12 @@ $('restoreFile').addEventListener('change', async (e) => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f) return;
   if (!confirm('ترجّع البيانات من النسخة دي؟ كل اللي على الجهاز دلوقتي هيتبدل بيها. (الأحسن تنزّل نسخة احتياطية من الحالي الأول.)')) return;
-  try { await SESS.client.importAll(JSON.parse(await f.text())); await clearLocal(); location.reload(); } catch (err) { $('backupMsg').textContent = err.message; }
+  $('backupMsg').textContent = 'لحظة…';
+  let dump;
+  try { dump = JSON.parse(await f.text()); } catch { $('backupMsg').textContent = 'الملف ده مش نسخة احتياطية سليمة (ناقص أو بايظ)، والبيانات اللي على الجهاز ماتغيرتش.'; return; }
+  // A copy of what's here now is saved first, so a wrong file can be undone.
+  if (desktop()?.saveBackup) { try { await saveBackup(true); } catch (err) { $('backupMsg').textContent = `مقدرتش أحفظ نسخة من البيانات الحالية الأول، فماعملتش حاجة: ${err.message}`; return; } }
+  try { await SESS.client.importAll(dump); await clearLocal(); location.reload(); } catch (err) { $('backupMsg').textContent = err.message; }
 });
 
 // ---------- Export: Excel, CSV, JSON (Saydaliti), print / PDF ----------
@@ -1660,7 +1667,7 @@ function exportTables() {
     'الكمية': l.qty, 'بونص': l.bonus || 0, 'سعر الشراء': l.cost, 'سعر البيع': l.price || '', 'الصلاحية': l.expiry ? String(l.expiry).slice(0, 10) : '', 'الإجمالي': Math.round(l.qty * l.cost * 100) / 100 })));
   const pay = (k) => PAYMENTS.find(([p]) => p === k)?.[1] ?? k;
   const receipts = POS_SALES.filter(here).sort((a, b) => String(a.sold_at).localeCompare(String(b.sold_at))).map((x) => ({
-    'رقم الفاتورة': x.number, 'الوقت': String(x.sold_at).replace('T', ' ').slice(0, 16), 'النوع': x.kind === 'return' ? 'مرتجع' : 'بيع', 'الأصناف': (x.lines || []).map((l) => `${l.name} × ${l.qty}`).join('، '),
+    'رقم الفاتورة': x.number, 'الوقت': String(x.sold_at).replace('T', ' ').slice(0, 16), 'النوع': x.kind === 'return' ? 'مرتجع' : 'بيع', 'مرتجع من': x.return_of ? (POS_SALES.find((y) => y.id === x.return_of)?.number ?? '') : x.note || '', 'الأصناف': (x.lines || []).map((l) => `${l.name} × ${l.qty}`).join('، '),
     'الإجمالي': +x.total, 'الخصم': +x.discount || 0, 'الدفع': pay(x.payment), 'العميل': custName(x.customer_id) || '', 'على الحساب': +x.credit || 0, 'رقم الموافقة': x.claim_no || '' }));
   const suppliers = supplierBalances(PURCHASES, SUP_PAYMENTS).map((b) => ({ 'المورد': b.name, 'فواتير': b.invoices, 'إجمالي البضاعة': b.bought, 'اتدفع': b.paid, 'الباقي': b.due, 'آخر طلبية': b.last || '' }));
   const customers = CUST_READY ? customerBalances(CUSTOMERS, POS_SALES, CUST_PAYMENTS).map((c) => ({ 'الاسم': c.name, 'الموبايل': c.phone || '', 'النوع': c.kind === 'insurance' ? `تأمين ${+c.coverage_pct}%` : 'عميل', 'على الحساب': c.onAccount, 'دفع': c.paid, 'الباقي عليه': c.owed })) : [];
@@ -1805,23 +1812,20 @@ async function updateNet(q) {
   const on = isOnline();
   $('netChip').textContent = SESS.local ? (n ? `بيحفظ ${n}…` : 'محفوظ على الجهاز') : on ? (n ? `بيرفع ${n}…` : 'متصل') : `من غير نت${n ? ` · ${n} مستني يترفع` : ''}`;
   $('netChip').className = `chip ${on ? 'real' : ''}`;
+  renderStuck();
 }
 async function sync() {
   if (SESS.mode !== 'member' || !isOnline()) return updateNet();
   let rejected = false;
   await flush(SESS.client, (entry, err) => {
     rejected = true;
-    $('fileMsg').innerHTML = `<span class="err">ماترفعش ${entry.type === 'expense' ? 'مصروف' : entry.type === 'snapshot' ? 'ملف البيانات' : 'تعديل'}: ${esc(err.message)}</span>`;
-    if (entry.type === 'expense') { EXPENSES = EXPENSES.filter((e) => e.id !== entry.payload.id); saveExpenseCache(); }
+    $('fileMsg').innerHTML = `<span class="err">ماترفعش ${entry.type === 'snapshot' ? 'ملف البيانات' : esc(describe(entry))}: ${esc(err.message)}</span>`;
+    // A refused data file is dropped (upload it again); everything else waits in the list of refused
+    // changes, still shown here, until the owner sends it again, saves it, or discards it.
     if (entry.type === 'snapshot') { const k = key(entry.payload.p_branch ?? null); SNAP.delete(k); kvSet(snapKey(k), null); }
-    if (entry.type === 'insert' && LISTS[entry.payload.table]) {
-      const list = LISTS[entry.payload.table](); const i = list.findIndex((x) => x.id === entry.payload.row.id);
-      if (i >= 0) list.splice(i, 1);
-      kvSet(cacheKey(entry.payload.table), list);
-    }
   });
-  // Uploaded items are no longer pending.
-  const q = await pending();
+  // Uploaded items are no longer pending (refused ones still are).
+  const q = [...(await pending()), ...(await stuck())];
   const waiting = new Set(q.filter((e) => e.type === 'expense').map((e) => e.payload.id));
   let changed = false;
   for (const e of EXPENSES) if (e.pending && !waiting.has(e.id)) { e.pending = false; changed = true; }
@@ -1843,8 +1847,41 @@ async function sync() {
     setView(); render(true);
     if (rejected) $('fileMsg').innerHTML = msg;
   }
-  updateNet(q);
+  updateNet(await pending());
 }
+
+// ---------- Changes the server refused ----------
+async function renderStuck() {
+  const list = await stuck();
+  const box = $('stuckBox');
+  box.hidden = !list.length;
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<h3>${list.length} حاجة مارضيتش تترفع</h3>
+    <p class="muted">محفوظين على الجهاز ده ومش هيضيعوا. شوف السبب، وصلّح لو محتاج، وبعدين ابعتهم تاني. لو مش عايز واحدة منهم امسحها.</p>
+    <div class="tablewrap"><table><thead><tr><th>إيه</th><th>إمتى</th><th>السبب</th><th></th></tr></thead><tbody>
+    ${list.map((e) => `<tr><td>${esc(describe(e))}</td><td class="n">${esc(new Date(e.at).toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' }))}</td><td>${esc(e.error || '')}</td>
+      <td class="row"><button class="btn" type="button" data-stretry="${esc(e.id)}">ابعتها تاني</button><button class="btn" type="button" data-stdrop="${esc(e.id)}">امسحها</button></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="row"><button class="btn primary" type="button" id="stuckRetryAll">ابعتهم كلهم تاني</button><button class="btn" type="button" id="stuckSave">نزّلهم في ملف</button></div>`;
+}
+$('stuckBox').addEventListener('click', async (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.id === 'stuckSave') { download(`saydaliti-refused-${isoDay(new Date())}.json`, new Blob([JSON.stringify(await stuck(), null, 2)], { type: 'application/json' })); return; }
+  if (t.id === 'stuckRetryAll' || t.dataset.stretry) { await retryStuck(t.dataset.stretry ? [t.dataset.stretry] : null); await sync(); return; }
+  if (t.dataset.stdrop) {
+    if (!confirm('تمسحها خالص؟ مش هتترفع ومش هتظهر تاني.')) return;
+    const [gone] = await discardStuck([t.dataset.stdrop]);
+    if (gone?.type === 'expense') { EXPENSES = EXPENSES.filter((x) => x.id !== gone.payload.id); await saveExpenseCache(); }
+    if (gone?.type === 'insert' && LISTS[gone.payload.table]) {
+      const list = LISTS[gone.payload.table](); const i = list.findIndex((x) => x.id === gone.payload.row.id);
+      if (i >= 0) list.splice(i, 1);
+      await kvSet(cacheKey(gone.payload.table), list);
+    }
+    // An edit or a removal that was dropped: show what the server really has.
+    if (gone && (gone.type === 'update' || gone.type === 'delete' || gone.type === 'deleteExpense')) { location.reload(); return; }
+    renderStuck(); setView(); render(true);
+  }
+});
 onOutboxChange((q) => updateNet(q));
 addEventListener('online', sync);
 addEventListener('offline', () => updateNet());

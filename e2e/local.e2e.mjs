@@ -87,7 +87,36 @@ test('the cashier sells with no internet, and stock goes down', async () => {
   assert.ok(await until(async () => /الفاتورة اتسجلت/.test(await text('#posMsg'))));
   assert.match(await text('#netChip'), /محفوظ على الجهاز/);
   await page.fill('#q', 'شاش');
-  assert.match(await text('#results'), /رصيد 14/);
+  assert.ok(await until(async () => /رصيد 14/.test(await text('#results'))));
+});
+
+test('a return comes back only against its receipt, and only once', async () => {
+  // In return mode with no receipt, nothing is recorded.
+  await page.click('#modeReturn');
+  await page.fill('#q', '6220000000001');
+  await page.press('#q', 'Enter');
+  await page.keyboard.press('F2');
+  assert.match(await text('#posMsg'), /رقم فاتورة البيع/);
+  // From today's list: the receipt's item, at most what was sold.
+  await page.click('#dayList [data-retid]');
+  assert.ok(await until(async () => /فاتورة/.test(await text('#retInfo'))));
+  assert.equal(await page.locator('#cart tr').count(), 1);
+  await page.click('#cart [data-inc]');
+  assert.equal(await page.inputValue('#cart [data-qty]'), '1', 'can\'t return more than was sold');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /المرتجع اتسجل/.test(await text('#posMsg'))));
+  await page.fill('#q', 'شاش');
+  assert.ok(await until(async () => /رصيد 15/.test(await text('#results'))));
+  await page.fill('#q', '');
+  await page.click('#dayList [data-retid]');
+  assert.ok(await until(async () => /اترجع قبل كده/.test(await text('#retInfo'))));
+  // With no receipt, a reason is required.
+  await page.click('#retNoReceipt');
+  await page.fill('#q', '6220000000001');
+  await page.press('#q', 'Enter');
+  await page.keyboard.press('F2');
+  assert.match(await text('#posMsg'), /اكتب سبب/);
+  await page.keyboard.press('Escape');
 });
 
 test('everything is still there after closing and opening again', async () => {
@@ -97,7 +126,7 @@ test('everything is still there after closing and opening again', async () => {
   await p2.click('[data-sec=stock]');
   await p2.click('[data-tab=items]');
   await p2.fill('#itemsQ', 'شاش');
-  assert.ok(await until(async () => /14/.test(await p2.locator('#itemsBody tr').first().innerText())));
+  assert.ok(await until(async () => /15/.test(await p2.locator('#itemsBody tr').first().innerText())));
   await p2.close();
 });
 
@@ -123,19 +152,34 @@ test('backup to a file and back', async () => {
   const path = await dl.path();
   const dump = JSON.parse(await readFile(path, 'utf8'));
   assert.equal(dump.app, 'saydaliti');
-  assert.ok(dump.tables.pos_sales.length === 1 && dump.tables.purchases.length === 1);
-  // Restore an older copy: the sale made after it disappears.
-  dump.tables.pos_sales = [];
+  assert.ok(dump.tables.pos_sales.length === 2 && dump.tables.purchases.length === 1);
+  // Restore an older copy: the return made after it disappears.
+  dump.tables.pos_sales = dump.tables.pos_sales.filter((x) => x.kind === 'sale');
   const { writeFile, mkdtemp } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const file = join(await mkdtemp(join(tmpdir(), 'sd-')), 'old.json');
+  // A broken copy (a row with no id, or a cut-off file) is refused and nothing changes.
+  const broken = join(await mkdtemp(join(tmpdir(), 'sd-')), 'broken.json');
+  await writeFile(broken, JSON.stringify({ ...dump, tables: { ...dump.tables, purchases: [{ lines: [] }] } }));
+  await page.setInputFiles('#restoreFile', broken);
+  assert.ok(await until(async () => /فيها مشكلة/.test(await text('#backupMsg'))));
+  await writeFile(broken, JSON.stringify(dump).slice(0, 500));
+  await page.setInputFiles('#restoreFile', broken);
+  assert.ok(await until(async () => /ناقص أو بايظ/.test(await text('#backupMsg'))));
+  await page.reload();
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  assert.ok(await until(async () => /15/.test(await text('#itemsBody tr'))), 'the data on the computer is unchanged');
+  await page.click('#localBox summary');
   await writeFile(file, JSON.stringify(dump));
   await page.setInputFiles('#restoreFile', file);
   await page.waitForSelector('#app:not([hidden])');
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=items]');
   await page.fill('#itemsQ', 'شاش');
-  assert.ok(await until(async () => /15/.test(await text('#itemsBody tr'))));
+  assert.ok(await until(async () => /14/.test(await text('#itemsBody tr'))));
 });
 
 test('a United (Genius) backup file is read straight away', async () => {

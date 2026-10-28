@@ -64,6 +64,12 @@ test('dose reminder goes out once within the hour after its time', () => {
   assert.equal(dueReminders([close], cairo('2026-10-27T10:05:00'))[0].dueTime, '10:00', 'next dose an hour later');
   assert.equal(dueReminders([sent], cairo('2026-10-27T21:10:00')).length, 1, 'evening dose');
   assert.equal(dueReminders([{ ...r, active: false }], cairo('2026-10-27T09:05:00')).length, 0);
+
+  // A late-night dose is still sent by a run just after midnight, and only once.
+  const night = { id: 3, kind: 'dose', dose_times: ['23:30'], last_sent_at: null };
+  assert.equal(dueReminders([night], cairo('2026-10-28T00:20:00')).length, 1);
+  assert.equal(dueReminders([{ ...night, last_sent_at: cairo('2026-10-27T23:35:00').toISOString() }], cairo('2026-10-28T00:20:00')).length, 0);
+  assert.equal(dueReminders([night], cairo('2026-10-28T01:01:00')).length, 0, 'more than 90 minutes late');
 });
 
 test('refill reminder the day before, once', () => {
