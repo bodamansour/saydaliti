@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>صيدليتي — الحضور</title>
+<meta name="theme-color" content="#0b6b57">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>الحضور والانصراف</h1>
+      <a class="navlink" href="./index.html">→ رجوع للوحة الصيدلية</a>
+    </div>
+    <div class="src"><span class="chip" id="modeChip">بيحمّل…</span><button class="btn" id="logout" hidden>خروج</button></div>
+  </header>
+  <p class="note" id="modeNote" hidden>لحد ما قاعدة البيانات تتعمل، التسجيل بيتحفظ على الجهاز ده بس. الموظفين اللي عليهم «(مثال)» للتجربة: كود سارة 1111 وكود محمد 2222.</p>
+
+  <section id="auth" class="card" hidden></section>
+
+  <div id="app" hidden>
+  <nav class="tabs" role="tablist" id="tabs">
+    <button class="tab" role="tab" data-tab="kiosk" aria-selected="true">تسجيل</button>
+    <button class="tab" role="tab" data-tab="report" aria-selected="false">التقرير</button>
+    <button class="tab" role="tab" data-tab="staff" aria-selected="false">الموظفين</button>
+  </nav>
+
+  <section id="kiosk" class="kiosk" aria-label="تسجيل الحضور">
+    <div class="clock" id="clock">--:--</div>
+    <div class="today" id="today"></div>
+    <p class="muted" style="margin:0">اكتب الكود بتاعك</p>
+    <div class="dots" id="dots" aria-live="polite"></div>
+    <div class="pad" id="pad"></div>
+    <div class="result" id="result" aria-live="assertive"></div>
+  </section>
+
+  <section id="report" class="panel" hidden></section>
+  <section id="staff" class="panel" hidden></section>
+  </div>
+</div>
+<script type="module" src="./src/attendance-app.js"></script>
+</body>
+</html>

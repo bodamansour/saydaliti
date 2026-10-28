@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>صيدليتي — الكاشير</title>
+<meta name="theme-color" content="#0b6b57">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body class="pos-body">
+
+<main id="gate" class="gate">
+  <div class="brand"><img src="./icons/icon.svg" alt="" width="56" height="56"><h1>الكاشير</h1><p>صيدليتي</p></div>
+  <section id="auth" class="card authcard"><p class="note">لحظة…</p></section>
+</main>
+
+<div id="pos" class="pos" hidden>
+  <header class="pos-top">
+    <div><b id="posTitle">الكاشير</b> <span class="muted" id="posWho"></span></div>
+    <div class="row">
+      <span class="chip" id="netChip" role="status"></span>
+      <span class="chip real" id="cashierChip" hidden></span>
+      <button class="btn" id="switchCashier" hidden>بدّل الكاشير</button>
+      <button class="btn" id="closeShift" hidden>اقفل الوردية</button>
+      <label class="owner" id="posBranchWrap" hidden>الفرع<select id="posBranch"></select></label>
+      <a class="btn" href="./index.html" id="toDashboard">اللوحة</a>
+      <button class="btn" id="logout">خروج</button>
+    </div>
+  </header>
+
+  <section class="pos-main">
+    <div class="pos-left">
+      <div class="pos-search">
+        <input id="q" type="search" autocomplete="off" placeholder="امسح الباركود أو اكتب اسم الصنف… (Enter)" aria-label="بحث عن صنف">
+        <div id="results" class="results" role="listbox" hidden></div>
+      </div>
+      <p class="note" id="posMsg" role="status"></p>
+      <div class="tablebox cart"><table>
+        <thead><tr><th>الصنف</th><th>السعر</th><th>الكمية</th><th>خصم</th><th>الإجمالي</th><th></th></tr></thead>
+        <tbody id="cart"></tbody>
+      </table><p class="empty" id="cartEmpty">امسح أول صنف عشان تبدأ الفاتورة.</p></div>
+    </div>
+
+    <aside class="pos-side card">
+      <div class="mode row"><button class="btn sel" id="modeSale" aria-pressed="true">بيع</button><button class="btn" id="modeReturn" aria-pressed="false">مرتجع</button></div>
+      <div class="stack" id="retBox" hidden>
+        <div class="row"><input id="retNo" autocomplete="off" placeholder="رقم فاتورة البيع" aria-label="رقم فاتورة البيع" style="flex:1"><button class="btn" type="button" id="retFind">هات الفاتورة</button></div>
+        <p class="note" id="retInfo" role="status"></p>
+        <label class="checkline"><input type="checkbox" id="retNoReceipt"> العميل معاهوش الفاتورة</label>
+        <label id="retReasonWrap" hidden>السبب (لازم يتكتب)<input id="retReason" maxlength="200" placeholder="مثلاً: الفاتورة ضاعت، أو بيعة قبل البرنامج"></label>
+      </div>
+      <div class="ledger pos-totals">
+        <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>
+        <div><span>خصم على الفاتورة</span><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"></div>
+        <div><span>الخصم كله</span><span class="n" id="tDisc">0.00</span></div>
+        <div class="tot big"><span id="tLabel">المطلوب</span><span class="n" id="tTotal">0.00</span></div>
+        <div id="creditRow" hidden><span id="creditLabel">على حساب العميل</span><span class="n" id="tCredit">0.00</span></div>
+        <div id="nowRow" hidden><span>يدفع دلوقتي</span><span class="n" id="tNow">0.00</span></div>
+      </div>
+      <div class="stack" id="custBox">
+        <div class="row" id="custChosen" hidden style="justify-content:space-between"><span>العميل: <b id="custName"></b> <span class="muted" id="custInfo"></span></span><button class="btn" type="button" id="custClear">شيل العميل</button></div>
+        <div class="pos-search" id="custSearch"><input id="custQ" type="search" autocomplete="off" placeholder="عميل آجل أو تأمين (اختياري)…" aria-label="العميل"><div id="custResults" class="results" hidden></div></div>
+        <label id="claimWrap" hidden>رقم الموافقة / الروشتة (اختياري)<input id="claimNo" maxlength="60" autocomplete="off"></label>
+      </div>
+      <div class="pay row" id="payMethods"></div>
+      <label id="paidWrap">المدفوع<input id="paid" class="n big-in" type="number" min="0" step="0.5" inputmode="decimal"></label>
+      <div class="ledger"><div class="tot"><span>الباقي للعميل</span><span class="n" id="tChange">—</span></div></div>
+      <button class="btn primary wide big-btn" id="checkout">ادفع واطبع (F2)</button>
+      <button class="btn wide" id="clearCart">فاتورة جديدة (Esc)</button>
+      <details class="help"><summary>إعدادات الطباعة على الجهاز ده</summary>
+        <div class="stack" style="margin-top:8px">
+          <label>عرض ورق الطابعة<select id="paper"><option value="80">80 مم</option><option value="58">58 مم</option></select></label>
+          <label class="checkline"><input id="autoPrint" type="checkbox" checked> اطبع الفاتورة بعد الدفع على طول</label>
+          <label class="checkline" id="silentWrap" hidden><input id="silentPrint" type="checkbox"> اطبع على الطابعة الافتراضية من غير ما يسأل</label>
+          <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
+          <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
+          <label class="checkline"><input id="requirePin" type="checkbox"> كل كاشير يدخل برقمه السري (PIN) قبل ما يبيع، وتتقفل له وردية</label>
+          <p class="note" id="kioskNote">عشان الطباعة تطلع من غير نافذة كل مرة، شغّل كروم بالاختيار <code>--kiosk-printing</code> وخلّي الطابعة الحرارية هي الافتراضية.</p>
+        </div>
+      </details>
+    </aside>
+  </section>
+
+  <section class="pos-day card">
+    <div class="row" style="justify-content:space-between"><h3>فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
+    <div class="ledger" id="daySum"></div>
+    <div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th><th>النوع</th><th>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody id="dayList"></tbody></table></div>
+  </section>
+</div>
+
+<dialog id="unknownDlg" class="card">
+  <h3 id="unknownTitle">الباركود ده مش متسجل</h3>
+  <div id="linkPart">
+    <p class="note">الباركود <b class="n" id="unknownCode"></b> لسه مش مربوط بصنف. لو الصنف موجود بباركود تاني، دوّر عليه واختاره، والبرنامج هيفتكره بعد كده.</p>
+    <input id="linkQ" type="search" autocomplete="off" placeholder="اسم الصنف…" aria-label="دوّر على الصنف">
+    <div id="linkResults" class="results static"></div>
+    <hr>
+  </div>
+  <form id="newItemForm" class="stack" novalidate>
+    <b>صنف جديد مش متسجل خالص؟ ضيفه وبيعه:</b>
+    <label>اسم الصنف<input id="niName" maxlength="160" autocomplete="off"></label>
+    <label>سعر البيع<input id="niPrice" type="number" min="0" step="0.25" inputmode="decimal"></label>
+    <div class="row"><button class="btn primary" type="submit">ضيفه للفاتورة</button><button class="btn" type="button" id="unknownCancel">إلغاء</button><span class="note" id="niMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="custDlg" class="card">
+  <form id="custForm" class="stack" novalidate>
+    <h3>عميل جديد</h3>
+    <label>الاسم<input id="ncName" maxlength="120" autocomplete="off"></label>
+    <label>الموبايل (اختياري)<input id="ncPhone" type="tel" inputmode="tel" maxlength="20"></label>
+    <label>النوع<select id="ncKind"><option value="person">عميل (بيشتري آجل)</option><option value="insurance">شركة تأمين / تعاقد</option></select></label>
+    <label id="ncCovWrap" hidden>الشركة بتدفع كام % من الفاتورة<input id="ncCov" type="number" min="0" max="100" step="1" inputmode="numeric" value="80"></label>
+    <div class="row"><button class="btn primary" type="submit">ضيفه</button><button class="btn" type="button" id="custDlgCancel">إلغاء</button><span class="note" id="ncMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="pinDlg" class="card">
+  <form id="pinForm" class="stack" novalidate>
+    <h3 id="pinTitle">مين بيبيع؟</h3>
+    <p class="note" id="pinNote">اكتب الرقم السري بتاعك (نفس رقم الحضور والانصراف).</p>
+    <input id="pinIn" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري">
+    <label id="openCashWrap" hidden>الفلوس اللي في الدرج دلوقتي (بداية الوردية)<input id="openCash" class="n big-in" type="number" min="0" step="1" inputmode="decimal" value="0"></label>
+    <div class="row"><button class="btn primary" type="submit" id="pinOk">ادخل</button><span class="note" id="pinMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="shiftDlg" class="card">
+  <form id="shiftForm" class="stack" novalidate>
+    <h3>إقفال وردية <span id="shName"></span></h3>
+    <div class="ledger" id="shSum"></div>
+    <label>الفلوس اللي في الدرج فعلاً (عدّها)<input id="shCount" class="n big-in" type="number" min="0" step="0.5" inputmode="decimal"></label>
+    <div class="ledger"><div class="tot"><span id="shDiffLabel">الفرق</span><span class="n" id="shDiff">—</span></div></div>
+    <label>ملاحظة (اختياري)<input id="shNote" maxlength="300"></label>
+    <div class="row"><button class="btn primary" type="submit">اقفل واطبع</button><button class="btn" type="button" id="shCancel">رجوع</button><span class="note" id="shMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<div id="receipt" aria-hidden="true"></div>
+
+<script type="module" src="./src/cashier.js"></script>
+</body>
+</html>
