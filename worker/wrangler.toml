@@ -1,0 +1,35 @@
+# صيدليتي on Cloudflare. Deployed by .github/workflows/cloudflare.yml (needs the repository secrets
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID). Secrets for the WhatsApp jobs and the PIN pepper
+# are set in the Cloudflare dashboard (Worker → Settings → Variables), never here.
+name = "saydaliti"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+html_handling = "none"
+run_worker_first = ["/api/*", "/rest/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "saydaliti"
+database_id = "3cf7edd2-1642-428b-bf1b-973f71d93529"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "saydaliti-files"
+
+[vars]
+MORNING_CRON = "0 6 * * *"
+SITE_URL = "https://saydaliti.workers.dev"
+
+[triggers]
+# 06:00 UTC = 09:00 Cairo: morning report. Every hour at :15: patient reminders.
+crons = ["0 6 * * *", "15 * * * *"]
+
+[observability]
+enabled = true

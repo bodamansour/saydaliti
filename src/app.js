@@ -1762,6 +1762,22 @@ $('cloudBackupBtn').addEventListener('click', async () => {
   $('cloudBackupBtn').disabled = false;
 });
 
+// Moving to the Cloudflare server: a full backup from the old version goes into this new pharmacy.
+$('cloudImportFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (!confirm('تنقل كل البيانات اللي في الملف ده للصيدلية دي؟ (لازم تكون فاضية)')) return;
+  $('cloudBackupMsg').textContent = 'بنقرا الملف…';
+  let dump;
+  try { dump = JSON.parse(await f.text()); } catch { $('cloudBackupMsg').textContent = 'الملف ده مش نسخة احتياطية سليمة.'; return; }
+  $('cloudBackupMsg').textContent = 'بننقل… (ممكن تاخد دقيقة)';
+  const { data, error } = await SESS.client.rpc('import_backup', { p_pharmacy: SESS.pharmacy.id, p_dump: dump });
+  if (error) { $('cloudBackupMsg').textContent = /not empty/.test(error.message) ? 'الصيدلية دي فيها بيانات خلاص. النقل بيتعمل في صيدلية جديدة فاضية بس.' : /not a backup/.test(error.message) ? 'الملف ده مش نسخة احتياطية من صيدليتي.' : `ماتنقلش: ${arabicError(error).message}`; return; }
+  const n = Object.values(data || {}).reduce((a, x) => a + (+x || 0), 0);
+  $('cloudBackupMsg').textContent = `اتنقل ${fmt(n)} سطر. بنفتح من الأول…`;
+  await clearLocal(); setTimeout(() => location.reload(), 800);
+});
+
 // ---------- Offline desktop version: no accounts, backups to a file ----------
 const desktop = () => window.saydalitiDesktop; // provided by the Windows app
 function setupLocal() {
@@ -2084,6 +2100,7 @@ async function boot() {
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
+  $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();
   await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription()]);
