@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي</title>
-<meta name="theme-color" content="#0b6b57">
+<meta name="theme-color" content="#0d3b32">
 <meta name="description" content="لوحة صاحب الصيدلية: الطلبيات، الصلاحية، الراكد، المصروفات، والمكسب الصافي لكل فرع.">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
@@ -24,10 +24,14 @@
 </main>
 
 <div class="wrap" id="app" hidden>
+  <section class="mast" aria-label="ملخص الصيدلية">
   <header class="top">
-    <div>
+    <div class="who">
+      <img class="mark" src="./icons/icon.svg" alt="" width="40" height="40">
+      <div>
       <h1 id="phTitle">صيدليتي</h1>
       <p id="whoLine" class="muted"></p>
+      </div>
     </div>
     <div class="src">
       <span class="chip" id="netChip" role="status"></span>
@@ -43,14 +47,17 @@
     <label class="btn primary" for="file" id="uploadBtn">ارفع بيانات الفرع<input id="file" type="file" accept=".xlsx,.xls,.csv,.json,.gen,.bak" multiple hidden></label>
   </div>
   <p class="note" id="fileMsg" role="status"></p>
+  <section class="tiles" id="tiles" aria-label="ملخص"></section>
+  </section>
   <div class="card" id="stuckBox" hidden></div>
   <div class="card" id="subBanner" role="status" hidden></div>
 
-  <section class="tiles" id="tiles" aria-label="ملخص"></section>
   <nav class="sections" id="sections" aria-label="الأقسام"></nav>
   <nav class="tabs" role="tablist" id="tabs"></nav>
   <section id="panel" class="panel"></section>
 
+  <div class="tools">
+  <h2 class="tools-h">الإعدادات والأدوات</h2>
   <details class="help" id="branchBox">
     <summary>الفروع والشركاء</summary>
     <div id="branchList"></div>
@@ -180,7 +187,9 @@
     </div>
   </details>
 
-  <p class="note"><a class="navlink" href="./attendance.html">الحضور والانصراف ←</a> · <a class="navlink" href="./about.html">عن صيدليتي والأسعار</a> · <a class="navlink" href="./privacy.html">الخصوصية</a> · <a class="navlink" href="./terms.html">شروط الاستخدام</a><span id="adminLink" hidden> · <a class="navlink" href="./admin.html">لوحة إدارة الاشتراكات</a></span></p>
+  </div>
+
+  <footer class="foot"><a class="navlink" href="./attendance.html">الحضور والانصراف</a><a class="navlink" href="./about.html">عن صيدليتي والأسعار</a><a class="navlink" href="./privacy.html">الخصوصية</a><a class="navlink" href="./terms.html">شروط الاستخدام</a><span id="adminLink" hidden><a class="navlink" href="./admin.html">لوحة إدارة الاشتراكات</a></span></footer>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>

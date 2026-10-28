@@ -557,7 +557,8 @@ test('phone size: no sideways scrolling in any section', async () => {
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
     const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-    assert.equal(over, 0, `${tab} scrolls sideways by ${over}px`);
+    const wide = over ? await page.evaluate(() => [document.documentElement, document.body, ...document.querySelectorAll('body *')].filter((e) => !e.parentElement?.closest('.tablebox') && e.scrollWidth > e.clientWidth + 1).map((e) => `${e.tagName.toLowerCase()}#${e.id}.${e.className}:${e.scrollWidth}/${e.clientWidth}[${getComputedStyle(e).overflowX}]`).join(', ')) : '';
+    assert.equal(over, 0, `${tab} scrolls sideways by ${over}px: ${wide}`);
   }
   await page.setViewportSize({ width: 1200, height: 900 });
 });
@@ -667,7 +668,7 @@ test('admin page: see each pharmacy and turn on a paid month', async () => {
 test('public pages open', async () => {
   for (const f of ['about.html', 'privacy.html', 'terms.html']) {
     await page.goto(base + f);
-    assert.match(await text('h1'), /صيدليتي|الخصوصية|الشروط|شروط/);
+    assert.match(await text('h1'), /صيدلي|الخصوصية|الشروط|شروط/);
   }
 });
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي — الحضور</title>
-<meta name="theme-color" content="#0b6b57">
+<meta name="theme-color" content="#0d3b32">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
@@ -14,13 +14,18 @@
 </head>
 <body>
 <div class="wrap">
+  <section class="mast">
   <header class="top">
-    <div>
+    <div class="who">
+      <img class="mark" src="./icons/icon.svg" alt="" width="40" height="40">
+      <div>
       <h1>الحضور والانصراف</h1>
-      <a class="navlink" href="./index.html">→ رجوع للوحة الصيدلية</a>
+      <a class="navlink" href="./index.html">رجوع للوحة الصيدلية</a>
+      </div>
     </div>
     <div class="src"><span class="chip" id="modeChip">بيحمّل…</span><button class="btn" id="logout" hidden>خروج</button></div>
   </header>
+  </section>
   <p class="note" id="modeNote" hidden>لحد ما قاعدة البيانات تتعمل، التسجيل بيتحفظ على الجهاز ده بس. الموظفين اللي عليهم «(مثال)» للتجربة: كود سارة 1111 وكود محمد 2222.</p>
 
   <section id="auth" class="card" hidden></section>

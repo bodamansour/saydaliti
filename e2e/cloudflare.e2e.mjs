@@ -240,7 +240,7 @@ test('signing out and in again', { skip }, async () => {
 test('public pages show the prices from the server', { skip }, async () => {
   const p = await newPage();
   await p.goto(`${BASE}/about.html`);
-  assert.match(await text(p, 'h1'), /صيدليتي/);
+  assert.match(await text(p, 'h1'), /الصيدلية/);
 });
 
 test('no script errors', { skip }, () => { assert.deepEqual(errors, []); });
