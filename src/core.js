@@ -105,7 +105,7 @@ export function batchRisk(batches, rate, today, window) {
     }
     if (risk > 0 && firstRiskDays === null) firstRiskDays = expDays;
     atRisk += risk;
-    detail.push({ qty: b.qty, expiry: b.expiry, expDays, atRisk: risk });
+    detail.push({ qty: b.qty, expiry: b.expiry, expDays, atRisk: risk, ...(b.cost != null ? { cost: b.cost } : {}) });
     before += b.qty;
   }
   return { atRisk, firstRiskDays, detail };
@@ -136,7 +136,11 @@ export function analyze(data, settings = {}, today = startOfDay()) {
     const expDays = risk.firstRiskDays ?? (nearest ? Math.round((startOfDay(nearest.expiry) - today) / DAY) : null);
     const order = rate > 0 && daysCover <= s.lead + 7 ? Math.max(1, Math.ceil(rate * s.cover - qty)) : 0;
     const dead = qty > 0 && (lastSale === null || lastSale >= s.deadDays);
-    return { ...it, qty, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk: risk.atRisk, batchRisk: risk.detail, order, dead, revenue: q * it.price };
+    // Money on the shelf and money at risk, at what each batch cost (not today's buying price).
+    const boxCost = (b) => b.cost ?? it.cost ?? 0;
+    const value = batches.reduce((a, b) => a + b.qty * boxCost(b), 0);
+    const riskValue = risk.detail.reduce((a, b) => a + b.atRisk * boxCost(b), 0);
+    return { ...it, qty, value, riskValue, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk: risk.atRisk, batchRisk: risk.detail, order, dead, revenue: q * it.price };
   });
 
   const revenue = rows.reduce((a, r) => a + r.revenue, 0);
@@ -152,7 +156,7 @@ export function analyze(data, settings = {}, today = startOfDay()) {
     aboveSimplifiedCeiling: s.taxMode === 'simplified' && taxRate === null,
     reorder: rows.filter((r) => r.order > 0).sort((a, b) => a.daysCover - b.daysCover),
     expiring: rows.filter((r) => r.atRisk > 0).sort((a, b) => a.expDays - b.expDays),
-    deadStock: rows.filter((r) => r.dead).sort((a, b) => b.qty * b.cost - a.qty * a.cost),
+    deadStock: rows.filter((r) => r.dead).sort((a, b) => b.value - a.value),
     movers: rows.filter((r) => r.sold > 0).sort((a, b) => b.revenue - a.revenue),
   };
 }
@@ -165,7 +169,7 @@ export function fromExport(json) {
   for (const b of json.batches || []) {
     const code = String(b.code).trim();
     if (!byCode.has(code)) byCode.set(code, []);
-    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry) });
+    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry), ...(+b.cost > 0 ? { cost: +b.cost } : {}) });
   }
   const items = (json.items || []).filter((i) => i.code != null).map((i) => {
     const code = String(i.code).trim();
@@ -188,9 +192,10 @@ export function fromExport(json) {
     qty: +x.qty,
     ...(x.amount != null && +x.qty > 0 ? { price: +x.amount / +x.qty } : {}),
     ...(+x.discount ? { discount: +x.discount } : {}),
+    ...(x.cost != null && x.cost !== '' ? { cost: +x.cost } : {}),
   }));
   const purchases = (json.purchases || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, cost: +x.cost || 0 }));
-  const losses = (json.losses || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, reason: String(x.reason || 'هالك') }));
+  const losses = (json.losses || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, reason: String(x.reason || 'هالك'), ...(x.cost != null && x.cost !== '' ? { cost: +x.cost } : {}) }));
   return { items, sales, purchases, losses, real: true };
 }
 
@@ -208,12 +213,12 @@ export function toExport(data) {
     if (i.qty && !i.batches?.length) row.qty = i.qty;
     if (i.expiry && !i.batches?.length) row.expiry = iso(i.expiry);
     items.push(row);
-    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry) });
+    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry), ...(b.cost != null && b.cost !== i.cost ? { cost: b.cost } : {}) });
   }
   const sales = data.sales.map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty,
-    amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}) }));
+    amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}), ...(x.cost != null ? { cost: x.cost } : {}) }));
   const purchases = (data.purchases || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, cost: x.cost }));
-  const losses = (data.losses || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, reason: t(x.reason) }));
+  const losses = (data.losses || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, reason: t(x.reason), ...(x.cost != null ? { cost: x.cost } : {}) }));
   return { items, batches, sales, purchases, losses };
 }
 
@@ -231,11 +236,11 @@ export function partnerSummary(A) {
     if (!out.has(k)) out.set(k, { owner: k, items: 0, stockVal: 0, monthlySales: 0, monthlyNet: 0, riskVal: 0, deadVal: 0 });
     const o = out.get(k);
     o.items += 1;
-    o.stockVal += r.qty * r.cost;
+    o.stockVal += r.value;
     o.monthlySales += r.monthly * r.price;
     o.monthlyNet += r.monthly * profitAt(r.price, r, A).net;
-    o.riskVal += r.atRisk * r.cost;
-    if (r.dead) o.deadVal += r.qty * r.cost;
+    o.riskVal += r.riskValue;
+    if (r.dead) o.deadVal += r.value;
   }
   return [...out.values()].sort((a, b) => b.monthlySales - a.monthlySales);
 }
@@ -266,9 +271,9 @@ export function ledger(data, rates, from = null, to = null) {
     r.listValue += list;
     r.revenue += charged;
     r.discount += Math.max(0, list - charged);
-    r.cogs += s.qty * it.cost;
+    r.cogs += s.qty * (s.cost ?? it.cost); // the cost of the boxes sold, when known
   }
-  for (const l of data.losses || []) if (inRange(l.date)) { const it = items.get(l.code) || { cost: 0 }; const r = row(l.code); r.lostQty += l.qty; r.lost += l.qty * it.cost; }
+  for (const l of data.losses || []) if (inRange(l.date)) { const it = items.get(l.code) || { cost: 0 }; const r = row(l.code); r.lostQty += l.qty; r.lost += l.qty * (l.cost ?? it.cost); }
   const list = [...rows.values()].map((r) => {
     r.tax = r.revenue * rates.taxRate;
     r.overhead = r.revenue * rates.overheadRate;

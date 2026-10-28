@@ -157,3 +157,36 @@ test('editing stock by hand: quantities and expiry dates become adjustments', as
   const p = d.items.find((i) => i.code === 'P1');
   assert.deepEqual(p.batches.map((b) => [b.qty, b.expiry ? `${b.expiry.getFullYear()}-${String(b.expiry.getMonth() + 1).padStart(2, '0')}` : null]).sort(), [[10, '2027-08'], [3, '2026-12'], [4, null]].sort());
 });
+
+test('cost of sales: each box sold is costed at the batch it came out of, not today\'s price', async () => {
+  const { ledger } = await import('../src/core.js');
+  const { stockValue } = await import('../src/inventory.js');
+  // 10 boxes at 60 that expire first, on top of the uploaded 15 at 40; then 12 sold.
+  const d = liveData(base, AT, {
+    purchases: [{ created_at: '2026-10-21T10:00:00Z', received_on: '2026-10-21', lines: [{ code: 'P1', qty: 10, cost: 60, expiry: '2026-11-01' }] }],
+    sales: [{ sold_at: '2026-10-22T12:00:00Z', kind: 'sale', lines: [{ code: 'P1', qty: 12, price: 70 }] }],
+  });
+  const p = d.items.find((i) => i.code === 'P1');
+  assert.equal(p.cost, 60, 'the latest buying price is still the item\'s price');
+  const L = ledger(d, { taxRate: 0, overheadRate: 0 }, new Date(2026, 9, 22), new Date(2026, 9, 23));
+  assert.equal(Math.round(L.totals.cogs), 680); // 10 × 60 + 2 × 40
+  assert.equal(stockValue(p), 520, 'the 13 left on the shelf are the ones bought at 40');
+});
+
+test('expired boxes written off cost what that batch cost; one expiry bought at two prices averages', () => {
+  const d = liveData(base, AT, {
+    purchases: [{ created_at: '2026-10-21T10:00:00Z', received_on: '2026-10-21', lines: [{ code: 'P1', qty: 5, cost: 60, expiry: '2026-12-01' }] }],
+    moves: [{ happened_at: '2026-10-22T09:00:00Z', code: 'P1', qty: -10, kind: 'expired' }],
+  });
+  const p = d.items.find((i) => i.code === 'P1');
+  assert.deepEqual(d.losses.map((l) => [l.qty, l.cost]), [[10, 50]]); // 5 at 40 + 5 at 60, same expiry
+  assert.equal(p.qty, 10);
+});
+
+test('a batch cost survives saving and loading the stock', async () => {
+  const { toExport } = await import('../src/core.js');
+  const d = liveData(base, AT, { purchases: [{ created_at: '2026-10-21T10:00:00Z', received_on: '2026-10-21', lines: [{ code: 'P1', qty: 4, cost: 60, expiry: '2028-01-01' }] }] });
+  const again = fromExport(toExport(d));
+  const p = again.items.find((i) => i.code === 'P1');
+  assert.deepEqual(p.batches.map((b) => b.cost ?? p.cost).sort(), [40, 40, 60]);
+});
