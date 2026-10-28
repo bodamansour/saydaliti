@@ -11,7 +11,7 @@ import { isGeniusBackup } from './genius.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
-import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf } from './inventory.js';
+import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 const TODAY = startOfDay();
@@ -153,9 +153,9 @@ function render(background = false) {
   $('customTaxWrap').hidden = s.taxMode !== 'custom';
   const has = DATA.items.length > 0;
   const offerRows = [...new Map([...A.expiring, ...A.deadStock].map((r) => [r.code, r])).values()];
-  const stockVal = A.rows.reduce((a, r) => a + r.qty * r.cost, 0);
-  const riskVal = A.expiring.reduce((a, r) => a + r.atRisk * r.cost, 0);
-  const deadVal = A.deadStock.reduce((a, r) => a + r.qty * r.cost, 0);
+  const stockVal = A.rows.reduce((a, r) => a + r.value, 0);
+  const riskVal = A.expiring.reduce((a, r) => a + r.riskValue, 0);
+  const deadVal = A.deadStock.reduce((a, r) => a + r.value, 0);
   const monthExp = EXP_READY ? expenseTotals(EXPENSES, new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), addDays(TODAY, 1), BRANCH === 'all' ? 'all' : BRANCH_ID()) : null;
 
   $('tiles').hidden = !has && !monthExp?.count;
@@ -197,11 +197,11 @@ function render(background = false) {
   } else if (TAB === 'expiry') {
     html = '<p>الكمية اللي غالباً مش هتتباع قبل الصلاحية على حسب سرعة السحب. اعمل عليها عرض، أو رجّعها للمخزن لو ينفع.</p>' + table(
       ['الصنف', 'الصلاحية', 'في الرف', 'متوقع يتباع', 'في خطر', 'قيمتها', ''],
-      A.expiring.map((r) => `<tr>${nameCell(r)}<td><span class="pill ${r.expDays <= 30 ? 'crit' : 'warn'}">${r.expDays <= 0 ? 'منتهي' : `بعد ${fmt(r.expDays)} يوم`}</span></td><td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.qty - r.atRisk)}</td><td class="n"><b>${fmt(r.atRisk)}</b></td><td>${egp(r.atRisk * r.cost)}</td><td><button class="btn" data-calc="${esc(r.code)}">احسب عرض</button></td></tr>`));
+      A.expiring.map((r) => `<tr>${nameCell(r)}<td><span class="pill ${r.expDays <= 30 ? 'crit' : 'warn'}">${r.expDays <= 0 ? 'منتهي' : `بعد ${fmt(r.expDays)} يوم`}</span></td><td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.qty - r.atRisk)}</td><td class="n"><b>${fmt(r.atRisk)}</b></td><td>${egp(r.riskValue)}</td><td><button class="btn" data-calc="${esc(r.code)}">احسب عرض</button></td></tr>`));
   } else if (TAB === 'dead') {
     html = '<p>أصناف متباعتش من 45 يوم أو أكتر. متطلبش منها تاني، وفكّر في عرض عليها.</p>' + table(
       ['الصنف', 'آخر بيع', 'في الرف', 'فلوس واقفة', ''],
-      A.deadStock.map((r) => `<tr>${nameCell(r)}<td>${r.lastSale === null ? '<span class="pill crit">ولا مرة</span>' : `<span class="pill warn">من ${fmt(r.lastSale)} يوم</span>`}</td><td class="n">${fmt(r.qty)}</td><td>${egp(r.qty * r.cost)}</td><td><button class="btn" data-calc="${esc(r.code)}">احسب عرض</button></td></tr>`));
+      A.deadStock.map((r) => `<tr>${nameCell(r)}<td>${r.lastSale === null ? '<span class="pill crit">ولا مرة</span>' : `<span class="pill warn">من ${fmt(r.lastSale)} يوم</span>`}</td><td class="n">${fmt(r.qty)}</td><td>${egp(r.value)}</td><td><button class="btn" data-calc="${esc(r.code)}">احسب عرض</button></td></tr>`));
   } else if (TAB === 'movers') {
     html = `<p>مرتبة بالفلوس اللي دخلت منها في آخر ${A.periodDays} يوم.</p>` + table(
       ['الصنف', 'اتباع', 'في الشهر', 'المبيعات', 'مكسبك الصافي في العلبة'],
@@ -1261,7 +1261,7 @@ function renderAdjust() {
   const hist = MOVES.filter(inBranch({ id: bid })).sort((a, b) => String(b.happened_at).localeCompare(String(a.happened_at))).slice(0, 100);
   const exp = expired.length ? `<div class="card"><h3>علب منتهية لسه في الرصيد (${fmt(expired.length)} صنف)</h3>
     <p class="note">لو شلتها من الرف فعلاً، دوس «شيلها» وهتتسجل خسارة منتهي الصلاحية.</p>
-    ${table(['الصنف', 'منتهي من', 'الكمية', 'قيمتها', ''], expired.map((x) => `<tr><td class="name">${esc(x.name)}</td><td>${expText(x.expiry)}</td><td class="n">${fmt(x.qty)}</td><td>${egp(x.qty * x.cost)}</td><td>${isOwner() ? `<button class="btn" type="button" data-expout="${esc(x.code)}" data-expqty="${x.qty}">شيلها</button>` : ''}</td></tr>`))}</div>` : '';
+    ${table(['الصنف', 'منتهي من', 'الكمية', 'قيمتها', ''], expired.map((x) => `<tr><td class="name">${esc(x.name)}</td><td>${expText(x.expiry)}</td><td class="n">${fmt(x.qty)}</td><td>${egp(x.value)}</td><td>${isOwner() ? `<button class="btn" type="button" data-expout="${esc(x.code)}" data-expqty="${x.qty}">شيلها</button>` : ''}</td></tr>`))}</div>` : '';
   const count = `<details class="help" id="countBox" ${countedN() || COUNT_Q ? 'open' : ''}><summary>جرد الرف (اكتب العدد الفعلي لكل صنف)</summary>
     <p class="note">اكتب اللي لقيته على الرف قدام كل صنف، حتى لو صفر. اللي بتكتبه بيتحفظ على الجهاز لحد ما تسجّل الجرد، فتقدر تجرد على كذا مرة.</p>
     <input id="countQ" type="search" autocomplete="off" placeholder="دوّر على صنف…" value="${esc(COUNT_Q)}" aria-label="دوّر في الجرد">
@@ -1650,7 +1650,7 @@ function exportTables() {
   const barcode = new Map(CATALOG.filter((c) => c.barcode).map((c) => [c.code, c.barcode]));
   const items = [...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => ({
     'الكود': i.code, 'الصنف': i.name, 'النوع': i.category, 'الباركود': barcode.get(i.code) || '', 'سعر الشراء': i.cost, 'سعر البيع': i.price,
-    'الرصيد': i.qty, 'أقرب صلاحية': dateText(i.batches?.find((b) => b.expiry && b.qty > 0)?.expiry ?? i.expiry), 'قيمة الرصيد': Math.round(i.qty * i.cost * 100) / 100, 'الشريك': i.owner === 'من غير صاحب' ? '' : i.owner,
+    'الرصيد': i.qty, 'أقرب صلاحية': dateText(i.batches?.find((b) => b.expiry && b.qty > 0)?.expiry ?? i.expiry), 'قيمة الرصيد': stockValue(i), 'الشريك': i.owner === 'من غير صاحب' ? '' : i.owner,
   }));
   const batches = DATA.items.flatMap((i) => (i.batches?.length ? i.batches : i.qty ? [{ qty: i.qty, expiry: i.expiry }] : []).filter((b) => b.qty > 0).map((b) => ({ 'الكود': i.code, 'الصنف': i.name, 'الكمية': b.qty, 'الصلاحية': dateText(b.expiry) })));
   const sales = [...DATA.sales].sort((a, b) => a.date - b.date).map((x) => ({ 'التاريخ': dateText(x.date), 'الكود': x.code, 'الصنف': name.get(x.code) || x.code, 'الكمية': x.qty, 'سعر الوحدة': x.price ?? '', 'الخصم': x.discount || 0,

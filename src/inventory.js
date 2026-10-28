@@ -11,16 +11,20 @@ const time = (v) => (v ? new Date(v).getTime() : 0);
 const dayOf = (v) => { const d = new Date(v); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
 const fromIsoDay = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`) : null);
 const round2 = (n) => Math.round(n * 100) / 100;
+const round4 = (n) => Math.round(n * 1e4) / 1e4;
 
 export const EMPTY_DATA = () => ({ items: [], sales: [], purchases: [], losses: [], real: true });
 
+// Each batch keeps what one box of it cost, so a sale is costed at the batch it came out of, not at
+// today's buying price. Batches from the uploaded file with no cost of their own take the item's.
 function copyItem(it) {
-  return { ...it, ...(it.batches ? { batches: it.batches.map((b) => ({ ...b })) } : {}) };
+  const list = it.batches || (it.qty > 0 ? [{ qty: it.qty, expiry: it.expiry ?? null }] : null);
+  return { ...it, ...(list ? { batches: list.map((b) => ({ ...b, cost: b.cost ?? it.cost })) } : {}) };
 }
 
 // Stock as batches (earliest expiry first), so stock can be taken out and put back per batch.
 function batchesFor(it) {
-  if (!it.batches) it.batches = it.qty ? [{ qty: it.qty, expiry: it.expiry ?? null }] : [];
+  if (!it.batches) it.batches = it.qty ? [{ qty: it.qty, expiry: it.expiry ?? null, cost: it.cost }] : [];
   return it.batches;
 }
 const sortBatches = (list) => list.sort((a, b) => (a.expiry ? a.expiry.getTime() : Infinity) - (b.expiry ? b.expiry.getTime() : Infinity));
@@ -36,28 +40,39 @@ function settle(it) {
 }
 
 // Takes stock off the shelf: from the batch with the given expiry first (a correction of one
-// batch), then from the earliest expiry.
+// batch), then from the earliest expiry. Returns what the boxes taken out cost.
 function takeOut(it, qty, expiry) {
   const list = sortBatches(batchesFor(it));
-  let left = qty;
+  let left = qty, cost = 0;
   // Same day: dates from a file and dates typed here can differ by the time zone (a few hours).
   const sameDay = (x, y) => (x && y ? Math.abs(x.getTime() - y.getTime()) < 12 * 3600000 : !x && !y);
   const first = expiry === undefined ? [] : list.filter((b) => sameDay(b.expiry, expiry));
   for (const b of [...first, ...list.filter((x) => !first.includes(x))]) {
     const n = Math.min(b.qty, left);
-    b.qty -= n; left -= n;
+    b.qty -= n; left -= n; cost += n * (b.cost ?? it.cost);
     if (!left) break;
   }
-  if (left > 0) it.short = (it.short || 0) + left;
+  if (left > 0) { it.short = (it.short || 0) + left; cost += left * it.cost; } // no stock recorded: today's price
+  return cost;
 }
 
-function putBack(it, qty, expiry = null) {
+function putBack(it, qty, expiry = null, cost = it.cost) {
   const list = batchesFor(it);
   let n = qty;
   if (it.short) { const pay = Math.min(it.short, n); it.short -= pay; n -= pay; }
   if (!n) return;
   const same = list.find((b) => (b.expiry && expiry ? Math.abs(b.expiry.getTime() - expiry.getTime()) < 12 * 3600000 : !b.expiry && !expiry));
-  if (same) same.qty += n; else list.push({ qty: n, expiry });
+  if (!same) { list.push({ qty: n, expiry, cost }); return; }
+  // Same expiry bought at another price: one batch at the average cost.
+  const was = Math.max(0, same.qty);
+  same.cost = was + n ? round2(((same.cost ?? it.cost) * was + cost * n) / (was + n)) : cost;
+  same.qty += n;
+}
+
+// What the boxes on the shelf cost, batch by batch.
+export function stockValue(it) {
+  if (!it.batches?.length) return (it.qty || 0) * (it.cost || 0);
+  return round2(it.batches.reduce((a, b) => a + (b.qty > 0 ? b.qty * (b.cost ?? it.cost ?? 0) : 0), 0));
 }
 
 function newItem(code, row = {}) {
@@ -101,17 +116,19 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         const it = get(code, l);
         const qty = +l.qty || 0, bonus = +l.bonus || 0;
         if (qty + bonus <= 0) continue;
-        putBack(it, qty + bonus, fromIsoDay(l.expiry));
-        if (+l.cost > 0) it.cost = round2((+l.cost * qty) / (qty + bonus)); // free units lower the cost of each box
+        const box = round2(((+l.cost || 0) * qty) / (qty + bonus)); // free units lower the cost of each box
+        putBack(it, qty + bonus, fromIsoDay(l.expiry), +l.cost > 0 ? box : it.cost);
+        if (+l.cost > 0) it.cost = box;
         if (+l.price > 0) it.price = +l.price;
-        out.purchases.push({ date, code, qty: qty + bonus, cost: qty + bonus ? round2((+l.cost * qty) / (qty + bonus)) : 0 });
+        out.purchases.push({ date, code, qty: qty + bonus, cost: box });
       }
     } else if (kind === 'move') {
       const it = get(String(row.code), row);
       const qty = +row.qty || 0;
-      if (qty > 0) putBack(it, qty, fromIsoDay(row.expiry));
-      else if (qty < 0) takeOut(it, -qty, row.expiry === undefined ? undefined : fromIsoDay(row.expiry));
-      if (LOSS_REASON[row.kind] && qty < 0) out.losses.push({ date: dayOf(row.happened_at), code: it.code, qty: -qty, reason: LOSS_REASON[row.kind] });
+      let cost = 0;
+      if (qty > 0) putBack(it, qty, fromIsoDay(row.expiry), +row.cost > 0 ? +row.cost : it.cost);
+      else if (qty < 0) cost = takeOut(it, -qty, row.expiry === undefined ? undefined : fromIsoDay(row.expiry));
+      if (LOSS_REASON[row.kind] && qty < 0) out.losses.push({ date: dayOf(row.happened_at), code: it.code, qty: -qty, reason: LOSS_REASON[row.kind], cost: round4(cost / -qty) });
     } else {
       const sign = row.kind === 'return' ? -1 : 1;
       const lines = (row.lines || []).filter((l) => +l.qty);
@@ -122,10 +139,13 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         const code = String(l.code);
         const it = get(code, l);
         const qty = +l.qty;
-        if (sign > 0) takeOut(it, qty); else putBack(it, qty);
+        // The cost of what was sold is the cost of the boxes it came out of; a returned box goes back
+        // at the item's buying price, and comes off the cost of sales at that price.
+        const unitCost = sign > 0 ? round4(takeOut(it, qty) / qty) : it.cost;
+        if (sign < 0) putBack(it, qty);
         const net = (+l.price || 0) * qty - (+l.discount || 0);
         const off = round2((+l.discount || 0) + (gross > 0 ? (extra * net) / gross : 0));
-        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: +l.price || 0, ...(off ? { discount: sign * off } : {}) });
+        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: +l.price || 0, cost: unitCost, ...(off ? { discount: sign * off } : {}) });
       }
     }
   }
@@ -196,10 +216,12 @@ export function expiredOnShelf(items, today) {
   const out = [];
   for (const it of items) {
     const list = it.batches?.length ? it.batches : [{ qty: it.qty, expiry: it.expiry ?? null }];
-    const qty = list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).reduce((a, b) => a + b.qty, 0);
-    if (qty > 0) out.push({ code: it.code, name: it.name, qty, cost: it.cost, expiry: list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t).sort((a, b) => a.expiry - b.expiry)[0].expiry });
+    const gone = list.filter((b) => b.expiry && b.qty > 0 && b.expiry.getTime() < t);
+    const qty = gone.reduce((a, b) => a + b.qty, 0);
+    const value = round2(gone.reduce((a, b) => a + b.qty * (b.cost ?? it.cost ?? 0), 0));
+    if (qty > 0) out.push({ code: it.code, name: it.name, qty, cost: it.cost, value, expiry: gone.sort((a, b) => a.expiry - b.expiry)[0].expiry });
   }
-  return out.sort((a, b) => b.qty * b.cost - a.qty * a.cost);
+  return out.sort((a, b) => b.value - a.value);
 }
 
 // ---------- Editing an item's stock by hand ----------

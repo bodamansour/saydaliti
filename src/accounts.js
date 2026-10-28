@@ -73,10 +73,10 @@ export function profitByPeriod(data, by = 'month', from = null, to = null) {
     if (!inRange(s.date)) continue;
     const r = row(keyOf(s.date));
     r.sales += s.qty * (s.price ?? list.get(s.code) ?? 0) - (s.discount || 0);
-    r.cogs += s.qty * (cost.get(s.code) ?? 0);
+    r.cogs += s.qty * (s.cost ?? cost.get(s.code) ?? 0); // the cost of the boxes sold, when known
     r.qty += s.qty;
   }
-  for (const l of data.losses || []) if (inRange(l.date)) row(keyOf(l.date)).lost += l.qty * (cost.get(l.code) ?? 0);
+  for (const l of data.losses || []) if (inRange(l.date)) row(keyOf(l.date)).lost += l.qty * (l.cost ?? cost.get(l.code) ?? 0);
   return [...rows.values()].map((r) => {
     for (const k of ['sales', 'cogs', 'lost']) r[k] = round2(r[k]);
     r.gross = round2(r.sales - r.cogs);

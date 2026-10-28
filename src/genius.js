@@ -251,8 +251,10 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     const code = String(Math.trunc(r.itm_id));
     if (!items.has(code)) continue;
     const exp = r.itm_expiry_date && String(r.itm_expiry_date).slice(0, 4) >= '2000' ? day(r.itm_expiry_date) : null;
-    batches.push({ code, qty: r2(r.itm_qty), expiry: exp });
-    if (ok(r.pharm_price, 1e5) && r.pharm_price > 0) bcost.set(code, [r.pharm_price, r.sell_price]);
+    // Each stock row keeps its own buying price, so the boxes are costed at what they cost.
+    const pp = ok(r.pharm_price, 1e5) && r.pharm_price > 0 ? r2(r.pharm_price) : null;
+    batches.push({ code, qty: r2(r.itm_qty), expiry: exp, ...(pp ? { cost: pp } : {}) });
+    if (pp) bcost.set(code, [r.pharm_price, r.sell_price]);
   }
   for (const [code, [pp, sp]] of bcost) {
     items.get(code).cost = pp;
@@ -275,7 +277,9 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
       let rem = q;
       for (const b of [...(byCode.get(code) || [])].sort((x, y) => (y.expiry || '9999').localeCompare(x.expiry || '9999'))) {
         const take = Math.min(b.qty, rem);
-        if (take > 0) { fixed.push({ code, qty: r2(take), expiry: b.expiry }); rem -= take; }
+        // A batch price far from the item's latest buying price is a typo or a stale row: not used.
+        const own = b.cost && !(ok(pp, 1e5) && pp > 0 && (b.cost < pp / 2 || b.cost > pp * 2)) ? { cost: b.cost } : {};
+        if (take > 0) { fixed.push({ code, qty: r2(take), expiry: b.expiry, ...own }); rem -= take; }
       }
       if (rem > 0.001) fixed.push({ code, qty: r2(rem), expiry: null });
       if (ok(pp, 1e5) && pp > 0) items.get(code).cost = pp;
@@ -323,8 +327,23 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     p[1] += r.qnty; p[2] += r.qnty * cost;
     purch.set(k, p);
   }
-  // Several deliveries of one item on one day: the average cost of a paid box, weighted by quantity.
-  const purchases = [...purch].map(([k, v]) => { const [code, date] = k.split('|'); return { code, date, qty: r3(v[0]), cost: r2(v[1] ? v[2] / v[1] : 0) }; });
+  // Several deliveries of one item on one day: the money paid over all the boxes received, bonus
+  // included — the same way an invoice entered in Saydaliti is costed (free boxes lower the cost).
+  const purchases = [...purch].map(([k, v]) => { const [code, date] = k.split('|'); return { code, date, qty: r3(v[0]), cost: r2(v[0] ? v[2] / v[0] : 0) }; });
+
+  // Old sales are costed at the buying price of the last delivery before them, not today's price.
+  const bought = new Map();
+  for (const p of [...purchases].sort((a, b) => a.date.localeCompare(b.date))) if (p.cost > 0) {
+    if (!bought.has(p.code)) bought.set(p.code, []);
+    bought.get(p.code).push(p);
+  }
+  for (const s of sales) {
+    const list = bought.get(s.code);
+    if (!list) continue;
+    let last = null;
+    for (const p of list) { if (p.date > s.date) break; last = p; }
+    if (last) s.cost = last.cost;
+  }
 
   // Every active item is kept (even with no stock), so the whole list is in Saydaliti; inactive
   // items only when they still have stock or sold recently.

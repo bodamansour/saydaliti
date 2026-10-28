@@ -31,12 +31,17 @@ test('turns the backup into Saydaliti items, stock with expiry, and sales', asyn
   assert.deepEqual(out.items.map((i) => i.code).sort(), ['5001', '5002', '5004'], 'every active item, even with no stock; not the stopped one');
   const p = out.items.find((i) => i.code === '5001');
   assert.deepEqual([p.name, p.category, p.cost, p.price], ['بانادول إكسترا', 'أدوية', 41, 52]);
-  // The latest daily stock (12) is the true quantity, kept on the latest-expiry boxes first.
-  assert.deepEqual(out.batches.filter((b) => b.code === '5001'), [{ code: '5001', qty: 10, expiry: '2027-06-01' }, { code: '5001', qty: 2, expiry: '2026-12-01' }]);
+  // The latest daily stock (12) is the true quantity, kept on the latest-expiry boxes first, each
+  // with its own buying price; a batch price far from the item's (290 vs 41) is not trusted.
+  assert.deepEqual(out.batches.filter((b) => b.code === '5001'), [{ code: '5001', qty: 10, expiry: '2027-06-01', cost: 41 }, { code: '5001', qty: 2, expiry: '2026-12-01', cost: 41 }]);
+  assert.deepEqual(out.batches.filter((b) => b.code === '5002'), [{ code: '5002', qty: 3, expiry: '2027-02-01' }]);
   assert.deepEqual(out.sales.sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code)).map((s) => [s.code, s.date, s.qty, s.amount, s.discount]),
     [['5001', '2026-10-20', 2, 100, 5], ['5001', '2026-10-24', 1, 52, 0], ['5002', '2026-10-24', 1, 420, 0]]);
-  // Purchases of one day: all the boxes (bonus included), at the average price of a paid box.
-  assert.deepEqual(out.purchases, [{ code: '5001', date: '2026-10-22', qty: 42, cost: 43 }]);
+  // Purchases of one day: all the boxes (bonus included); the money paid spread over all of them,
+  // so 40 paid boxes at 43 + 2 free = 1,720 ÷ 42.
+  assert.deepEqual(out.purchases, [{ code: '5001', date: '2026-10-22', qty: 42, cost: 40.95 }]);
+  // A sale after a delivery is costed at that delivery's price; one before it at the item's price.
+  assert.deepEqual(out.sales.filter((s) => s.code === '5001').map((s) => [s.date, s.cost]), [['2026-10-20', undefined], ['2026-10-24', 40.95]]);
 });
 
 test('a browser file (Blob) works the same way', async () => {
