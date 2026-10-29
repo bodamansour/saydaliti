@@ -55,3 +55,17 @@ test('the connector uses the same backup reader as the app', async () => {
   const connector = await readFile(new URL('../connector/genius/genius.mjs', import.meta.url), 'utf8');
   assert.equal(connector, app, 'copy src/genius.js to connector/genius/genius.mjs');
 });
+
+test('an item United shows at zero stays at zero, even when its daily stock record is older', async () => {
+  // United reset to zero: nothing left in the stock table, but the daily record still has yesterday's numbers.
+  const tables = {
+    Item_Catalog: [{ itm_id: 1, itm_name_ar: 'بانادول', itm_ismedicine: 1, itm_def_pharm_price: 40, itm_def_sell_price: 50, itm_active: '1' },
+      { itm_id: 2, itm_name_ar: 'كريم', itm_ismedicine: 0, itm_def_pharm_price: 90, itm_def_sell_price: 120, itm_active: '1' }],
+    Item_Class_Store: [{ itm_id: 2, itm_qty: 4, itm_expiry_date: '2027-05-01T00:00:00', pharm_price: 90, sell_price: 120 }],
+    Item_Daily_Stock: [{ ids_day: 20261028, ids_itm_id: 1, ids_qty: 25, ids_purchasePrice: 41, ids_sellPrice: 52 }, { ids_day: 20261028, ids_itm_id: 2, ids_qty: 4, ids_purchasePrice: 90, ids_sellPrice: 120 }],
+  };
+  const db = { tables: new Map(Object.keys(tables).map((t) => [t, t])), async *rows(t) { yield* tables[t] || []; } };
+  const out = await geniusToExport(db, { since: '2025-10-29', today: new Date(2026, 9, 29) });
+  assert.deepEqual(out.batches, [{ code: '2', qty: 4, expiry: '2027-05-01', cost: 90 }]);
+  assert.equal(out.items.find((i) => i.code === '1').price, 52, 'its latest prices are still taken');
+});
