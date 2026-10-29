@@ -72,7 +72,7 @@ test('dashboard opens with no example data, grouped in sections', async () => {
   assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'مبيعات الكاشير', 'الورديات', 'المصروفات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'مبيعات الكاشير', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -142,13 +142,16 @@ test('expenses save online, and queue offline until the connection is back', asy
   await page.click('#expForm button[type=submit]');
   assert.ok(await until(async () => (await db('expenses')).length === 1));
   await goOffline();
-  await page.selectOption('#expKind', 'withdrawal');
-  await page.fill('#expAmount', '3000');
-  await page.click('#expForm button[type=submit]');
+  // What the owner takes for himself is not a cost: it has its own tab.
+  assert.equal(await page.locator('#expKind option[value=withdrawal]').count(), 0);
+  await page.click('[data-tab=withdrawals]');
+  await page.fill('#wdAmount', '3000');
+  await page.click('#wdForm button[type=submit]');
   assert.ok(await until(async () => /مستني يترفع/.test(await text('#netChip'))), 'status shows the queued change');
   assert.equal((await db('expenses')).length, 1);
   await goOnline();
   assert.ok(await until(async () => (await db('expenses')).length === 2));
+  assert.equal((await db('expenses')).find((e) => e.kind === 'withdrawal').person, 'صاحب الصيدلية');
   await page.click('[data-tab=books]');
   await page.selectOption('#periodSel', 'all');
   const books = await text('#panel .card .ledger');
@@ -554,9 +557,9 @@ test('opens offline with saved data even after the sign-in expired', async () =>
 
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const tabs = ['customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest

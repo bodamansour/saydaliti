@@ -62,10 +62,13 @@ export const TABLES = {
   unique: [['token_hash']], index: [['pharmacy_id']] },
 
   // ---------- Money and stock ----------
-  expenses: { pk: 'id', read: MANAGERS, insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
+  // The cashier (the pharmacy device) may add only money taken out of the drawer (kind 'withdrawal'),
+  // checked in index.js; everything else here is the owner's.
+  expenses: { pk: 'id', read: MANAGERS, insert: SELLERS, del: OWNER, audit: true, refs: { branch_id: 'branches', shift_id: 'pos_shifts' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], spent_on: ['date', { nn: true }],
     kind: ['text', { nn: true, in: ['electricity', 'water', 'rent', 'salaries', 'maintenance', 'supplies', 'withdrawal', 'other'] }],
-    amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+    amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
+    person: ['text', { max: 80, trim: true, added: 2 }], shift_id: ['id', { added: 2 }] },
   index: [['pharmacy_id', 'spent_on']] },
   shortages: { pk: 'id', read: MANAGERS, insert: OWNER, update: OWNER, updCols: ['status', 'resolved_at', 'note'], del: OWNER, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], code: ['text', { max: 60 }], name: ['text', { nn: true, max: 160, trim: true }],
@@ -122,8 +125,9 @@ export const TABLES = {
   stock_moves: { pk: 'id', read: ROLES_ALL, insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], code: ['text', { nn: true, max: 60 }],
     qty: ['num', { nn: true, nonzero: true, min: -9999999, maxv: 9999999 }],
-    kind: ['text', { nn: true, in: ['count', 'damaged', 'expired', 'supplier_return', 'transfer'] }], expiry: ['date'], cost: ['num', { min: 0 }], ref: ['id'],
-    note: ['text', { max: 300 }], happened_at: ['ts', { nn: true, def: 'now' }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+    kind: ['text', { nn: true, in: ['count', 'damaged', 'expired', 'supplier_return', 'transfer', 'withdrawal'] }], expiry: ['date'], cost: ['num', { min: 0 }], ref: ['id'],
+    note: ['text', { max: 300 }], happened_at: ['ts', { nn: true, def: 'now' }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
+    person: ['text', { max: 80, trim: true, added: 2 }] },
   index: [['pharmacy_id', 'happened_at']] },
   customers: { pk: 'id', read: SELLERS, insert: SELLERS, update: OWNER, updCols: ['name', 'phone', 'kind', 'coverage_pct', 'credit_limit', 'note', 'active', 'updated_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 120, trim: true }], phone: ['text', { max: 20 }],
@@ -161,6 +165,7 @@ export function schemaSql() {
   for (const [name, t] of Object.entries(TABLES)) {
     const lines = [];
     for (const [col, [type, o = {}]] of Object.entries(t.cols)) {
+      if (o.added) continue; // added later by migrations/000<added>_*.sql (ALTER TABLE)
       if (type === 'serial') { lines.push(`${col} INTEGER PRIMARY KEY AUTOINCREMENT`); continue; }
       let l = `${col} ${sqlType[type]}`;
       if (t.pk === col) l += ' PRIMARY KEY';

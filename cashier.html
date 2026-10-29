@@ -71,6 +71,7 @@
       <div class="ledger"><div class="tot"><span>الباقي للعميل</span><span class="n" id="tChange">—</span></div></div>
       <button class="btn primary wide big-btn" id="checkout">ادفع واطبع (F2)</button>
       <button class="btn wide" id="clearCart">فاتورة جديدة (Esc)</button>
+      <button class="btn wide" type="button" id="drawerOut">فلوس خرجت من الدرج (مسحوبات)</button>
       <details class="help"><summary>إعدادات الطباعة على الجهاز ده</summary>
         <div class="stack" style="margin-top:8px">
           <label>عرض ورق الطابعة<select id="paper"><option value="80">80 مم</option><option value="58">58 مم</option></select></label>
@@ -126,6 +127,18 @@
     <input id="pinIn" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري">
     <label id="openCashWrap" hidden>الفلوس اللي في الدرج دلوقتي (بداية الوردية)<input id="openCash" class="n big-in" type="number" min="0" step="1" inputmode="decimal" value="0"></label>
     <div class="row"><button class="btn primary" type="submit" id="pinOk">ادخل</button><span class="note" id="pinMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="outDlg" class="card">
+  <form id="outForm" class="stack" novalidate>
+    <h3>فلوس خرجت من الدرج</h3>
+    <p class="note">لصاحب الصيدلية أو شريك. بتتخصم من فلوس الوردية، وبتظهر في «المسحوبات» في اللوحة.</p>
+    <label>المبلغ<input id="outAmount" class="n big-in" type="number" min="0.01" step="0.5" inputmode="decimal"></label>
+    <label>مين أخدها<input id="outPerson" maxlength="80" list="outPeople" autocomplete="off"></label>
+    <datalist id="outPeople"></datalist>
+    <label>ملاحظة (اختياري)<input id="outNote" maxlength="300"></label>
+    <div class="row"><button class="btn primary" type="submit">سجّل</button><button class="btn" type="button" id="outCancel">رجوع</button><span class="note" id="outMsg" role="status"></span></div>
   </form>
 </dialog>
 

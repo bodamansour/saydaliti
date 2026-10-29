@@ -161,9 +161,17 @@ test('the pharmacy device: PIN, shift, and the owner sees the shift and the log'
   await d.press('#q', 'Enter');
   await d.keyboard.press('F2');
   assert.ok(await until(d, async () => /الفاتورة اتسجلت/.test(await text(d, '#posMsg'))));
+  // The owner takes 15 out of the drawer: it comes off what the drawer should have.
+  await d.click('#drawerOut');
+  await d.waitForSelector('#outDlg[open]');
+  await d.fill('#outAmount', '15');
+  await d.fill('#outPerson', 'أحمد');
+  await d.click('#outForm button[type=submit]');
+  assert.ok(await until(d, async () => /أحمد أخد 15/.test(await text(d, '#posMsg'))));
   await d.click('#closeShift');
   await d.waitForSelector('#shiftDlg[open]');
-  await d.fill('#shCount', '215');
+  assert.match(await text(d, '#shSum'), /اتسحب من الدرج/);
+  await d.fill('#shCount', '200');
   await d.click('#shiftForm button[type=submit]');
   await d.waitForSelector('#pinDlg[open]');
   await owner.goto(BASE);
@@ -173,6 +181,33 @@ test('the pharmacy device: PIN, shift, and the owner sees the shift and the log'
   assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#panel')) && /مظبوط/.test(await text(owner, '#panel'))));
   await owner.click('[data-tab=log]');
   assert.ok(await until(owner, async () => /وردية/.test(await text(owner, '#panel')) && /طلبية|فاتورة شراء/.test(await text(owner, '#panel'))));
+});
+
+test('withdrawals: money and goods the owner took, per person, and what is left in the pharmacy', { skip }, async () => {
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+  await owner.click('[data-sec=money]');
+  await owner.click('[data-tab=withdrawals]');
+  assert.ok(await until(owner, async () => /أحمد/.test(await text(owner, '#panel')) && /من الدرج/.test(await text(owner, '#panel'))), 'the drawer withdrawal from the cashier');
+  await owner.waitForLoadState('networkidle'); // the page has finished loading and drawing
+  await owner.fill('#wdPerson', 'أحمد');
+  await owner.fill('#wdAmount', '500');
+  await owner.click('#wdForm button[type=submit]');
+  assert.ok(await until(owner, async () => /أحمد أخد 500/.test(await text(owner, '#wdMsg'))));
+  // Goods: from the stock, at what they cost.
+  await owner.click('#wdGoods');
+  await owner.waitForSelector('#adjQ');
+  await owner.fill('#adjQ', '6220000000001');
+  await owner.press('#adjQ', 'Enter');
+  await owner.fill('#adjQty', '1');
+  await owner.fill('#adjPerson', 'أحمد');
+  await owner.click('#adjForm button[type=submit]');
+  assert.ok(await until(owner, async () => /مسحوبات بضاعة 1/.test(await text(owner, '#adjMsg'))));
+  await owner.click('[data-sec=money]');
+  await owner.click('[data-tab=withdrawals]');
+  assert.ok(await until(owner, async () => /بضاعة/.test(await text(owner, '#panel tbody')) && /518/.test(await text(owner, '#panel .ledger'))), await text(owner, '#panel'));
+  await owner.click('[data-tab=books]');
+  assert.ok(await until(owner, async () => /اللي فاضل في الصيدلية/.test(await text(owner, '#panel'))));
 });
 
 test('moving: a full backup goes into a new, empty pharmacy', { skip }, async () => {
@@ -198,7 +233,7 @@ test('moving: a full backup goes into a new, empty pharmacy', { skip }, async ()
   await m.click('[data-sec=stock]');
   await m.click('[data-tab=items]');
   await m.fill('#itemsQ', 'شاش');
-  assert.ok(await until(m, async () => /12/.test(await text(m, '#itemsBody tr'))), `the same stock as the old pharmacy: ${await text(m, '#itemsBody')} / ${await text(m, '#cloudBackupMsg')} / ${await text(m, '#fileMsg')}`);
+  assert.ok(await until(m, async () => /11/.test(await text(m, '#itemsBody tr'))), `the same stock as the old pharmacy: ${await text(m, '#itemsBody')} / ${await text(m, '#cloudBackupMsg')} / ${await text(m, '#fileMsg')}`);
 });
 
 test('the Windows program: turning on the sync with United makes a working connector code', { skip }, async () => {

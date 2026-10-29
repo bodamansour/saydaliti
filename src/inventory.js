@@ -85,6 +85,8 @@ export const LOSS_REASON = { damaged: 'تالف', expired: 'منتهي الصل�
 
 export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [], moves = [] } = {}) {
   const out = base ? { ...base, items: base.items.map(copyItem), sales: [...base.sales], purchases: [...(base.purchases || [])], losses: [...(base.losses || [])] } : EMPTY_DATA();
+  // Goods the owner or a partner took for themselves: out of the stock at what they cost, not a loss.
+  out.drawings = [];
   const since = time(baseAt);
   const byCode = new Map(out.items.map((i) => [i.code, i]));
   const get = (code, row) => {
@@ -132,6 +134,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       if (qty > 0) putBack(it, qty, fromIsoDay(row.expiry), +row.cost > 0 ? +row.cost : it.cost);
       else if (qty < 0) cost = takeOut(it, -qty, row.expiry === undefined ? undefined : fromIsoDay(row.expiry));
       if (LOSS_REASON[row.kind] && qty < 0) out.losses.push({ date: dayOf(row.happened_at), code: it.code, qty: -qty, reason: LOSS_REASON[row.kind], cost: round4(cost / -qty) });
+      if (row.kind === 'withdrawal' && qty < 0) out.drawings.push({ id: row.id, date: dayOf(row.happened_at), code: it.code, name: it.name, qty: -qty, value: round2(cost), person: row.person || null, branch_id: row.branch_id ?? null, pending: !!row.pending });
     } else {
       const sign = row.kind === 'return' ? -1 : 1;
       const lines = (row.lines || []).filter((l) => +l.qty);
@@ -212,6 +215,7 @@ export const MOVE_KINDS = [
   ['expired', 'منتهي الصلاحية'],
   ['supplier_return', 'مرتجع للمورد'],
   ['transfer', 'تحويل بين الفروع'],
+  ['withdrawal', 'مسحوبات بضاعة'],
 ];
 export const moveLabel = (k) => MOVE_KINDS.find(([v]) => v === k)?.[1] ?? k;
 

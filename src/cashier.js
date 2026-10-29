@@ -435,6 +435,7 @@ function openClose() {
     ${sum.returns ? `<div><span>مرتجعات (${sum.returns})</span><span class="n">${fmt(sum.returned)}</span></div>` : ''}
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
     <div><span>في الدرج من الأول</span><span class="n">${fmt(shift.opening_cash)}</span></div>
+    ${sum.outs ? `<div><span>− اتسحب من الدرج (${(shift.outs || []).length})</span><span class="n">${fmt(sum.outs)}</span></div>` : ''}
     <div class="tot"><span>المفروض في الدرج</span><span class="n">${fmt(sum.expected)}</span></div>`;
   $('shCount').value = ''; $('shNote').value = ''; $('shDiff').textContent = '—'; $('shMsg').textContent = '';
   $('shiftDlg').showModal(); $('shCount').focus();
@@ -451,7 +452,7 @@ async function closeShift(e) {
   if ($('shCount').value === '' || !(+$('shCount').value >= 0)) { $('shMsg').textContent = 'اكتب الفلوس اللي في الدرج.'; $('shCount').focus(); return; }
   const sum = shiftSummary(shift, SALES);
   const patch = { closed_at: new Date().toISOString(), expected_cash: sum.expected, counted_cash: +$('shCount').value, note: $('shNote').value.trim() || null,
-    totals: { receipts: sum.receipts, returns: sum.returns, sales: sum.sales, returned: sum.returned, discount: sum.discount, net: sum.net, byPayment: sum.byPayment } };
+    totals: { receipts: sum.receipts, returns: sum.returns, sales: sum.sales, returned: sum.returned, discount: sum.discount, net: sum.net, byPayment: sum.byPayment, ...(sum.outs ? { outs: sum.outs } : {}) } };
   await enqueue('update', { table: 'pos_shifts', id: shift.id, patch });
   const closed = { ...shift, ...patch };
   delete SHIFTS[CASHIER.id]; await kvSet(K.shifts(), SHIFTS);
@@ -467,7 +468,7 @@ function shiftSlip(sh, sum) {
     <div class="rc-tot"><div><span>فواتير</span><span class="n">${sum.receipts}</span></div><div><span>مبيعات</span><span class="n">${fmt(sum.sales)}</span></div>
     <div><span>مرتجعات</span><span class="n">${fmt(sum.returned)}</span></div>
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
-    <div><span>بداية الدرج</span><span class="n">${fmt(sh.opening_cash)}</span></div><div><span>المفروض</span><span class="n">${fmt(sh.expected_cash)}</span></div>
+    <div><span>بداية الدرج</span><span class="n">${fmt(sh.opening_cash)}</span></div>${sum.outs ? `<div><span>اتسحب من الدرج</span><span class="n">${fmt(sum.outs)}</span></div>` : ''}<div><span>المفروض</span><span class="n">${fmt(sh.expected_cash)}</span></div>
     <div><span>اتعدّ</span><span class="n">${fmt(sh.counted_cash)}</span></div>
     <div class="big"><span>${diff < 0 ? 'ناقص' : diff > 0 ? 'زيادة' : 'مظبوط'}</span><span class="n">${fmt(Math.abs(diff))}</span></div></div>
     ${sh.note ? `<div class="rc-foot">${esc(sh.note)}</div>` : ''}`;
@@ -729,6 +730,38 @@ $('paid').addEventListener('input', renderCart);
 $('extraDisc').addEventListener('input', renderCart);
 $('checkout').addEventListener('click', checkout);
 $('clearCart').addEventListener('click', newBill);
+
+// ---------- Money taken out of the drawer (owner withdrawals) ----------
+const OWNER_LABEL = 'صاحب الصيدلية';
+const outPeopleKey = () => `saydaliti-out-people-${SESS.pharmacy.id}`;
+function openOut() {
+  let names = [];
+  try { names = JSON.parse(localStorage.getItem(outPeopleKey()) || '[]'); } catch { names = []; }
+  $('outPeople').innerHTML = [OWNER_LABEL, ...names.filter((n) => n !== OWNER_LABEL)].map((n) => `<option value="${esc(n)}"></option>`).join('');
+  $('outAmount').value = ''; $('outPerson').value = names[0] || OWNER_LABEL; $('outNote').value = ''; $('outMsg').textContent = '';
+  $('outDlg').showModal(); $('outAmount').focus();
+}
+async function saveOut(e) {
+  e.preventDefault();
+  const amount = Math.round((+$('outAmount').value || 0) * 100) / 100;
+  if (!(amount > 0)) { $('outMsg').textContent = 'اكتب المبلغ.'; $('outAmount').focus(); return; }
+  const person = $('outPerson').value.trim() || OWNER_LABEL;
+  const shift = CASHIER ? SHIFTS[CASHIER.id] : null;
+  const row = { id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, created_by: SESS.user.id, branch_id: BRANCH, spent_on: isoDay(new Date()),
+    kind: 'withdrawal', amount, person, note: $('outNote').value.trim() || null, ...(shift ? { shift_id: shift.id } : {}) };
+  await enqueue('expense', row);
+  if (shift) { shift.outs = [...(shift.outs || []), { id: row.id, amount, person }]; await kvSet(K.shifts(), SHIFTS); }
+  try {
+    const names = JSON.parse(localStorage.getItem(outPeopleKey()) || '[]');
+    localStorage.setItem(outPeopleKey(), JSON.stringify([person, ...names.filter((n) => n !== person)].slice(0, 10)));
+  } catch { /* the list of names is only a convenience */ }
+  $('outDlg').close();
+  msg(`اتسجل: ${person} أخد ${fmt(amount)} ج من الدرج${shift ? '، واتخصمت من الوردية' : ''}.`);
+  focusSearch(); sync();
+}
+$('drawerOut').addEventListener('click', () => { if (CART.length) { msg('خلّص الفاتورة اللي مفتوحة الأول.', true); return; } openOut(); });
+$('outForm').addEventListener('submit', saveOut);
+$('outCancel').addEventListener('click', () => { $('outDlg').close(); focusSearch(); });
 $('modeSale').addEventListener('click', () => setMode('sale'));
 $('modeReturn').addEventListener('click', () => setMode('return'));
 $('dayList').addEventListener('click', (e) => {
@@ -758,7 +791,7 @@ $('silentPrint').addEventListener('change', (e) => { dev.silent = e.target.check
 $('footer').addEventListener('input', (e) => { dev.footer = e.target.value; saveDev(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
-  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open) return;
+  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open) return;
   if (e.key === 'F2') { e.preventDefault(); checkout(); }
   if (e.key === 'Escape') { e.preventDefault(); if (!$('results').hidden) { showResults([]); $('q').value = ''; } else if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) newBill(); }
 });

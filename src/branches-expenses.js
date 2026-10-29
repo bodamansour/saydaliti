@@ -7,7 +7,7 @@ export function mergeBranches(list) {
   const parts = list.filter(Boolean);
   if (parts.length === 1) return parts[0];
   const byCode = new Map(); // code -> copies of that item, one per branch
-  const out = { items: [], sales: [], purchases: [], losses: [], real: true };
+  const out = { items: [], sales: [], purchases: [], losses: [], drawings: [], real: true };
   for (const d of parts) {
     for (const it of d.items) {
       if (!byCode.has(it.code)) byCode.set(it.code, []);
@@ -16,6 +16,7 @@ export function mergeBranches(list) {
     out.sales.push(...d.sales);
     out.purchases.push(...(d.purchases || []));
     out.losses.push(...(d.losses || []));
+    out.drawings.push(...(d.drawings || []));
   }
   for (const copies of byCode.values()) {
     const [first] = copies;
@@ -74,4 +75,38 @@ export function monthlyFromRecorded(expenses, today = startOfDay(), days = 90, b
   const first = Math.min(...dated.map((d) => d.getTime()));
   const span = Math.max(30, Math.round((today - first) / 86400000) + 1);
   return (t.operating / span) * 30;
+}
+
+// ---------- Owner withdrawals ----------
+// Money taken out (expenses of kind 'withdrawal') and goods taken (stock moves of kind 'withdrawal',
+// at what the boxes cost), in [from, to), per person. Neither is a cost of running the pharmacy:
+// they come out of the profit that is left, not out of the profit itself.
+export const OWNER_LABEL = 'صاحب الصيدلية';
+export function withdrawals(expenses, drawings = [], from = null, to = null, branchId = 'all') {
+  const day = (v) => startOfDay(typeof v === 'string' ? new Date(`${String(v).slice(0, 10)}T00:00:00`) : v);
+  const inRange = (v) => { const d = day(v); return (!from || d >= from) && (!to || d < to); };
+  const rows = [];
+  for (const e of expenses) {
+    if (e.deleted || e.kind !== 'withdrawal' || !inRange(e.spent_on)) continue;
+    if (branchId !== 'all' && e.branch_id !== branchId) continue;
+    rows.push({ id: e.id, type: 'cash', date: String(e.spent_on).slice(0, 10), person: (e.person || '').trim() || OWNER_LABEL, amount: Math.round((+e.amount || 0) * 100) / 100, note: e.note || '', fromDrawer: !!e.shift_id, branch_id: e.branch_id ?? null, pending: !!e.pending });
+  }
+  for (const g of drawings) {
+    if (!inRange(g.date)) continue;
+    if (branchId !== 'all' && g.branch_id !== branchId) continue;
+    const d = g.date instanceof Date ? g.date : day(g.date);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    rows.push({ id: g.id, type: 'goods', date: iso, person: (g.person || '').trim() || OWNER_LABEL, amount: g.value, note: `${g.qty} × ${g.name}`, code: g.code, branch_id: g.branch_id ?? null, pending: !!g.pending });
+  }
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+  const people = new Map();
+  for (const r of rows) {
+    if (!people.has(r.person)) people.set(r.person, { person: r.person, cash: 0, goods: 0, total: 0 });
+    const p = people.get(r.person);
+    p[r.type] += r.amount; p.total += r.amount;
+  }
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const byPerson = [...people.values()].map((p) => ({ ...p, cash: r2(p.cash), goods: r2(p.goods), total: r2(p.total) })).sort((a, b) => b.total - a.total);
+  const cash = r2(byPerson.reduce((a, p) => a + p.cash, 0)), goods = r2(byPerson.reduce((a, p) => a + p.goods, 0));
+  return { rows, byPerson, cash, goods, total: r2(cash + goods) };
 }
