@@ -61,7 +61,7 @@ let win = null;
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 900, minHeight: 600,
-    title: 'صيدليتي', backgroundColor: '#f4f6f4', autoHideMenuBar: true,
+    title: 'صيدليتي', backgroundColor: '#f3f5f8', autoHideMenuBar: true,
     icon: join(APP_DIR, 'icons', 'icon-512.png'),
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
   });

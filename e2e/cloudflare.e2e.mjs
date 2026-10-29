@@ -8,6 +8,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
+// Settings, backups, export and linking live in their own view («الإعدادات والأدوات»).
+const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
 const BASE = process.env.WORKER_URL;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE = join(ROOT, 'test/fixtures/export.json');
@@ -107,6 +109,7 @@ test('the cashier sells, with and without a connection; stock goes down', { skip
 test('a partner joins with a code and sees the numbers, not the customers', { skip }, async () => {
   await owner.goto(BASE);
   await owner.waitForSelector('#app:not([hidden])');
+  await openTools(owner);
   await owner.click('#branchBox summary');
   await owner.click('[data-invite="partner"]');
   assert.ok(await until(owner, async () => /الكود/.test(await text(owner, '#inviteText'))));
@@ -135,6 +138,7 @@ test('the pharmacy device: PIN, shift, and the owner sees the shift and the log'
   assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#staff'))));
   await owner.goto(BASE);
   await owner.waitForSelector('#app:not([hidden])');
+  await openTools(owner);
   await owner.click('#branchBox summary');
   await owner.click('[data-invite="device"]');
   assert.ok(await until(owner, async () => /الكود/.test(await text(owner, '#inviteText'))));
@@ -174,6 +178,7 @@ test('the pharmacy device: PIN, shift, and the owner sees the shift and the log'
 test('moving: a full backup goes into a new, empty pharmacy', { skip }, async () => {
   await owner.goto(BASE);
   await owner.waitForSelector('#app:not([hidden])');
+  await openTools(owner);
   await owner.click('#cloudBackupBox summary');
   const [dl] = await Promise.all([owner.waitForEvent('download'), owner.click('#cloudBackupBtn')]);
   const file = await dl.path();
@@ -183,6 +188,7 @@ test('moving: a full backup goes into a new, empty pharmacy', { skip }, async ()
   await m.fill('#phNameNew', 'صيدلية منقولة');
   await m.click('#createForm button[type=submit]');
   await m.waitForSelector('#app:not([hidden])');
+  await openTools(m);
   await m.click('#cloudBackupBox summary');
   await m.setInputFiles('#cloudImportFile', file);
   const reloaded = m.waitForEvent('load', { timeout: 30000 });
@@ -210,6 +216,7 @@ test('the Windows program: turning on the sync with United makes a working conne
   });
   await owner.goto(BASE);
   await owner.waitForSelector('#app:not([hidden])');
+  await openTools(owner);
   await owner.click('#geniusLiveBox summary');
   await owner.click('#glFind');
   await owner.waitForSelector('#glFound:not([hidden])');
