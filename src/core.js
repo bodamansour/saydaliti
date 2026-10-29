@@ -196,7 +196,9 @@ export function fromExport(json) {
   }));
   const purchases = (json.purchases || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, cost: +x.cost || 0 }));
   const losses = (json.losses || []).filter((x) => x.date && +x.qty).map((x) => ({ date: d(x.date), code: String(x.code).trim(), qty: +x.qty, reason: String(x.reason || 'هالك'), ...(x.cost != null && x.cost !== '' ? { cost: +x.cost } : {}) }));
-  return { items, sales, purchases, losses, real: true };
+  // Barcodes from the pharmacy program (United): [[barcode, item code], …].
+  const barcodes = (json.barcodes || []).filter((x) => Array.isArray(x) && x[0] != null && x[1] != null).map(([b, c]) => [String(b).trim(), String(c).trim()]);
+  return { items, sales, purchases, losses, ...(barcodes.length ? { barcodes } : {}), real: true };
 }
 
 // Inverse of fromExport: app data → plain JSON (dates as yyyy-mm-dd), for saving a shared snapshot.
