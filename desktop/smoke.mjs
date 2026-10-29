@@ -26,6 +26,7 @@ assert.equal(await win.locator('#phTitle').innerText(), 'صيدلية أحمد �
 assert.ok(await win.evaluate(() => typeof XLSX !== 'undefined'), 'Excel reader bundled');
 assert.ok(await win.evaluate(async () => { await document.fonts.ready; return document.fonts.check('16px "IBM Plex Sans Arabic"', 'صيدلية'); }), 'Arabic font bundled');
 assert.ok(await win.evaluate(() => !!window.saydalitiDesktop?.saveBackup), 'desktop bridge');
+await win.click('#toolsBtn'); // backups live in «الإعدادات والأدوات»
 await win.click('#localBox summary');
 await win.click('#backupBtn');
 await win.waitForFunction(() => /اتحفظت/.test(document.getElementById('backupMsg').textContent));

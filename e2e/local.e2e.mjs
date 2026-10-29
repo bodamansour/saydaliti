@@ -9,6 +9,8 @@ import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
+// Settings, backups, export and linking live in their own view («الإعدادات والأدوات»).
+const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE = join(ROOT, 'test/fixtures/export.json');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -147,6 +149,7 @@ test('attendance works on the same computer', async () => {
 test('backup to a file and back', async () => {
   await page.goto(base);
   await page.waitForSelector('#app:not([hidden])');
+  await openTools(page);
   await page.click('#localBox summary');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#backupBtn')]);
   const path = await dl.path();
@@ -172,6 +175,7 @@ test('backup to a file and back', async () => {
   await page.click('[data-tab=items]');
   await page.fill('#itemsQ', 'شاش');
   assert.ok(await until(async () => /15/.test(await text('#itemsBody tr'))), 'the data on the computer is unchanged');
+  await openTools(page);
   await page.click('#localBox summary');
   await writeFile(file, JSON.stringify(dump));
   await page.setInputFiles('#restoreFile', file);
@@ -249,6 +253,7 @@ test('fixes made here become a correction file for United', async () => {
   await page.click('#itemsBody [data-edititem]');
   await page.fill('#itPrice', '450');
   await page.click('#itemForm button[type=submit]');
+  await openTools(page);
   await page.click('#exportBox summary');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#geniusFix')]);
   const fix = JSON.parse(await readFile(await dl.path(), 'utf8'));

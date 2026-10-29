@@ -5,61 +5,88 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي — برنامج الصيدلية</title>
 <meta name="description" content="برنامج صيدلية مصري: كاشير بالباركود، مخزون وصلاحيات، مشتريات وموردين، عملاء آجل وتأمين، فروع، ورديات، وشغال من غير نت. ينقل بياناتك من المتحدة (Genius) في دقايق.">
-<meta name="theme-color" content="#0b6b57">
+<meta name="theme-color" content="#12233a">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./src/style.css">
 <style>
-  .hero { text-align: center; padding: 40px 16px 24px; }
-  .hero h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); margin: 12px 0 8px; }
-  .hero p { max-width: 640px; margin: 0 auto 18px; font-size: 1.1rem; }
-  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-  .feat .card h3 { margin-top: 0; }
-  .price { text-align: center; }
-  .price .v { font-size: 2.4rem; font-family: 'Readex Pro', sans-serif; color: var(--accent); }
-  footer.links { text-align: center; margin: 32px 0 16px; }
+  .pub-hero { background: var(--ink); color: var(--ink-fg); }
+  .pub-hero .in { max-width: 1000px; margin: 0 auto; padding: 56px 20px 60px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+  .pub-hero h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); line-height: 1.15; display: flex; align-items: center; gap: 14px; }
+  .pub-hero h1 img { border-radius: 14px; }
+  .pub-hero p { color: var(--ink-muted); font-size: 1.12rem; max-width: 46ch; margin: 16px 0 24px; }
+  .pub-hero .btn:not(.primary) { background: transparent; color: var(--ink-fg); border-color: var(--ink-line); }
+  .pub-hero .btn { min-height: 46px; padding-inline: 20px; font-size: 1rem; }
+  .pub-price { background: var(--ink-2); border: 1px solid var(--ink-line); border-radius: var(--r-l); padding: 24px; display: grid; gap: 10px; }
+  .pub-price h2 { font-size: 1rem; color: var(--ink-muted); font-weight: 600; font-family: var(--body); }
+  .pub-price .v { font-family: var(--display); font-size: 2.6rem; color: #6fe3b0; line-height: 1.1; }
+  .pub-price p, .pub-price .note { color: var(--ink-muted); margin: 0; font-size: .92rem; }
+  .pub-price b { color: var(--ink-fg); }
+  .pub-body { max-width: 1000px; margin: 0 auto; padding: 48px 20px 32px; display: grid; gap: 40px; }
+  .pub-body > h2 { font-size: 1.5rem; }
+  .feat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; border-top: 1px solid var(--line); }
+  .feat div { padding: 20px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 14px; }
+  .feat .ic { grid-row: span 2; width: 26px; height: 26px; color: var(--accent); margin-top: 2px; }
+  .feat h3 { font-size: 1.05rem; margin-bottom: 4px; }
+  .feat p { color: var(--muted); margin: 0; }
+  .dl { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); padding: 24px; }
+  .dl h2 { font-size: 1.2rem; margin-bottom: 4px; }
+  footer.links { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: center; padding: 8px 20px 40px; }
+  @media (max-width: 760px) { .pub-hero .in { grid-template-columns: minmax(0, 1fr); padding: 36px 18px 40px; gap: 28px; } .feat { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <section class="hero">
-    <img src="./icons/icon.svg" alt="" width="72" height="72">
-    <h1>صيدليتي</h1>
-    <p>برنامج صيدلية مصري سهل: كاشير، مخزون، صلاحيات، مشتريات، عملاء وتأمين، وفروع — شغال على الكمبيوتر والموبايل، ومن غير نت كمان.</p>
-    <div class="row" style="justify-content:center"><a class="btn primary" href="./index.html">ابدأ التجربة المجانية</a><a class="btn" href="#prices">الأسعار</a></div>
-  </section>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="f-pos" viewBox="0 0 24 24"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8 8.5v7M11 8.5v7M14 8.5v7M17 8.5v7"/></symbol>
+  <symbol id="f-stock" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
+  <symbol id="f-buy" viewBox="0 0 24 24"><path d="M2.5 6h11.5v10H2.5z"/><path d="M14 9.5h4l3.5 3.5v3H14"/><circle cx="6.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/></symbol>
+  <symbol id="f-money" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/></symbol>
+  <symbol id="f-off" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/><path d="M3 3l18 18"/></symbol>
+  <symbol id="f-move" viewBox="0 0 24 24"><path d="M4 7h13M13 3l4 4-4 4"/><path d="M20 17H7M11 13l-4 4 4 4"/></symbol>
+  <symbol id="f-team" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18.5 14.8c1.6.8 2.6 2.6 3 5.2"/></symbol>
+  <symbol id="f-own" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+</svg>
+<header class="pub-hero">
+  <div class="in">
+    <div>
+      <h1><img src="./icons/icon.svg" alt="" width="56" height="56">صيدليتي</h1>
+      <p>برنامج صيدلية مصري سهل: كاشير، مخزون، صلاحيات، مشتريات، عملاء وتأمين، وفروع. شغال على الكمبيوتر والموبايل، ومن غير نت كمان.</p>
+      <div class="row"><a class="btn primary" href="./index.html">ابدأ التجربة المجانية</a><a class="btn" href="#download">التحميل</a></div>
+    </div>
+    <section class="pub-price" id="prices" aria-label="الأسعار">
+      <h2>الأسعار</h2>
+      <p>تجربة مجانية <b data-cfg="trial">14</b> يوم، من غير فيزا ومن غير التزام.</p>
+      <p data-when="priced" hidden><span class="v n" data-cfg="price"></span> ج في الشهر لفرع واحد<span data-when="branch" hidden>، و<b class="n" data-cfg="branch"></b> ج لكل فرع زيادة</span>.</p>
+      <p class="note">الدفع بالتحويل (إنستاباي أو فودافون كاش)، والاشتراك بيتفعل في نفس اليوم. الكاشير عمره ما بيقف حتى لو الاشتراك خلص.</p>
+      <p data-when="phone" hidden><a class="btn primary" data-cfg="whatsapp" hidden target="_blank" rel="noopener">اسأل على واتساب</a> <span class="n" data-cfg="phone"></span></p>
+    </section>
+  </div>
+</header>
 
+<main class="pub-body">
+  <h2>كل اللي الصيدلية محتاجاه في برنامج واحد</h2>
   <section class="feat">
-    <div class="card"><h3>كاشير بالباركود</h3><p>امسح وبيع واطبع على الطابعة الحرارية. مرتجع من الفاتورة، آجل وتأمين، وكل كاشير برقمه السري ووردية بعدّ الدرج.</p></div>
-    <div class="card"><h3>المخزون والصلاحية</h3><p>الرصيد لكل تشغيلة بتاريخها وسعر شرائها. تنبيه باللي قرب ينتهي واللي راكد، وجرد وتالف ومرتجع للمورد.</p></div>
-    <div class="card"><h3>المشتريات والموردين</h3><p>طلبية وصلت بالبونص والصلاحية، حسابات الموردين واللي عليك، و«اطلب إيه» على حسب السحب الحقيقي.</p></div>
-    <div class="card"><h3>الحسابات والأرباح</h3><p>تكلفة البضاعة من تكلفة كل تشغيلة، الأرباح بالشهر واليوم، المصروفات، والشركاء ونصيب كل واحد.</p></div>
-    <div class="card"><h3>من غير نت</h3><p>الكاشير بيكمّل يبيع لو النت فصل، والفواتير بتترفع لوحدها لما يرجع. وفيه نسخة كمبيوتر شغالة من غير نت خالص.</p></div>
-    <div class="card"><h3>نقل من المتحدة في دقايق</h3><p>ارفع ملف الباك اب بتاع المتحدة (Genius) زي ما هو، والبرنامج يقرا منه الأصناف والرصيد والصلاحيات والمبيعات.</p></div>
-    <div class="card"><h3>فروع وموظفين</h3><p>كل فرع برصيده، تحويل بين الفروع، حضور وانصراف بالرقم السري، وسجل بمين عدّل إيه.</p></div>
-    <div class="card"><h3>بياناتك ملكك</h3><p>نزّل نسخة كاملة من بياناتك في أي وقت، وصدّر لـ Excel أو PDF. بيانات العملاء والمرضى ليك إنت بس.</p></div>
+    <div><svg class="ic"><use href="#f-pos"/></svg><h3>كاشير بالباركود</h3><p>امسح وبيع واطبع على الطابعة الحرارية. مرتجع من الفاتورة، آجل وتأمين، وكل كاشير برقمه السري ووردية بعدّ الدرج.</p></div>
+    <div><svg class="ic"><use href="#f-stock"/></svg><h3>المخزون والصلاحية</h3><p>الرصيد لكل تشغيلة بتاريخها وسعر شرائها. تنبيه باللي قرب ينتهي واللي راكد، وجرد وتالف ومرتجع للمورد.</p></div>
+    <div><svg class="ic"><use href="#f-buy"/></svg><h3>المشتريات والموردين</h3><p>طلبية وصلت بالبونص والصلاحية، حسابات الموردين واللي عليك، و«اطلب إيه» على حسب السحب الحقيقي.</p></div>
+    <div><svg class="ic"><use href="#f-money"/></svg><h3>الحسابات والأرباح</h3><p>تكلفة البضاعة من تكلفة كل تشغيلة، الأرباح بالشهر واليوم، المصروفات، والشركاء ونصيب كل واحد.</p></div>
+    <div><svg class="ic"><use href="#f-off"/></svg><h3>من غير نت</h3><p>الكاشير بيكمّل يبيع لو النت فصل، والفواتير بتترفع لوحدها لما يرجع. وفيه نسخة كمبيوتر شغالة من غير نت خالص.</p></div>
+    <div><svg class="ic"><use href="#f-move"/></svg><h3>نقل من المتحدة في دقايق</h3><p>ارفع ملف الباك اب بتاع المتحدة (Genius) زي ما هو، والبرنامج يقرا منه الأصناف والرصيد والصلاحيات والمبيعات.</p></div>
+    <div><svg class="ic"><use href="#f-team"/></svg><h3>فروع وموظفين</h3><p>كل فرع برصيده، تحويل بين الفروع، حضور وانصراف بالرقم السري، وسجل بمين عدّل إيه.</p></div>
+    <div><svg class="ic"><use href="#f-own"/></svg><h3>بياناتك ملكك</h3><p>نزّل نسخة كاملة من بياناتك في أي وقت، وصدّر لـ Excel أو PDF. بيانات العملاء والمرضى ليك إنت بس.</p></div>
   </section>
 
-  <section class="card price" id="prices" style="margin-top:16px">
-    <h2>الأسعار</h2>
-    <p>تجربة مجانية <b data-cfg="trial">14</b> يوم، من غير فيزا ومن غير التزام.</p>
-    <p data-when="priced" hidden>بعدها <span class="v n" data-cfg="price"></span> ج في الشهر لفرع واحد<span data-when="branch" hidden>، و<b class="n" data-cfg="branch"></b> ج لكل فرع زيادة</span>.</p>
-    <p class="note">الدفع بالتحويل (إنستاباي أو فودافون كاش)، والاشتراك بيتفعل في نفس اليوم. الكاشير عمره ما بيقف حتى لو الاشتراك خلص.</p>
-    <p data-when="phone" hidden><a class="btn primary" data-cfg="whatsapp" hidden target="_blank" rel="noopener">اسأل على واتساب</a> <span class="n" data-cfg="phone"></span></p>
-  </section>
-
-  <section class="card" style="margin-top:16px">
-    <h2>التحميل</h2>
+  <section class="dl" id="download">
+    <div><h2>التحميل</h2><p class="note">أو افتح البرنامج من المتصفح على أي جهاز، ومن الموبايل اختار «إضافة للشاشة الرئيسية».</p></div>
     <div class="row">
-      <a class="btn" href="https://github.com/bodamansour/saydaliti/releases/download/desktop-latest/Saydaliti-Setup.exe">برنامج الكمبيوتر (ويندوز، من غير نت)</a>
+      <a class="btn primary" href="https://github.com/bodamansour/saydaliti/releases/download/desktop-latest/Saydaliti-Setup.exe">برنامج الكمبيوتر (ويندوز، من غير نت)</a>
       <a class="btn" href="https://github.com/bodamansour/saydaliti/releases/download/android-latest/saydaliti.apk">أبلكيشن أندرويد</a>
     </div>
-    <p class="note">أو افتح البرنامج من المتصفح على أي جهاز، ومن الموبايل اختار «إضافة للشاشة الرئيسية».</p>
   </section>
+</main>
 
-  <footer class="links note"><a class="navlink" href="./privacy.html">سياسة الخصوصية</a> · <a class="navlink" href="./terms.html">شروط الاستخدام</a> · <a class="navlink" href="./index.html">ادخل البرنامج</a></footer>
-</div>
+<footer class="links note"><a class="navlink" href="./privacy.html">سياسة الخصوصية</a><a class="navlink" href="./terms.html">شروط الاستخدام</a><a class="navlink" href="./index.html">ادخل البرنامج</a></footer>
 <script type="module" src="./src/public.js"></script>
 </body>
 </html>

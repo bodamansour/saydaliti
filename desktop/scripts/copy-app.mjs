@@ -17,7 +17,7 @@ await cp(join(NM, 'xlsx/dist/xlsx.full.min.js'), join(OUT, 'vendor/xlsx.full.min
 await cp(join(HERE, 'pages', 'start.html'), join(OUT, 'start.html')); // first start: online or on this computer
 
 // Fonts: only the Arabic and Latin files the pages use.
-const fonts = [['readex-pro', ['500', '700']], ['ibm-plex-sans-arabic', ['400', '500', '600']], ['ibm-plex-mono', ['500']]];
+const fonts = [['alexandria', ['600', '700']], ['ibm-plex-sans-arabic', ['400', '500', '600', '700']]];
 let css = '';
 for (const [name, weights] of fonts) {
   const pkg = join(NM, '@fontsource', name);

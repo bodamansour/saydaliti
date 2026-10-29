@@ -120,6 +120,17 @@ const sectionOf = (tab) => SECTIONS.find(([, , tabs]) => tabs.some(([id]) => id 
 // Patients' and customers' names and phones are for the owner (and the cashier) only, not partners.
 const visibleSections = () => SECTIONS.filter(([id]) => (id !== 'patients' && id !== 'customers') || isOwner());
 const LAST_TAB = {}; // last tab opened in each section
+// 'work' = a section's lists; 'tools' = settings, backups, export and linking (one place, not under the lists).
+let VIEW = 'work';
+const secIcon = (id) => `<svg class="ic" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+function showView(v) {
+  VIEW = v;
+  $('workView').hidden = v !== 'work';
+  $('toolsView').hidden = v !== 'tools';
+  $('toolsBtn').setAttribute('aria-pressed', String(v === 'tools'));
+  document.body.dataset.view = v;
+  if (v === 'tools') { $('viewTitle').textContent = 'الإعدادات والأدوات'; for (const b of $('sections').querySelectorAll('.sec')) b.setAttribute('aria-pressed', 'false'); }
+}
 const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
 
 function taxNote(A, s) {
@@ -177,7 +188,8 @@ function render(background = false) {
   LAST_TAB[secId] = TAB;
   store.set('saydaliti-tab-v1', TAB);
   const urgent = { stock: has ? A.reorder.length + A.expiring.length : 0 };
-  $('sections').innerHTML = visibleSections().map(([id, t]) => `<button class="sec" data-sec="${id}" aria-pressed="${id === secId}">${t}${urgent[id] ? `<span class="cnt">${urgent[id]}</span>` : ''}</button>`).join('');
+  $('sections').innerHTML = visibleSections().map(([id, t]) => `<button class="sec" data-sec="${id}" aria-pressed="${VIEW === 'work' && id === secId}">${secIcon(id)}<span class="lbl">${t}</span>${urgent[id] ? `<span class="cnt">${urgent[id]}</span>` : ''}</button>`).join('');
+  if (VIEW === 'work') $('viewTitle').textContent = sectionOf(TAB)[1];
   $('tabs').hidden = secTabs.length < 2;
   $('tabs').innerHTML = secTabs.filter(([id]) => id !== 'log' || isOwner()).map(([id, t]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${id === TAB}">${t}${has && counts[id] !== undefined ? `<span class="cnt">${counts[id]}</span>` : ''}</button>`).join('');
 
@@ -1692,7 +1704,7 @@ async function loadSubscription() {
   renderSubBanner();
   // A gentle reminder to keep a copy of everything, every two weeks.
   const last = store.get(`saydaliti-cloud-backup-${SESS.pharmacy.id}`, 0);
-  if (isOwner() && Date.now() - last > 14 * 86400000 && !$('fileMsg').textContent) $('fileMsg').innerHTML = 'بقالك أكتر من أسبوعين من غير نسخة من بياناتك على جهازك. نزّلها من «نسخة احتياطية من كل بياناتك» تحت.';
+  if (isOwner() && Date.now() - last > 14 * 86400000 && !$('fileMsg').textContent) $('fileMsg').innerHTML = 'بقالك أكتر من أسبوعين من غير نسخة من بياناتك على جهازك. نزّلها من «الإعدادات والأدوات» ← «نسخة احتياطية من كل بياناتك».';
 }
 function payInfo() {
   const price = monthlyPrice(APPCFG, BRANCHES.filter((b) => b.id).length || 1, SUB?.price_month);
@@ -1713,7 +1725,7 @@ function renderLocked() {
   const st = subNow();
   return `<div class="card emptybox"><h3>${esc(st.text)}</h3>
     ${isOwner() ? payInfo() : '<p>كلّم صاحب الصيدلية.</p>'}
-    <p class="note">بياناتك كلها محفوظة. تقدر تنزّل نسخة منها من «نسخة احتياطية من كل بياناتك» تحت، والكاشير شغال عادي.</p>
+    <p class="note">بياناتك كلها محفوظة. تقدر تنزّل نسخة منها من «الإعدادات والأدوات» ← «نسخة احتياطية من كل بياناتك»، والكاشير شغال عادي.</p>
     <a class="btn" href="./cashier.html">افتح الكاشير</a></div>`;
 }
 
@@ -2011,7 +2023,7 @@ function renderBranches() {
   $('branchForm').hidden = !isOwner() || !SESS.branchesReady;
   $('inviteBox').hidden = !isOwner();
   $('uploadBtn').hidden = !isOwner();
-  $('uploadBtn').firstChild.textContent = multi() && BRANCH !== 'all' ? `ارفع بيانات «${branchName(BRANCH)}»` : 'ارفع البيانات';
+  $('uploadBtn').querySelector('span').textContent = multi() && BRANCH !== 'all' ? `ارفع بيانات «${branchName(BRANCH)}»` : 'ارفع البيانات';
   if (!SESS.branchesReady && isOwner()) $('branchMsg').textContent = 'إضافة فروع محتاجة تحديث قاعدة البيانات.';
 }
 
@@ -2115,10 +2127,11 @@ async function boot() {
   $('phTitle').textContent = SESS.pharmacy.name;
   $('whoLine').textContent = `${SESS.user.email} · ${ROLE_LABEL[SESS.role]}`;
   if (SESS.role === 'device') {
-    document.querySelectorAll('#app > *:not(header)').forEach((el) => { el.hidden = true; });
+    document.querySelectorAll('#workView, #toolsView, #sections, .side-links, .top .bar, .foot').forEach((el) => { el.hidden = true; });
+    $('viewTitle').textContent = 'جهاز الصيدلية';
     const box = document.createElement('section'); box.className = 'card';
     box.innerHTML = '<p>الحساب ده لجهاز الصيدلية: الكاشير وتسجيل الحضور.</p><div class="row"><a class="btn primary" href="./cashier.html">افتح الكاشير</a><a class="btn" href="./attendance.html">شاشة الحضور</a></div>';
-    $('app').append(box);
+    $('app').querySelector('.main').append(box);
     return;
   }
   BRANCHES = SESS.branchesReady && SESS.branches.length ? SESS.branches.map(({ id, name }) => ({ id, name })) : [{ id: null, name: 'الفرع الرئيسي' }];
@@ -2188,12 +2201,15 @@ $('panel').addEventListener('click', (e) => {
 });
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
 $('branchSel').addEventListener('change', (e) => { BRANCH = e.target.value; store.set('saydaliti-branch-v1', BRANCH); renderBranches(); setView(); render(); });
+$('toolsBtn').addEventListener('click', () => { showView(VIEW === 'tools' ? 'work' : 'tools'); if (VIEW === 'work') render(); scrollTo({ top: 0 }); });
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) { TAB = b.dataset.tab; render(); } });
 $('sections').addEventListener('click', (e) => {
   const b = e.target.closest('.sec'); if (!b) return;
   const sec = SECTIONS.find(([id]) => id === b.dataset.sec);
   TAB = LAST_TAB[sec[0]] ?? sec[2][0][0];
+  showView('work');
   render();
+  scrollTo({ top: 0 });
 });
 $('logout').addEventListener('click', async () => {
   if (SESS.mode === 'member' && isOnline()) await sync();
