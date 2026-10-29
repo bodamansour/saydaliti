@@ -87,8 +87,9 @@
   </section>
 
   <section class="pos-day card">
-    <div class="row" style="justify-content:space-between"><h3>فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
+    <div class="row" style="justify-content:space-between"><h3 id="dayTitle">فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
     <div class="ledger" id="daySum"></div>
+    <input id="daySearch" type="search" autocomplete="off" placeholder="دوّر في كل الفواتير: رقم الفاتورة أو اسم صنف أو عميل…" aria-label="دوّر في الفواتير">
     <div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th><th>النوع</th><th>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody id="dayList"></tbody></table></div>
   </section>
 </div>

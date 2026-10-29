@@ -441,3 +441,14 @@ th .btn.unit { min-height: 24px; min-width: 28px; padding: 1px 6px; margin-inlin
    sticky headers, which are slow to draw without the graphics card. Everything else looks the same. */
 html.lite *, html.lite *::before, html.lite *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; scroll-behavior: auto !important; }
 html.lite th { position: static; }
+/* Receipts tab: the bar of controls, rows that open, and the hours as bars. */
+.posbar input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.posbar input[type="date"] { width: auto; }
+tr.sale-row { cursor: pointer; }
+tr.sale-row.open td { background: var(--accent-soft); }
+tr.sale-lines > td { white-space: normal; background: var(--surface); }
+tr.sale-lines .ledger { max-width: 560px; }
+.hours { display: grid; gap: 6px; }
+.hours .hr { display: grid; grid-template-columns: 52px 1fr 70px 70px; gap: 8px; align-items: center; font-size: .88rem; }
+.hours .bar { height: 10px; background: var(--sunk); border-radius: 5px; overflow: hidden; }
+.hours .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
