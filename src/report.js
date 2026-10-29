@@ -3,7 +3,8 @@
 // At what each batch cost when known (from analyze), else at the item's buying price.
 const riskOf = (r) => r.riskValue ?? r.atRisk * r.cost;
 const valueOf = (r) => r.value ?? r.qty * r.cost;
-const fmt = (n) => Math.round(Number.isFinite(n) ? n : 0).toLocaleString('en-US');
+const NF0 = new Intl.NumberFormat('en-US');
+const fmt = (n) => NF0.format(Math.round(Number.isFinite(n) ? n : 0));
 
 export function morningReport(A, { pharmacyName = 'الصيدلية', date = new Date(), top = 5, shortages = [], priceChanged = 0 } = {}) {
   const riskVal = A.expiring.reduce((a, r) => a + riskOf(r), 0);

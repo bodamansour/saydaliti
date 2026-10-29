@@ -435,3 +435,9 @@ dialog:not([open]) { display: none; }
 .discin { display: inline-flex; align-items: center; gap: 4px; }
 .btn.unit { min-height: 30px; min-width: 34px; padding: 2px 8px; font-size: .85rem; line-height: 1; }
 th .btn.unit { min-height: 24px; min-width: 28px; padding: 1px 6px; margin-inline-start: 4px; vertical-align: middle; }
+.tablebox .more { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* Older PCs (Windows 7/8 in the Windows program, or a PC with few cores): no animations, shadows or
+   sticky headers, which are slow to draw without the graphics card. Everything else looks the same. */
+html.lite *, html.lite *::before, html.lite *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; scroll-behavior: auto !important; }
+html.lite th { position: static; }

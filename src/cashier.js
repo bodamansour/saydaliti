@@ -11,8 +11,11 @@ import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
 
 const $ = (id) => document.getElementById(id);
+// A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
+if ((navigator.hardwareConcurrency || 4) <= 2) document.documentElement.classList.add('lite');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = (n) => (Number.isFinite(+n) ? +n : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const NF2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); // made once: faster than toLocaleString
+const fmt = (n) => NF2.format(Number.isFinite(+n) ? +n : 0);
 const PAY = PAYMENTS;
 
 // ---------- Device settings (this cashier PC only) ----------
