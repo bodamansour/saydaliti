@@ -273,7 +273,13 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     for (const b of batches) { if (!byCode.has(b.code)) byCode.set(b.code, []); byCode.get(b.code).push(b); }
     const fixed = [];
     for (const [code, [q, pp, sp]] of snap) {
-      if (!items.has(code) || q <= 0) continue;
+      if (!items.has(code)) continue;
+      if (ok(pp, 1e5) && pp > 0) items.get(code).cost = pp;
+      if (ok(sp, 1e5) && sp > 0) items.get(code).price = sp;
+      // The daily record can be older than the stock itself (United writes it once a day, and a stock
+      // count or a reset to zero after it doesn't change it): an item with no boxes left in the stock
+      // table (Item_Class_Store) has none, whatever the daily record still says.
+      if (q <= 0 || !byCode.has(code)) continue;
       let rem = q;
       for (const b of [...(byCode.get(code) || [])].sort((x, y) => (y.expiry || '9999').localeCompare(x.expiry || '9999'))) {
         const take = Math.min(b.qty, rem);
@@ -282,8 +288,6 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
         if (take > 0) { fixed.push({ code, qty: r2(take), expiry: b.expiry, ...own }); rem -= take; }
       }
       if (rem > 0.001) fixed.push({ code, qty: r2(rem), expiry: null });
-      if (ok(pp, 1e5) && pp > 0) items.get(code).cost = pp;
-      if (ok(sp, 1e5) && sp > 0) items.get(code).price = sp;
     }
     batches = fixed;
   }
