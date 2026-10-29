@@ -1095,7 +1095,8 @@ const mainBranchId = () => BRANCHES[0]?.id ?? null;
 const inBranch = (b) => (r) => (r.branch_id ?? mainBranchId()) === (b?.id ?? null);
 const branchOfView = () => (BRANCH === 'all' ? mainBranchId() : BRANCH_ID());
 // Barcode → item code: barcodes saved on items here, and the ones the cashier learned.
-const barcodeMap = () => new Map([...LEARNED.map((r) => [r.barcode, r.code]), ...CATALOG.filter((c) => c.barcode).map((c) => [c.barcode, c.code])]);
+// Barcodes: from the pharmacy program's upload, then the ones taught at the cashier and set on items here (these win).
+const barcodeMap = () => new Map([...(DATA.barcodes || []), ...LEARNED.map((r) => [r.barcode, r.code]), ...CATALOG.filter((c) => c.barcode).map((c) => [c.barcode, c.code])]);
 const dayText = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year: 'numeric' }) : '—');
 

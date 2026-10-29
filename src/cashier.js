@@ -101,6 +101,8 @@ const mine = (r) => (r.branch_id ?? BRANCHES[0]?.id ?? null) === BRANCH;
 function refreshItems() {
   ITEMS = liveData(BASE, UPLOADED_AT, { catalog: STOCK.catalog, purchases: STOCK.purchases.filter(mine), sales: branchSales(), moves: STOCK.moves.filter(mine) }).items;
   for (const c of STOCK.catalog) if (c.barcode && !BARCODES.has(c.barcode)) BARCODES.set(c.barcode, c.code);
+  // Barcodes from the pharmacy program's upload (United), after the ones taught here.
+  for (const [b, c] of BASE?.barcodes || []) if (!BARCODES.has(b)) BARCODES.set(b, c);
 }
 // Customers on account and what they paid (migration 011). Missing table = feature off.
 async function loadCustomers() {
