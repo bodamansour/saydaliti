@@ -46,6 +46,12 @@ export function cartTotals(lines, extraDiscount = 0) {
   return { subtotal: toEgp(subtotal), discount: toEgp(lineDiscounts + extra), total: toEgp(subtotal - lineDiscounts - extra) };
 }
 
+// A discount given as a percent of an amount, in pounds (rounded to the piastre). 0–100%.
+export function pctOff(amount, pct) {
+  const p = Math.min(100, Math.max(0, +pct || 0));
+  return toEgp(Math.round((toPt(amount) * p) / 100));
+}
+
 export function changeDue(total, paid) {
   const c = toPt(paid) - toPt(total);
   return c >= 0 ? toEgp(c) : null; // null = not enough paid

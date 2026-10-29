@@ -83,3 +83,15 @@ test('a return can take back only what the receipt sold, at the price paid', asy
   const after = returnableLines(sale, [{ kind: 'return', return_of: 'S1', lines: [{ code: 'A', qty: 1 }, { code: 'B', qty: 1 }] }, { kind: 'return', return_of: 'OTHER', lines: [{ code: 'A', qty: 1 }] }]);
   assert.deepEqual(after.map((l) => [l.code, l.left]), [['A', 1]], 'what was already returned can\'t come back twice');
 });
+
+test('a discount as a percent: of the price × quantity, rounded to the piastre, never over 100%', async () => {
+  const { pctOff, cartTotals } = await import('../src/pos.js');
+  assert.equal(pctOff(150, 10), 15);
+  assert.equal(pctOff(33.33, 12.5), 4.17);
+  assert.equal(pctOff(80, 150), 80);
+  assert.equal(pctOff(80, -5), 0);
+  // 10% on the receipt is taken from what is left after the items' own discounts.
+  const lines = [{ price: 100, qty: 2, discount: 20 }];
+  const after = cartTotals(lines, 0).total;
+  assert.equal(cartTotals(lines, pctOff(after, 10)).total, 162);
+});
