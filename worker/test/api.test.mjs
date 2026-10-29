@@ -119,6 +119,15 @@ test('cashier PIN, shifts, and the log of changes', { skip }, async () => {
   assert.equal((await device.db({ op: 'update', table: 'pos_shifts', patch: { closed_at: new Date().toISOString(), counted_cash: 90, expected_cash: 100 }, filters: [['id', 'eq', shift]] })).error, null);
   await device.db({ op: 'update', table: 'pos_shifts', patch: { counted_cash: 1000 }, filters: [['id', 'eq', shift]] });
   assert.equal((await owner.select('pos_shifts', 'counted_cash', [['id', 'eq', shift]])).data[0].counted_cash, 90, 'a closed shift is not changed');
+  // Money taken out of the drawer: the cashier device records it (only that kind), the owner reads it.
+  const out = uuid();
+  assert.equal((await device.insert('expenses', { id: out, pharmacy_id: P, branch_id: B, spent_on: '2026-10-29', kind: 'withdrawal', amount: 150, person: 'أحمد', shift_id: shift })).error, null);
+  assert.equal((await device.insert('expenses', { id: uuid(), pharmacy_id: P, branch_id: B, spent_on: '2026-10-29', kind: 'rent', amount: 150 })).status, 403, 'other expenses are the owner\'s');
+  assert.equal((await device.insert('expenses', { id: uuid(), pharmacy_id: P, branch_id: B, spent_on: '2026-10-29', kind: 'withdrawal', amount: 1, shift_id: uuid() })).status, 400, 'a shift that does not exist');
+  assert.equal((await device.select('expenses', 'id', [['pharmacy_id', 'eq', P]])).data.length, 0, 'the device does not read the pharmacy\'s expenses');
+  assert.deepEqual((await owner.select('expenses', 'amount, person, shift_id', [['id', 'eq', out]])).data, [{ amount: 150, person: 'أحمد', shift_id: shift }]);
+  // Goods taken for the owner: a stock move with who took them.
+  assert.equal((await owner.insert('stock_moves', { id: uuid(), pharmacy_id: P, branch_id: B, code: 'A1', qty: -2, kind: 'withdrawal', person: 'أحمد', cost: 40 })).error, null);
   const log = (await owner.select('audit_log', 'table_name, op, new_row', [['pharmacy_id', 'eq', P]], { order: { col: 'at', asc: false } })).data;
   assert.ok(log.some((x) => x.table_name === 'pos_shifts' && x.op === 'update'));
   assert.ok(log.every((x) => !JSON.stringify(x.new_row || {}).includes('pin_hash')));
