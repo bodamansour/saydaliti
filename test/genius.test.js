@@ -69,3 +69,22 @@ test('an item United shows at zero stays at zero, even when its daily stock reco
   assert.deepEqual(out.batches, [{ code: '2', qty: 4, expiry: '2027-05-01', cost: 90 }]);
   assert.equal(out.items.find((i) => i.code === '1').price, 52, 'its latest prices are still taken');
 });
+
+test('barcodes come with the items: the international code, the second code, and the extra barcodes', async () => {
+  const tables = {
+    Item_Catalog: [
+      { itm_id: 1, itm_code: '1', itm_code2: '00022483', itm_int_code: '6221155056559', itm_name_ar: 'بانادول', itm_ismedicine: 1, itm_def_pharm_price: 40, itm_def_sell_price: 50, itm_active: '1' },
+      { itm_id: 2, itm_code: '2', itm_code2: '', itm_int_code: '6221155056559', itm_name_ar: 'نفس الباركود', itm_ismedicine: 1, itm_def_pharm_price: 1, itm_def_sell_price: 2, itm_active: '1' },
+      { itm_id: 3, itm_code: '3', itm_int_code: '8414002810383', itm_name_ar: 'متوقف', itm_ismedicine: 0, itm_def_pharm_price: 1, itm_def_sell_price: 2, itm_active: '0' },
+    ],
+    Item_Objects: [{ io_itm_id: 1, io_itm_int: '6223000123456' }, { io_itm_id: 2, io_itm_int: 'abc' }],
+  };
+  const db = { tables: new Map(Object.keys(tables).map((t) => [t, t])), async *rows(t) { yield* tables[t] || []; } };
+  const out = await geniusToExport(db, { since: '2025-10-29', today: new Date(2026, 9, 29) });
+  assert.deepEqual(out.barcodes, [['6221155056559', '1'], ['00022483', '1'], ['6223000123456', '1']], 'the first item keeps a shared barcode; not the stopped item; not the item number itself');
+  const { fromExport } = await import('../src/core.js');
+  assert.deepEqual(fromExport(out).barcodes, out.barcodes);
+  const { lookup } = await import('../src/pos.js');
+  const d = fromExport(out);
+  assert.equal(lookup('6223000123456', d.items, new Map(d.barcodes)).item.name, 'بانادول');
+});

@@ -17,6 +17,7 @@ export function mergeBranches(list) {
     out.purchases.push(...(d.purchases || []));
     out.losses.push(...(d.losses || []));
     out.drawings.push(...(d.drawings || []));
+    if (d.barcodes) (out.barcodes ||= []).push(...d.barcodes);
   }
   for (const copies of byCode.values()) {
     const [first] = copies;

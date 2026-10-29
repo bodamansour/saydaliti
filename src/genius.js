@@ -228,9 +228,15 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
 
   onStep('الأصناف');
   const units = new Map(), items = new Map();
+  // Barcodes: the item's international code (itm_int_code), its second code (itm_code2, often the
+  // code on Genius's own labels), its code when it isn't just the item number, and the extra
+  // barcodes in Item_Objects. A barcode on two items stays with the first one.
+  const barcodes = new Map();
+  const addBarcode = (v, code) => { const b = String(v ?? '').trim(); if (/^\d{6,14}$/.test(b) && b !== code && !barcodes.has(b)) barcodes.set(b, code); };
   for await (const r of db.rows('Item_Catalog')) {
     if (!ok(r.itm_id, 1e9)) continue;
     const code = String(Math.trunc(r.itm_id));
+    addBarcode(r.itm_int_code, code); addBarcode(r.itm_code2, code); addBarcode(r.itm_code, code);
     const u2 = ok(r.itm_unit1_unit2, 1e4) && r.itm_unit1_unit2 > 0 ? r.itm_unit1_unit2 : 1;
     const u3 = ok(r.itm_unit1_unit3, 1e5) && r.itm_unit1_unit3 > 0 ? r.itm_unit1_unit3 : u2;
     units.set(code, [u2, u3]);
@@ -242,6 +248,8 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
       owner: null, qty: null, expiry: null, active: String(r.itm_active ?? '1') !== '0',
     });
   }
+
+  for await (const r of db.rows('Item_Objects')) if (ok(r.io_itm_id, 1e9)) addBarcode(r.io_itm_int, String(Math.trunc(r.io_itm_id)));
 
   onStep('الرصيد والصلاحية');
   let batches = [];
@@ -354,7 +362,9 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
   const stocked = new Set(batches.map((b) => b.code));
   const sold = new Set(sales.map((s) => s.code));
   const out = [...items.values()].filter((i) => i.active || stocked.has(i.code) || sold.has(i.code)).map(({ active, ...i }) => i);
-  return { exportedAt: new Date().toISOString(), source: 'genius-backup', stockDay: lastDay || null, items: out, batches, sales, purchases };
+  const kept = new Set(out.map((i) => i.code));
+  return { exportedAt: new Date().toISOString(), source: 'genius-backup', stockDay: lastDay || null, items: out, batches, sales, purchases,
+    barcodes: [...barcodes].filter(([, code]) => kept.has(code)) };
 }
 
 // A browser File (or Blob) → Saydaliti upload format.
