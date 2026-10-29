@@ -26,6 +26,15 @@ const ours = (url) => url.startsWith('app://') || (MODE === 'online' && url.star
 // A private address for the app's files, treated like a secure website (storage, crypto, fetch).
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 
+// Windows 7 and 8: many of these PCs have old graphics drivers that make Chromium crash on start
+// («has stopped working»). The pages are simple, so they are drawn without the graphics card there.
+const OLD_WINDOWS = process.platform === 'win32' && /^6\./.test(require('node:os').release());
+if (OLD_WINDOWS) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+
 if (!app.requestSingleInstanceLock()) app.quit();
 // Started with Windows for the United sync: no window until it's opened from the tray icon.
 const BACKGROUND = process.argv.includes('--background');
@@ -66,6 +75,8 @@ function createWindow() {
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
   });
   win.loadURL(MODE ? home() : START);
+  // On Windows 7/8 the pages drop the effects that are slow without the graphics card (html.lite in style.css).
+  if (OLD_WINDOWS || process.env.SAYDALITI_LITE) win.webContents.on('dom-ready', () => { win?.webContents.executeJavaScript("document.documentElement.classList.add('lite')").catch(() => {}); });
   // While the United sync is on, closing the window keeps the program running next to the clock.
   win.on('close', (e) => { if (SYNC?.enabled && !quitting) { e.preventDefault(); win.hide(); } });
   win.on('closed', () => { win = null; });

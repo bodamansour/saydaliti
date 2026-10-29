@@ -4,8 +4,12 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } f
 import { attendanceReport } from './attendance.js';
 
 const $ = (id) => document.getElementById(id);
+// A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
+if ((navigator.hardwareConcurrency || 4) <= 2) document.documentElement.classList.add('lite');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = (n, d = 0) => (Number.isFinite(n) ? n : 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const NF = new Map(); // number formatters, made once (toLocaleString builds one on every call, slow with thousands of rows)
+const nf = (d) => { let f = NF.get(d); if (!f) NF.set(d, (f = new Intl.NumberFormat('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }))); return f; };
+const fmt = (n, d = 0) => nf(d).format(Number.isFinite(n) ? n : 0);
 const time = (d) => d.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' });
 const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاتنين'], [2, 'التلات'], [3, 'الأربع'], [4, 'الخميس'], [5, 'الجمعة']];
 

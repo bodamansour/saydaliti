@@ -18,8 +18,12 @@ import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } f
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
+// A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
+if ((navigator.hardwareConcurrency || 4) <= 2) document.documentElement.classList.add('lite');
 const TODAY = startOfDay();
-const fmt = (n, d = 0) => (Number.isFinite(n) ? n : 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const NF = new Map(); // number formatters, made once (toLocaleString builds one on every call, slow with thousands of rows)
+const nf = (d) => { let f = NF.get(d); if (!f) NF.set(d, (f = new Intl.NumberFormat('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }))); return f; };
+const fmt = (n, d = 0) => nf(d).format(Number.isFinite(n) ? n : 0);
 const egp = (n) => `<span class="n">${fmt(n)}</span> ج`;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -143,9 +147,16 @@ function taxNote(A, s) {
 }
 
 const nameCell = (r, extra = '') => `<td class="name">${esc(r.name)} ${extra}<span class="cat">${esc(r.category)} · ${esc(r.owner)}</span></td>`;
-const table = (head, body) => body.length
-  ? `<div class="tablebox"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body.join('')}</tbody></table></div>`
-  : '<div class="tablebox"><p class="empty">مفيش أصناف هنا دلوقتي.</p></div>';
+// Long lists show their first rows only (a page of thousands of rows is slow on an older PC);
+// «اعرض كله» shows the rest, for this tab, until the page is opened again.
+const ROWS_SHOWN = 200;
+const SHOW_ALL = new Set();
+const table = (head, body) => {
+  if (!body.length) return '<div class="tablebox"><p class="empty">مفيش أصناف هنا دلوقتي.</p></div>';
+  const cut = body.length > ROWS_SHOWN && !SHOW_ALL.has(TAB);
+  const rows = cut ? body.slice(0, ROWS_SHOWN) : body;
+  return `<div class="tablebox"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>${cut ? `<div class="more"><span class="muted">ظاهر أول ${fmt(ROWS_SHOWN)} من ${fmt(body.length)}.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`;
+};
 
 function emptyState() {
   const where = BRANCH === 'all' ? (multi() ? 'لأي فرع' : 'للصيدلية') : `في «${esc(branchName(BRANCH))}»`;
@@ -156,10 +167,19 @@ function emptyState() {
 }
 
 // background = a refresh the user didn't ask for (data finished uploading): what they were typing stays.
+// The analysis of all the items is done again only when the data or the settings change, not on every
+// click (with tens of thousands of items it takes a while on an older PC).
+let ANALYSIS = { data: null, key: '', full: null, owners: [], changed: 0 };
+function analysis(s) {
+  const k = JSON.stringify(s);
+  if (ANALYSIS.data !== DATA || ANALYSIS.key !== k || ANALYSIS.prev !== PREV_DATA) {
+    ANALYSIS = { data: DATA, key: k, prev: PREV_DATA, full: analyze(DATA, s, TODAY), owners: ownersOf(DATA.items), changed: PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).length : 0 };
+  }
+  return ANALYSIS;
+}
 function render(background = false) {
   const s = settings();
-  const full = analyze(DATA, s, TODAY);
-  const owners = ownersOf(DATA.items);
+  const { full, owners, changed } = analysis(s);
   if (OWNER !== 'all' && !owners.includes(OWNER)) OWNER = 'all';
   $('ownerSel').innerHTML = `<option value="all">كل الشركاء</option>${owners.map((o) => `<option value="${esc(o)}" ${o === OWNER ? 'selected' : ''}>${esc(o)}</option>`).join('')}`;
   $('ownerWrap').hidden = owners.length < 2;
@@ -181,7 +201,7 @@ function render(background = false) {
     <div class="tile warn"><span class="k">فلوس واقفة في راكد</span><span class="v">${fmt(deadVal)}</span><span class="s">${A.deadStock.length} صنف من غير بيع 45+ يوم</span></div>
     <div class="tile"><span class="k">مصروفات الشهر ده</span><span class="v">${fmt(monthExp?.operating ?? 0)}</span><span class="s">${monthExp?.withdrawals ? `ومسحوبات ${fmt(monthExp.withdrawals)} ج` : `${A.reorder.length} صنف محتاج يتطلب`}</span></div>`;
 
-  const nChanged = PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).length : 0;
+  const nChanged = changed;
   const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length, ...(nChanged ? { changes: nChanged } : {}) };
   if (!TABS.some(([id]) => id === TAB) || !visibleSections().includes(sectionOf(TAB)) || (TAB === 'log' && !isOwner())) TAB = 'reorder';
   const [secId, , secTabs] = sectionOf(TAB);
@@ -522,7 +542,10 @@ function renderReorder(A, s) {
       const msg = orderMessage(g, { pharmacyName: SESS.pharmacy?.name || 'الصيدلية', branchName: bname });
       return `<div class="card msg"><div class="row" style="justify-content:space-between"><b>${esc(g.supplier?.name || (sup.length ? 'من غير مورد' : 'الطلبية'))}</b>
         <span class="muted">${fmt(g.lines.length)} صنف · ${egp(g.cost)}${g.saved > 0.5 ? ` · وفّرت <span class="n">${fmt(g.saved)}</span> ج` : ''}</span></div>
-        <textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea>
+        ${g.lines.length > 40
+          // A long order is kept folded: drawing thousands of lines is slow on an older PC. Copy and WhatsApp still send all of it.
+          ? `<details class="orderfold"><summary>شوف الرسالة كلها (${fmt(g.lines.length)} سطر)</summary><textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea></details>`
+          : `<textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea>`}
         <div class="row"><button class="btn primary" type="button" data-wa="${i}" data-phone="${esc(g.supplier?.phone || '')}">ابعتها على واتساب</button><button class="btn" type="button" data-copyorder="${i}">انسخ</button><span class="note" id="orderNote${i}"></span></div></div>`;
     }).join('')}</div>`;
   }
@@ -1095,15 +1118,24 @@ let ITEMS_Q = '';
 let ITEM_FORM = null;
 let ITEM_NOTE = ''; // null, or { code?, name, barcode, category, cost, price, forReceive }
 
+// The item list sorted once (in stock first, then by name) with the names ready for searching, made
+// again only when the data changes: sorting tens of thousands of Arabic names on every key is slow.
+const AR = new Intl.Collator('ar');
+let ITEM_INDEX = { data: null, sorted: [], norm: new Map() };
+function itemIndex() {
+  if (ITEM_INDEX.data !== DATA) {
+    const sorted = [...DATA.items].sort((a, b) => (b.qty > 0) - (a.qty > 0) || AR.compare(a.name, b.name));
+    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize(i.name)])) };
+  }
+  return ITEM_INDEX;
+}
 function itemMatches(q) {
   const n = normalize(q);
+  const { sorted, norm } = itemIndex();
+  if (!n) return sorted;
+  const t = q.trim(), words = n.split(' ');
   const bc = barcodeMap();
-  const list = !n ? DATA.items : DATA.items.filter((i) => {
-    if (String(i.code) === q.trim() || bc.get(q.trim()) === i.code) return true;
-    const name = normalize(i.name);
-    return n.split(' ').every((w) => name.includes(w)) || String(i.code).startsWith(q.trim());
-  });
-  return [...list].sort((a, b) => (b.qty > 0) - (a.qty > 0) || a.name.localeCompare(b.name, 'ar'));
+  return sorted.filter((i) => String(i.code) === t || bc.get(t) === i.code || words.every((w) => norm.get(i).includes(w)) || String(i.code).startsWith(t));
 }
 function itemsRows() {
   const list = itemMatches(ITEMS_Q);
@@ -2248,6 +2280,7 @@ $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'supForm') saveSupplier(e);
 });
 $('panel').addEventListener('click', (e) => {
+  if (e.target.closest('[data-showall]')) { SHOW_ALL.add(TAB); render(); return; }
   const c = e.target.closest('[data-calc]'); if (c) { CALC_CODE = c.dataset.calc; TAB = 'calc'; render(); }
   const d = e.target.closest('[data-delexp]'); if (d) deleteExpense(d.dataset.delexp);
   const ed = e.target.closest('[data-editexp]'); if (ed) { EDIT_EXP = ed.dataset.editexp; render(); $('expForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
