@@ -26,6 +26,14 @@ const ours = (url) => url.startsWith('app://') || (MODE === 'online' && url.star
 // A private address for the app's files, treated like a secure website (storage, crypto, fetch).
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 
+// Windows 7 and 8: many of these PCs have old graphics drivers that make Chromium crash on start
+// («has stopped working»). The pages are simple, so they are drawn without the graphics card there.
+if (process.platform === 'win32' && /^6\./.test(require('node:os').release())) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+
 if (!app.requestSingleInstanceLock()) app.quit();
 // Started with Windows for the United sync: no window until it's opened from the tray icon.
 const BACKGROUND = process.argv.includes('--background');
