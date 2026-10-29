@@ -5,7 +5,7 @@ import { fromExport, startOfDay } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
-import { normalize as normalizeText, lookup, cartTotals, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -212,7 +212,7 @@ function renderCart() {
     <td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span></td>
     <td class="n">${fmt(l.price)}</td>
     <td><div class="qty"><button class="btn" data-dec="${i}" aria-label="أقل">−</button><input class="n" type="number" min="1" ${l.max ? `max="${l.max}"` : ''} step="1" value="${l.qty}" data-qty="${i}" aria-label="الكمية"><button class="btn" data-inc="${i}" aria-label="أكتر">+</button></div></td>
-    <td><input class="n disc" type="number" min="0" step="0.5" value="${l.discount ? Math.round(l.discount * 100) / 100 : ''}" placeholder="0" data-disc="${i}" aria-label="خصم على الصنف" ${l.max ? 'readonly title="نفس الخصم اللي اتعمل في فاتورة البيع"' : ''}></td>
+    <td><input class="n disc" type="number" min="0" ${dev.linePct && !l.max ? 'max="100" step="1"' : 'step="0.5"'} value="${lineDiscValue(l)}" placeholder="0" data-disc="${i}" aria-label="${dev.linePct ? 'خصم على الصنف (نسبة %)' : 'خصم على الصنف (جنيه)'}" ${l.max ? 'readonly title="نفس الخصم اللي اتعمل في فاتورة البيع"' : ''}>${dev.linePct && l.discount && !l.max ? `<span class="cat n">${fmt(l.discount)}</span>` : ''}</td>
     <td class="n"><b>${fmt(l.price * l.qty - (+l.discount || 0))}</b></td>
     <td><button class="btn" data-del="${i}" aria-label="شيل الصنف">✕</button></td></tr>`).join('');
   $('cartEmpty').hidden = CART.length > 0;
@@ -233,7 +233,29 @@ function renderCart() {
   $('checkout').textContent = MODE === 'return' ? 'سجّل المرتجع واطبع (F2)' : 'ادفع واطبع (F2)';
   $('checkout').disabled = !CART.length;
 }
-const totals = () => cartTotals(CART, +$('extraDisc').value || 0);
+// The discount on the whole receipt: pounds, or a percent of what is left after the items' discounts.
+const extraAmount = () => {
+  const v = +$('extraDisc').value || 0;
+  return dev.billPct ? pctOff(cartTotals(CART, 0).total, v) : v;
+};
+const totals = () => cartTotals(CART, extraAmount());
+// An item's discount as typed: pounds, or a percent of its price × quantity (kept as l.pct).
+const lineDiscValue = (l) => {
+  if (dev.linePct && !l.max) {
+    if (l.pct != null) return l.pct;
+    const gross = l.price * l.qty;
+    return l.discount && gross ? Math.round((l.discount / gross) * 10000) / 100 : '';
+  }
+  return l.discount ? Math.round(l.discount * 100) / 100 : '';
+};
+const linePctOff = (l) => { if (l.pct != null && !l.max) l.discount = pctOff(l.price * l.qty, l.pct); };
+function renderUnits() {
+  $('lineUnit').textContent = dev.linePct ? '%' : 'ج';
+  $('extraUnit').textContent = dev.billPct ? '%' : 'ج';
+  $('extraDisc').max = dev.billPct ? '100' : '';
+  $('extraDisc').step = dev.billPct ? '1' : '0.5';
+  $('extraDisc').setAttribute('aria-label', dev.billPct ? 'خصم على الفاتورة (نسبة %)' : 'خصم على الفاتورة (جنيه)');
+}
 
 function newBill() {
   CART = []; $('extraDisc').value = 0; $('paid').value = ''; PAYMENT = 'cash'; setCustomer(null); setMode('sale');
@@ -711,14 +733,19 @@ $('cart').addEventListener('click', (e) => {
   if (t.dataset.inc !== undefined) CART[i].qty = CART[i].max ? Math.min(CART[i].max, CART[i].qty + 1) : CART[i].qty + 1;
   if (t.dataset.dec !== undefined) CART[i].qty = Math.max(1, CART[i].qty - 1);
   if (CART[i]?.max) CART[i].discount = lineOff(CART[i]);
+  if (CART[i]) linePctOff(CART[i]);
   if (t.dataset.del !== undefined) CART.splice(i, 1);
   renderCart(); focusSearch();
 });
 $('cart').addEventListener('change', (e) => {
   const i = +(e.target.dataset.qty ?? e.target.dataset.disc);
   if (e.target.dataset.qty !== undefined) CART[i].qty = Math.min(CART[i].max || Infinity, Math.max(1, Math.round(+e.target.value || 1)));
-  if (e.target.dataset.disc !== undefined && !CART[i].max) CART[i].discount = Math.max(0, +e.target.value || 0);
+  if (e.target.dataset.disc !== undefined && !CART[i].max) {
+    const v = Math.max(0, +e.target.value || 0);
+    if (dev.linePct) { CART[i].pct = Math.min(100, v); } else { CART[i].pct = null; CART[i].discount = v; }
+  }
   if (CART[i]?.max) CART[i].discount = lineOff(CART[i]);
+  if (CART[i]) linePctOff(CART[i]);
   renderCart();
 });
 $('payMethods').addEventListener('click', (e) => {
@@ -728,6 +755,20 @@ $('payMethods').addEventListener('click', (e) => {
 });
 $('paid').addEventListener('input', renderCart);
 $('extraDisc').addEventListener('input', renderCart);
+// Pounds or percent, remembered on this device. Switching keeps the discount given, shown the other way.
+$('extraUnit').addEventListener('click', () => {
+  const amount = extraAmount();
+  dev.billPct = !dev.billPct; saveDev();
+  const base = cartTotals(CART, 0).total;
+  $('extraDisc').value = !amount ? 0 : dev.billPct ? (base ? Math.round((amount / base) * 10000) / 100 : 0) : amount;
+  renderUnits(); renderCart();
+});
+$('lineUnit').addEventListener('click', () => {
+  dev.linePct = !dev.linePct; saveDev();
+  for (const l of CART) if (!dev.linePct) l.pct = null;
+  renderUnits(); renderCart();
+});
+renderUnits();
 $('checkout').addEventListener('click', checkout);
 $('clearCart').addEventListener('click', newBill);
 
