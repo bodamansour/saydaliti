@@ -9,6 +9,8 @@ import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
+// Settings, backups, export and linking live in their own view («الإعدادات والأدوات»).
+const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE = join(ROOT, 'test/fixtures/export.json');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -211,6 +213,7 @@ test('market shortages, market prices and patient reminders', async () => {
 });
 
 test('partner invite codes from the dashboard', async () => {
+  await openTools(page);
   await page.click('#branchBox summary');
   await page.click('[data-invite=partner]');
   assert.ok(await until(async () => !(await page.locator('#inviteOut').isHidden())));
@@ -518,6 +521,7 @@ test('editing an item: quantity and expiry per batch; editing a purchase invoice
 });
 
 test('export: Excel with every table, CSV, and the Saydaliti file', async () => {
+  await openTools(page);
   await page.click('#exportBox summary');
   const [x] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=xlsx]')]);
   assert.match(x.suggestedFilename(), /^saydaliti-.*\.xlsx$/);
