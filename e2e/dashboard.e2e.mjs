@@ -72,7 +72,7 @@ test('dashboard opens with no example data, grouped in sections', async () => {
   assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'مبيعات الكاشير', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'الفواتير والمبيعات', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -305,8 +305,20 @@ test('cashier sales show up in the dashboard', async () => {
   await page.waitForSelector('#app:not([hidden])');
   await page.click('[data-sec=money]');
   await page.click('[data-tab=pos]');
-  assert.ok(await until(async () => (await page.locator('#panel > .tablebox tbody tr').count()) === 3));
+  assert.ok(await until(async () => (await page.locator('#panel .sale-row').count()) === 3), 'today\'s receipts');
   assert.match(await text('#panel .card .ledger'), /الصافي/);
+  assert.match(await text('#panel'), /اتباع إيه/);
+  // Find one receipt by an item in it, open it, and see its lines.
+  await page.fill('#posQ', 'sun');
+  assert.ok(await until(async () => (await page.locator('#panel .sale-row').count()) === 1), 'found by the item');
+  await page.click('#panel .sale-row');
+  assert.match(await text('#panel .sale-lines'), /Sun cream/);
+  assert.equal(await page.locator('#panel [data-printsale]').count(), 1);
+  // Yesterday had none.
+  await page.fill('#posQ', '');
+  await page.click('[data-posday]:nth-of-type(2)');
+  assert.ok(await until(async () => /مفيش فواتير في الفترة دي/.test(await text('#panel'))));
+  await page.click('[data-posday]');
 });
 
 test('stock: add a new item, receive a delivery, pay the supplier', async () => {
