@@ -397,9 +397,9 @@ dialog:not([open]) { display: none; }
   .side-links .side-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .side-links .side-link[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--accent); }
   .side-foot { margin: 0; padding: 0; border: 0; display: flex; align-items: center; gap: 2px; }
-  .side-foot .chip { margin: 0 4px; padding: 3px 8px; font-size: 0; gap: 0; }
+  .side-foot .chip { margin: 0 4px; padding: 0 6px; font-size: 0; gap: 0; background: transparent; }
   .side-foot .chip::before { width: 8px; height: 8px; }
-  .side-foot .btn.ghost { width: auto; padding: 0 10px; font-size: .85rem; }
+  .side-foot .btn.ghost { width: 40px; min-height: 40px; padding: 0; font-size: 0; gap: 0; justify-content: center; }
   #installBtn { display: none !important; }
   .sections { position: fixed; inset: auto 0 0 0; z-index: 30; display: flex; gap: 0; background: var(--ink); border-top: 1px solid var(--ink-line); padding: 4px 4px max(4px, env(safe-area-inset-bottom, 0px)); overflow-x: auto; scrollbar-width: none; }
   .sections::-webkit-scrollbar { display: none; }
