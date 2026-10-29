@@ -14,6 +14,7 @@ import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
 import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
+import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
 
@@ -115,7 +116,7 @@ const SECTIONS = [
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
-  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'مبيعات الكاشير'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
+  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'الفواتير والمبيعات'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -643,41 +644,113 @@ function renderPriceChanges() {
 // ---------- Cashier receipts (migration 009) ----------
 let POS_SALES = [];
 let POS_READY = true;
-let POS_PERIOD = 'thisMonth';
-function renderPosSales() {
-  if (!POS_READY) return '<div class="card emptybox"><h3>مبيعات الكاشير محتاجة تحديث قاعدة البيانات</h3><p>التحديث <code>009</code> بيضيف جدول فواتير الكاشير. الكاشير نفسه بيشتغل ويحفظ الفواتير على الجهاز لحد ما التحديث يتعمل، وبعدها بترفع لوحدها.</p><a class="btn primary" href="./cashier.html">افتح الكاشير</a></div>';
-  const [from, to] = periodRange(POS_PERIOD);
+// ---------- Receipts and the day's report: every receipt by day and hour, found fast, and what sold ----------
+let POS_PERIOD = 'day';
+let POS_DAY = isoDay(TODAY);
+let POS_Q = '';
+const POS_OPEN = new Set(); // receipts opened to show their lines
+const POS_PERIODS = [['day', 'يوم'], ['thisMonth', 'الشهر ده'], ['lastMonth', 'الشهر اللي فات'], ['last90', 'آخر 3 شهور'], ['all', 'كل الفترة']];
+const payName = (k) => PAYMENTS.find(([p]) => p === k)?.[1] ?? k;
+function posRange() {
+  if (POS_PERIOD !== 'day') return periodRange(POS_PERIOD);
+  const d = new Date(`${POS_DAY}T00:00:00`);
+  return [d, addDays(d, 1)];
+}
+function posList() {
+  const [from, to] = posRange();
   const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
-  const list = POS_SALES.filter((x) => (bid === 'all' || (x.branch_id ?? null) === bid))
+  return POS_SALES.filter((x) => (bid === 'all' || (x.branch_id ?? null) === bid))
     .filter((x) => { const d = new Date(x.sold_at); return (!from || d >= from) && (!to || d < to); })
     .sort((a, b) => String(b.sold_at).localeCompare(String(a.sold_at)));
-  const sum = daySummary(list);
-  const pay = (k) => PAYMENTS.find(([p]) => p === k)?.[1] ?? k;
-  // Best sellers through the cashier in this period.
-  const byItem = new Map();
-  for (const x of list) for (const l of x.lines || []) {
-    const sign = x.kind === 'return' ? -1 : 1;
-    const o = byItem.get(l.code) || { name: l.name, qty: 0, value: 0 };
-    o.qty += sign * l.qty; o.value += sign * (l.price * l.qty - (l.discount || 0));
-    byItem.set(l.code, o);
-  }
-  const top = [...byItem.values()].sort((a, b) => b.value - a.value).slice(0, 10);
-  return `<div class="row" style="justify-content:space-between">${periodSelect('posPeriodSel', POS_PERIOD)}${isOwner() ? '<a class="btn primary" href="./cashier.html">افتح الكاشير</a>' : ''}</div>
-  <div class="calc">
-    <div class="card"><h3>المجموع</h3><div class="ledger">
+}
+const posCost = () => { const m = new Map(DATA.items.map((i) => [String(i.code), +i.cost || 0])); return (c) => m.get(String(c)) || null; };
+const posWhen = (x) => new Date(x.sold_at).toLocaleString('ar-EG', POS_PERIOD === 'day' ? { hour: 'numeric', minute: '2-digit' } : { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+function posLines(x) {
+  return `<tr class="sale-lines"><td colspan="${multi() ? 9 : 8}"><div class="ledger">
+    ${(x.lines || []).map((l) => `<div><span>${esc(l.name)} <span class="muted n">${fmt(l.qty)} × ${fmt(l.price, 2)}${l.discount ? ` − ${fmt(l.discount, 2)}` : ''}</span></span><span class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</span></div>`).join('')}
+    ${+x.discount > (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0) + 0.004 ? `<div><span>خصم على الفاتورة</span><span class="n">−${fmt(+x.discount - (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0), 2)}</span></div>` : ''}
+    <div class="tot"><span>${x.kind === 'return' ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
+    ${x.customer_id ? `<div><span>العميل</span><span>${esc(custName(x.customer_id))}${x.claim_no ? ` · موافقة <span class="n">${esc(x.claim_no)}</span>` : ''}</span></div>` : ''}
+    ${x.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(x.credit), 2)}</span></div>` : ''}
+    ${x.note ? `<div><span>ملاحظة</span><span>${esc(x.note)}</span></div>` : ''}
+  </div><div class="row"><button class="btn" type="button" data-printsale="${esc(x.id)}">اطبعها تاني</button></div></td></tr>`;
+}
+function renderPosSales() {
+  if (!POS_READY) return '<div class="card emptybox"><h3>الفواتير محتاجة تحديث قاعدة البيانات</h3><p>الكاشير نفسه بيشتغل ويحفظ الفواتير على الجهاز لحد ما التحديث يتعمل، وبعدها بترفع لوحدها.</p><a class="btn primary" href="./cashier.html">افتح الكاشير</a></div>';
+  const all = posList();
+  const list = POS_Q ? all.filter((x) => matchSale(x, POS_Q, custName(x.customer_id))) : all;
+  const R = salesReport(all, posCost());
+  const sum = R.summary;
+  const maxHour = Math.max(1, ...R.hours.map((h) => Math.abs(h.net)));
+  const day = POS_PERIOD === 'day';
+  const title = day ? (POS_DAY === isoDay(TODAY) ? 'النهارده' : POS_DAY === isoDay(addDays(TODAY, -1)) ? 'امبارح' : dayText(POS_DAY)) : POS_PERIODS.find(([v]) => v === POS_PERIOD)[1];
+  const controls = `<div class="row posbar">
+    <label class="owner">الفترة<select id="posPeriodSel">${POS_PERIODS.map(([v, t]) => `<option value="${v}" ${v === POS_PERIOD ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${day ? `<input id="posDay" type="date" value="${esc(POS_DAY)}" max="${isoDay(TODAY)}" aria-label="اليوم"><button class="btn" type="button" data-posday="${isoDay(TODAY)}">النهارده</button><button class="btn" type="button" data-posday="${isoDay(addDays(TODAY, -1))}">امبارح</button>` : ''}
+    <input id="posQ" type="search" autocomplete="off" placeholder="رقم الفاتورة أو صنف أو عميل أو كاشير…" value="${esc(POS_Q)}" aria-label="دوّر في الفواتير">
+    <button class="btn" type="button" id="posPrint">اطبع التقرير</button>
+    ${isOwner() ? '<a class="btn primary" href="./cashier.html">افتح الكاشير</a>' : ''}
+  </div>`;
+  const summary = `<div class="card"><h3>مبيعات ${esc(title)}</h3><div class="ledger">
       <div><span>فواتير</span><span class="n">${fmt(sum.receipts)}</span></div>
       <div><span>مبيعات</span><span class="n">${fmt(sum.sales, 2)}</span></div>
       ${sum.returns ? `<div><span>مرتجعات (${fmt(sum.returns)})</span><span class="n">${fmt(sum.returned, 2)}</span></div>` : ''}
       <div><span>خصومات</span><span class="n">${fmt(sum.discount, 2)}</span></div>
-      ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(pay(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('')}
-      <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div></div></div>
-    <div class="card"><h3>الأكتر بيعاً من الكاشير</h3><div class="ledger">${top.map((t) => `<div><span>${esc(t.name)} <span class="muted n">× ${fmt(t.qty)}</span></span><span class="n">${fmt(t.value, 2)}</span></div>`).join('') || '<div><span class="muted">لسه مفيش مبيعات في الفترة دي.</span><span></span></div>'}</div></div>
-  </div>
-  <p class="note">الفواتير دي من شاشة الكاشير بس. لحد ما الكاشير يبقى البرنامج الأساسي، مبيعات برنامج الصيدلية بتفضل هي اللي بتتحسب في الطلبيات والحسابات.</p>`
-  + (list.length ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>الأصناف</th><th>الإجمالي</th><th>الدفع</th><th>الكاشير</th></tr></thead><tbody>${list.slice(0, 300).map((x) => `<tr><td class="n">${esc(x.number)}</td>
-      <td class="n">${new Date(x.sold_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</td>
-      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ` <span class="pill crit" title="${esc(x.note)}">من غير فاتورة</span>` : ''}` : 'بيع'}</td>
-      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n">${fmt(x.total, 2)}</td><td>${esc(pay(x.payment))}</td><td>${esc(x.employee_name || '')}</td></tr>`).join('')}</tbody></table></div>` : '');
+      ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(payName(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('')}
+      <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div>
+      ${R.profit !== null ? `<div class="tot"><span>المكسب${R.costMissing ? ` <span class="muted">(من غير ${fmt(R.costMissing)} صنف سعر شرائه مش معروف)</span>` : ''}</span><span class="n">${fmt(R.profit, 2)}</span></div>` : ''}
+    </div></div>`;
+  const hours = `<div class="card"><h3>${day ? 'بالساعة' : 'بالساعة (كل الأيام)'}</h3>${R.hours.length ? `<div class="hours">${R.hours.map((h) => `<div class="hr"><span class="n">${hourLabel(h.hour)}</span><span class="bar"><i style="width:${Math.max(2, Math.round((Math.abs(h.net) / maxHour) * 100))}%"></i></span><span class="n">${fmt(h.net)}</span><span class="muted n">${fmt(h.receipts)} فاتورة</span></div>`).join('')}</div>` : '<p class="note">مفيش فواتير في الفترة دي.</p>'}</div>`;
+  const items = R.items.length ? `<h3>اتباع إيه (${fmt(R.items.length)} صنف)</h3>` + table(['الصنف', 'الكمية', 'فواتير', 'المبيعات', 'المكسب'],
+    R.items.map((i) => `<tr><td class="name">${esc(i.name)}<span class="cat n">${esc(i.code)}</span></td><td class="n"><b>${fmt(i.qty)}</b></td><td class="n">${fmt(i.receipts)}</td><td>${egp(i.value)}</td><td>${i.profit === null ? '<span class="muted">—</span>' : `<span class="pill ${i.profit < 0 ? 'crit' : 'ok'}"><span class="n">${fmt(i.profit)}</span> ج</span>`}</td></tr>`)) : '';
+  const rows = list.slice(0, POS_Q || SHOW_ALL.has(TAB) ? 2000 : 200).map((x) => `<tr class="sale-row${POS_OPEN.has(x.id) ? ' open' : ''}" data-sale="${esc(x.id)}" tabindex="0"><td class="n">${esc(x.number)}</td>
+      <td class="n">${esc(posWhen(x))}</td>
+      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : 'بيع'}</td>
+      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
+  const invoices = `<h3>الفواتير (${fmt(list.length)}${POS_Q ? ` من ${fmt(all.length)}` : ''})</h3>` + (rows.length
+    ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>علب</th><th>الإجمالي</th><th>الدفع</th><th>العميل</th><th>الكاشير</th></tr></thead><tbody>${rows.join('')}</tbody></table>${list.length > rows.length ? `<div class="more"><span class="muted">ظاهر أول ${fmt(rows.length)} من ${fmt(list.length)}. دوّر برقم الفاتورة أو الصنف عشان توصلها أسرع.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`
+    : `<div class="card emptybox"><p>${POS_Q ? 'مفيش فاتورة بالبحث ده.' : 'مفيش فواتير في الفترة دي.'}</p></div>`);
+  return `${controls}<p class="note">دوس على أي فاتورة عشان تشوف أصنافها وتطبعها تاني. الفواتير دي من شاشة الكاشير.</p>
+  <div class="calc">${summary}${hours}</div>${invoices}${items}`;
+}
+// The report on paper (or PDF): the totals, the hours and what sold.
+function printPosReport() {
+  const all = posList();
+  const R = salesReport(all, posCost());
+  const sum = R.summary;
+  const title = POS_PERIOD === 'day' ? dayText(POS_DAY) : POS_PERIODS.find(([v]) => v === POS_PERIOD)[1];
+  const row = (a, b) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`;
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير المبيعات</title><style>
+    body{font:13px/1.5 system-ui,sans-serif;margin:16px;color:#000} h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:16px 0 6px}
+    table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid #ccc;padding:4px 6px;text-align:start} .n{direction:ltr;text-align:end;font-variant-numeric:tabular-nums}
+  </style></head><body><h1>${esc(SESS.pharmacy?.name || 'الصيدلية')}: مبيعات ${esc(title)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' && multi() ? ` · ${esc(branchName(BRANCH))}` : ''}</p>
+    <table>${row('فواتير', fmt(sum.receipts))}${row('مبيعات', fmt(sum.sales, 2))}${sum.returns ? row(`مرتجعات (${fmt(sum.returns)})`, fmt(sum.returned, 2)) : ''}${row('خصومات', fmt(sum.discount, 2))}
+    ${Object.entries(sum.byPayment).map(([k, v]) => row(esc(payName(k)), fmt(v, 2))).join('')}${row('<b>الصافي</b>', `<b>${fmt(sum.net, 2)}</b>`)}${R.profit !== null ? row('المكسب', fmt(R.profit, 2)) : ''}</table>
+    <h2>بالساعة</h2><table>${R.hours.map((h) => row(`${hourLabel(h.hour)} · ${fmt(h.receipts)} فاتورة`, fmt(h.net, 2))).join('')}</table>
+    <h2>اتباع إيه</h2><table><tr><th>الصنف</th><th class="n">الكمية</th><th class="n">المبيعات</th><th class="n">المكسب</th></tr>${R.items.map((i) => `<tr><td>${esc(i.name)}</td><td class="n">${fmt(i.qty)}</td><td class="n">${fmt(i.value, 2)}</td><td class="n">${i.profit === null ? '—' : fmt(i.profit, 2)}</td></tr>`).join('')}</table>
+  </body></html>`;
+  printDoc(html);
+}
+// One receipt again, in the same short shape as the cashier's.
+function printSale(id) {
+  const x = POS_SALES.find((y) => y.id === id); if (!x) return;
+  const ret = x.kind === 'return';
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(x.number)}</title><style>
+    @page{margin:0} body{font:12px/1.45 system-ui,sans-serif;width:72mm;margin:0;padding:2mm 3mm;color:#000} .c{text-align:center;border-bottom:1px dashed #000;padding-bottom:2mm;margin-bottom:2mm}
+    table{width:100%;border-collapse:collapse} td{padding:0 0 1px} .n{direction:ltr;text-align:left} .t{border-top:1px dashed #000;margin-top:2mm;padding-top:2mm} .t div{display:flex;justify-content:space-between} .b{font-size:15px;font-weight:700}
+  </style></head><body><div class="c"><b>${esc(SESS.pharmacy?.name || '')}</b><div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(x.number)}</span> (نسخة)</div><div>${esc(new Date(x.sold_at).toLocaleString('ar-EG'))}</div></div>
+    <table>${(x.lines || []).map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td class="n">${fmt(l.qty)} × ${fmt(l.price, 2)}${l.discount ? ` −${fmt(l.discount, 2)}` : ''}</td><td class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</td></tr>`).join('')}</table>
+    <div class="t">${+x.discount ? `<div><span>الخصم</span><span class="n">${fmt(+x.discount, 2)}</span></div>` : ''}<div class="b"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
+    <div><span>الدفع</span><span>${esc(payName(x.payment))}</span></div>${x.employee_name ? `<div><span>الكاشير</span><span>${esc(x.employee_name)}</span></div>` : ''}</div></body></html>`;
+  printDoc(html);
+}
+// Prints a page through a hidden frame (the Windows program prints straight to the default printer when set so).
+function printDoc(html) {
+  const f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed;width:0;height:0;border:0;left:0;bottom:0';
+  document.body.append(f);
+  f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
+  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } finally { setTimeout(() => f.remove(), 1000); } }, 50);
 }
 
 // ---------- Cashier shifts and the log of changes (database update 013) ----------
@@ -1522,6 +1595,17 @@ async function saveCount() {
   $('countMsg').textContent = `اتسجل جرد ${n} صنف: ${list.length ? `${list.length} صنف رصيده اتظبط` : 'كله مظبوط'}.`;
 }
 
+// Searching the receipts as you type (the page keeps the box and what's typed in it).
+let POS_Q_TIMER = null;
+$('panel').addEventListener('input', (e) => {
+  if (e.target.id !== 'posQ') return;
+  clearTimeout(POS_Q_TIMER);
+  POS_Q_TIMER = setTimeout(() => { POS_Q = e.target.value.trim(); render(true); }, 200);
+});
+$('panel').addEventListener('keydown', (e) => {
+  const sr = e.target.closest?.('tr[data-sale]');
+  if (sr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); sr.click(); }
+});
 $('panel').addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'adjQ') adjustSearch(false);
@@ -2267,7 +2351,8 @@ $('panel').addEventListener('change', (e) => {
   if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); }
   if (e.target.id === 'expPeriodSel') { EXP_PERIOD = e.target.value; render(); }
   if (e.target.id === 'wdPeriodSel') { WD_PERIOD = e.target.value; render(); }
-  if (e.target.id === 'posPeriodSel') { POS_PERIOD = e.target.value; render(); }
+  if (e.target.id === 'posPeriodSel') { POS_PERIOD = e.target.value; POS_OPEN.clear(); render(); }
+  if (e.target.id === 'posDay' && e.target.value) { POS_DAY = e.target.value; POS_OPEN.clear(); render(); }
   if (e.target.id === 'logFilter') { LOG_FILTER = e.target.value; render(); }
   if (e.target.matches('select[data-supfor]')) chooseSupplier(e.target.dataset.supfor, e.target.value);
 });
@@ -2282,6 +2367,10 @@ $('panel').addEventListener('submit', (e) => {
 });
 $('panel').addEventListener('click', (e) => {
   if (e.target.closest('[data-showall]')) { SHOW_ALL.add(TAB); render(); return; }
+  const pd = e.target.closest('[data-posday]'); if (pd) { POS_DAY = pd.dataset.posday; POS_OPEN.clear(); render(); return; }
+  const ps = e.target.closest('[data-printsale]'); if (ps) { printSale(ps.dataset.printsale); return; }
+  if (e.target.id === 'posPrint') { printPosReport(); return; }
+  const sr = e.target.closest('tr[data-sale]'); if (sr) { const id = sr.dataset.sale; if (POS_OPEN.has(id)) POS_OPEN.delete(id); else POS_OPEN.add(id); render(); return; }
   const c = e.target.closest('[data-calc]'); if (c) { CALC_CODE = c.dataset.calc; TAB = 'calc'; render(); }
   const d = e.target.closest('[data-delexp]'); if (d) deleteExpense(d.dataset.delexp);
   const ed = e.target.closest('[data-editexp]'); if (ed) { EDIT_EXP = ed.dataset.editexp; render(); $('expForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }

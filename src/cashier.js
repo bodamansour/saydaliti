@@ -5,6 +5,7 @@ import { fromExport, startOfDay } from './core.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
+import { matchSale, itemsSold } from './sales-report.js';
 import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
@@ -617,27 +618,32 @@ function todaysSales() {
   return branchSales().filter((s) => new Date(s.sold_at) >= t);
 }
 function renderDay() {
-  const list = todaysSales();
-  const sum = daySummary(list);
+  // Searching looks in every receipt on this device, not only today's.
+  const q = $('daySearch').value.trim();
+  const list = q ? branchSales().filter((s) => matchSale(s, q, CUSTOMERS.find((c) => c.id === s.customer_id)?.name)) : todaysSales();
+  $('dayTitle').textContent = q ? `نتيجة البحث (${list.length})` : 'فواتير النهارده';
+  const sum = daySummary(q ? todaysSales() : list);
   $('daySum').innerHTML = `<div><span>فواتير</span><span class="n">${sum.receipts}</span></div>
     <div><span>مبيعات</span><span class="n">${fmt(sum.sales)}</span></div>
     ${sum.returns ? `<div><span>مرتجعات (${sum.returns})</span><span class="n">${fmt(sum.returned)}</span></div>` : ''}
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
     <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net)}</span></div>`;
   $('dayList').innerHTML = list.slice(0, 200).map((s) => `<tr class="${s.pending ? 'pend' : ''}"><td class="n">${esc(s.number)}</td>
-    <td class="n">${new Date(s.sold_at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
+    <td class="n">${new Date(s.sold_at).toLocaleString('ar-EG', q ? { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
     <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
-    <td class="n">${fmt(s.total)}</td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
-    <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>';
+    <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
+    <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || (q ? '<tr><td colspan="6" class="muted">مفيش فاتورة بالبحث ده على الجهاز ده. الفواتير القديمة كلها في اللوحة ← «الفواتير والمبيعات».</td></tr>' : '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>');
 }
 function printDay() {
   const sum = daySummary(todaysSales());
+  const items = itemsSold(todaysSales());
   const when = new Date().toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   printHtml(`<div class="rc-head"><b>${esc(SESS.pharmacy.name)}</b><div>إقفال يوم</div><div>${esc(when)}</div></div>
     <div class="rc-tot"><div><span>فواتير</span><span class="n">${sum.receipts}</span></div><div><span>مبيعات</span><span class="n">${fmt(sum.sales)}</span></div>
     <div><span>مرتجعات</span><span class="n">${fmt(sum.returned)}</span></div><div><span>خصومات</span><span class="n">${fmt(sum.discount)}</span></div>
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
-    <div class="big"><span>الصافي</span><span class="n">${fmt(sum.net)}</span></div></div>`);
+    <div class="big"><span>الصافي</span><span class="n">${fmt(sum.net)}</span></div></div>
+    ${items.length ? `<div class="rc-tot"><div><b>اتباع إيه</b><span></span></div>${items.map((i) => `<div><span>${esc(i.name)} × ${i.qty}</span><span class="n">${fmt(i.value)}</span></div>`).join('')}</div>` : ''}`);
 }
 
 // ---------- Sync & status ----------
@@ -810,6 +816,8 @@ $('outForm').addEventListener('submit', saveOut);
 $('outCancel').addEventListener('click', () => { $('outDlg').close(); focusSearch(); });
 $('modeSale').addEventListener('click', () => setMode('sale'));
 $('modeReturn').addEventListener('click', () => setMode('return'));
+$('daySearch').addEventListener('input', () => { clearTimeout(DAY_T); DAY_T = setTimeout(renderDay, 200); });
+let DAY_T = null;
 $('dayList').addEventListener('click', (e) => {
   const b = e.target.closest('[data-reprint]'); if (b) printReceipt(SALES.find((s) => s.id === b.dataset.reprint));
   const r = e.target.closest('[data-retid]'); if (r) { const s = SALES.find((x) => x.id === r.dataset.retid); setMode('return'); $('retNo').value = s.number; findReceipt(); }
