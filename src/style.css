@@ -431,3 +431,7 @@ dialog:not([open]) { display: none; }
 .wrap > :first-child:not(header) { margin-top: 28px; }
 .doc ul { padding-inline-start: 22px; }
 @media (max-width: 720px) { .pos-top .muted { display: none; } }
+/* Discount in pounds or as a percent: a small switch next to the box. */
+.discin { display: inline-flex; align-items: center; gap: 4px; }
+.btn.unit { min-height: 30px; min-width: 34px; padding: 2px 8px; font-size: .85rem; line-height: 1; }
+th .btn.unit { min-height: 24px; min-width: 28px; padding: 1px 6px; margin-inline-start: 4px; vertical-align: middle; }

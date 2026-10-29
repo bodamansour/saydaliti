@@ -256,6 +256,21 @@ test('cashier: scan, search, teach a barcode, take payment and print', async () 
   await page.fill('#q', '6223000123456');
   await page.press('#q', 'Enter');
   assert.match(await text('#cart'), /Sun cream/);
+  // Discounts as a percent: 10% off the item (420 → 378), then 5% off the receipt (378 → 359.10).
+  await page.click('#lineUnit');
+  await page.fill('#cart [data-disc="0"]', '10');
+  await page.press('#cart [data-disc="0"]', 'Tab');
+  assert.equal(await text('#tTotal'), '378.00');
+  await page.click('#extraUnit');
+  assert.equal(await text('#extraUnit'), '%');
+  await page.fill('#extraDisc', '5');
+  assert.equal(await text('#tTotal'), '359.10');
+  assert.equal(await text('#tDisc'), '60.90');
+  // Back to pounds: the same discount, shown in pounds.
+  await page.click('#extraUnit');
+  assert.equal(await page.inputValue('#extraDisc'), '18.9');
+  assert.equal(await text('#tTotal'), '359.10');
+  await page.click('#lineUnit');
   await page.keyboard.press('Escape');
 });
 

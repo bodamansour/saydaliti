@@ -40,7 +40,7 @@
       </div>
       <p class="note" id="posMsg" role="status"></p>
       <div class="tablebox cart"><table>
-        <thead><tr><th>الصنف</th><th>السعر</th><th>الكمية</th><th>خصم</th><th>الإجمالي</th><th></th></tr></thead>
+        <thead><tr><th>الصنف</th><th>السعر</th><th>الكمية</th><th>خصم <button class="btn unit" type="button" id="lineUnit" aria-label="خصم الصنف بالجنيه أو نسبة" title="دوس عشان تبدّل بين جنيه ونسبة">ج</button></th><th>الإجمالي</th><th></th></tr></thead>
         <tbody id="cart"></tbody>
       </table><p class="empty" id="cartEmpty">امسح أول صنف عشان تبدأ الفاتورة.</p></div>
     </div>
@@ -55,7 +55,7 @@
       </div>
       <div class="ledger pos-totals">
         <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>
-        <div><span>خصم على الفاتورة</span><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"></div>
+        <div><span>خصم على الفاتورة</span><span class="discin"><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"><button class="btn unit" type="button" id="extraUnit" aria-label="الخصم بالجنيه أو نسبة" title="دوس عشان تبدّل بين جنيه ونسبة">ج</button></span></div>
         <div><span>الخصم كله</span><span class="n" id="tDisc">0.00</span></div>
         <div class="tot big"><span id="tLabel">المطلوب</span><span class="n" id="tTotal">0.00</span></div>
         <div id="creditRow" hidden><span id="creditLabel">على حساب العميل</span><span class="n" id="tCredit">0.00</span></div>
