@@ -1,6 +1,6 @@
 import { watchErrors } from './errors.js';
-import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
-import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel } from './branches-expenses.js';
+import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
+import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings } from './session.js';
 import { arabicError } from './supabase-store.js';
@@ -111,7 +111,7 @@ const SECTIONS = [
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
-  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'مبيعات الكاشير'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
+  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'مبيعات الكاشير'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -203,6 +203,7 @@ function render(background = false) {
   else if (TAB === 'invoices') html = renderInvoices();
   else if (TAB === 'supaccounts') html = renderSupplierAccounts();
   else if (TAB === 'expenses') html = renderExpenses();
+  else if (TAB === 'withdrawals') html = renderWithdrawals();
   else if (TAB === 'pos') html = renderPosSales();
   else if (TAB === 'shifts') html = renderShifts();
   else if (TAB === 'log') html = renderLog();
@@ -273,6 +274,7 @@ function renderBooks(full, only) {
   const t = rows.reduce((a, r) => { for (const k of Object.keys(a)) a[k] += r[k]; return a; }, { bought: 0, listValue: 0, discount: 0, revenue: 0, cogs: 0, lost: 0, tax: 0, overhead: 0, net: 0 });
   const E = EXP_READY && OWNER === 'all' ? expenseTotals(EXPENSES, from, to, BRANCH === 'all' ? 'all' : BRANCH_ID()) : null;
   const actual = E && E.count > 0;
+  const W = OWNER === 'all' ? withdrawals(EXP_READY ? EXPENSES : [], DATA.drawings || [], from, to, BRANCH === 'all' ? 'all' : BRANCH_ID()) : null;
   const line = (label, v, cls = '') => `<div class="${cls}"><span>${label}</span><span class="n">${fmt(v, 2)}</span></div>`;
   const noPurch = !(DATA.purchases || []).length;
   const net = actual ? t.revenue - t.cogs - t.tax - t.lost - E.operating : t.net;
@@ -288,7 +290,7 @@ function renderBooks(full, only) {
       ${actual ? line('− المصروفات المتسجلة (كهربا، إيجار، مرتبات…)', E.operating) : line('− نصيب المصاريف (من التقدير الشهري)', t.overhead)}
       ${line('− خسارة هالك ومنتهي', t.lost)}
       ${line('مكسبك الصافي', net, 'tot')}
-      ${actual && E.withdrawals ? `${line('− مسحوبات', E.withdrawals)}${line('اللي فاضل في الصيدلية', net - E.withdrawals, 'tot')}` : ''}
+      ${W && W.total ? `${line(`− مسحوبات${W.goods ? ' (فلوس وبضاعة)' : ''}`, W.total)}${line('اللي فاضل في الصيدلية', net - W.total, 'tot')}` : ''}
     </div>
     ${!actual ? '<p class="note">المصاريف هنا تقدير من الإعدادات. سجّل المصروفات الفعلية في تبويب «المصروفات» وهتتحسب بالظبط.</p>' : ''}
     ${OWNER !== 'all' ? '<p class="note">المصروفات المتسجلة بتظهر لما تختار «كل الشركاء».</p>' : ''}</div>
@@ -317,16 +319,16 @@ function renderExpenses() {
   if (EDIT_EXP && !E) EDIT_EXP = null;
   const defBranch = E ? key(E.branch_id) : BRANCH !== 'all' ? BRANCH : key(BRANCHES[0]?.id);
   const form = isOwner() ? `<form id="expForm" class="card stack${E ? ' editing' : ''}">
-      <h3>${E ? 'عدّل المصروف' : 'سجّل مصروف أو مسحوبات'}</h3>
+      <h3>${E ? 'عدّل المصروف' : 'سجّل مصروف'}</h3>
       <div class="grid2">
-        <label>النوع<select id="expKind">${EXPENSE_KINDS.map(([v, t]) => `<option value="${v}" ${E?.kind === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label>النوع<select id="expKind">${EXPENSE_KINDS.filter(([v]) => v !== 'withdrawal' || E?.kind === v).map(([v, t]) => `<option value="${v}" ${E?.kind === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label>المبلغ (جنيه)<input id="expAmount" type="number" inputmode="decimal" min="0.01" step="0.01" required value="${E ? esc(+E.amount) : ''}"></label>
         <label>التاريخ<input id="expDate" type="date" value="${E ? esc(E.spent_on) : isoDay(TODAY)}" max="${isoDay(TODAY)}" required></label>
         ${multi() ? `<label>الفرع<select id="expBranch">${BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === defBranch ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>` : ''}
         <label class="span2">ملاحظة (اختياري)<input id="expNote" maxlength="300" placeholder="مثلاً: فاتورة كهربا شهر 10، أو سحب أحمد" value="${esc(E?.note || '')}"></label>
       </div>
       <div class="row"><button class="btn primary" type="submit">${E ? 'احفظ التعديل' : 'احفظ'}</button>${E ? '<button class="btn" type="button" id="expCancel">إلغاء</button>' : ''}<span class="note" id="expMsg" role="status"></span></div>
-      <p class="note">المسحوبات فلوس خرجت من الصيدلية لصاحبها أو لشريك. مش بتتحسب مصروف، بس بتظهر في الحسابات عشان تعرف فاضل كام.</p>
+      <p class="note">الفلوس أو البضاعة اللي بتاخدها لنفسك أو لشريك مش مصروف: سجّلها في تبويب «المسحوبات».</p>
     </form>` : '<p class="note">صاحب الصيدلية بس اللي بيسجّل المصروفات.</p>';
   const kinds = EXPENSE_KINDS.filter(([k]) => T.byKind[k]).map(([k, t]) => `<div><span>${k === 'withdrawal' ? 'مسحوبات' : t}</span><span class="n">${fmt(T.byKind[k], 2)}</span></div>`).join('');
   const rows = list.map((e) => `<tr class="${e.pending ? 'pend' : ''}"><td class="n">${esc(e.spent_on)}</td><td>${egp(+e.amount)}</td><td>${esc(e.kind === 'withdrawal' ? 'مسحوبات' : kindLabel(e.kind))}${e.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>${multi() ? `<td>${esc(branchName(key(e.branch_id)))}</td>` : ''}<td class="muted">${esc(e.note || '')}</td>${isOwner() ? `<td class="acts"><button class="btn" data-editexp="${esc(e.id)}">عدّل</button> <button class="btn" data-delexp="${esc(e.id)}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
@@ -345,6 +347,65 @@ function renderExpenses() {
   </div>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>النوع</th>${multi() ? '<th>الفرع</th>' : ''}<th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`
     : '');
+}
+
+// ---------- Owner withdrawals: money or goods the owner (or a partner) took for themselves ----------
+let WD_PERIOD = 'thisMonth';
+let WD_NOTE = '';
+// Names used before, and the partners who own stock, offered when typing who took it.
+function peopleList() {
+  const names = new Set([OWNER_LABEL]);
+  for (const e of EXPENSES) if (e.kind === 'withdrawal' && e.person) names.add(e.person);
+  for (const m of MOVES) if (m.kind === 'withdrawal' && m.person) names.add(m.person);
+  for (const o of ownersOf(DATA.items)) if (o !== UNASSIGNED) names.add(o);
+  return `<datalist id="wdPeople">${[...names].map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>`;
+}
+function renderWithdrawals() {
+  if (!EXP_READY) return '<div class="card emptybox"><h3>المسحوبات محتاجة تحديث قاعدة البيانات</h3><p>بعد التحديث، الصفحة دي هتشتغل على طول.</p></div>';
+  const [from, to] = periodRange(WD_PERIOD);
+  const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
+  const W = withdrawals(EXPENSES, DATA.drawings || [], from, to, bid);
+  const defBranch = BRANCH !== 'all' ? BRANCH : key(BRANCHES[0]?.id);
+  const form = isOwner() ? `<form id="wdForm" class="card stack">
+      <h3>فلوس خدتها من الصيدلية</h3>
+      <div class="grid2">
+        <label>مين أخدها<input id="wdPerson" maxlength="80" list="wdPeople" autocomplete="off" value="${esc(OWNER_LABEL)}" required></label>
+        <label>المبلغ (جنيه)<input id="wdAmount" type="number" inputmode="decimal" min="0.01" step="0.01" required></label>
+        <label>التاريخ<input id="wdDate" type="date" value="${isoDay(TODAY)}" max="${isoDay(TODAY)}" required></label>
+        ${multi() ? `<label>من فرع<select id="wdBranch">${BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === defBranch ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>` : ''}
+        <label class="span2">ملاحظة (اختياري)<input id="wdNote" maxlength="300" placeholder="مثلاً: مصاريف البيت"></label>
+      </div>${peopleList()}
+      <div class="row"><button class="btn primary" type="submit">سجّل</button><button class="btn" type="button" id="wdGoods">أخدت بضاعة؟ سجّلها من الرصيد</button><span class="note" id="wdMsg" role="status">${esc(WD_NOTE)}</span></div>
+      <p class="note">الفلوس اللي خرجت من درج الكاشير بتتسجل من الكاشير نفسه («فلوس خرجت من الدرج»)، عشان تتخصم من الوردية.</p>
+    </form>` : '';
+  const people = W.byPerson.length
+    ? `<div class="ledger">${W.byPerson.map((p) => `<div><span><b>${esc(p.person)}</b>${p.goods ? ` <span class="muted">(فلوس ${fmt(p.cash, 2)} · بضاعة ${fmt(p.goods, 2)})</span>` : ''}</span><span class="n">${fmt(p.total, 2)}</span></div>`).join('')}
+        <div class="tot"><span>المجموع</span><span class="n">${fmt(W.total, 2)}</span></div></div>`
+    : '<p class="note">مفيش مسحوبات في الفترة دي.</p>';
+  const rows = W.rows.map((r) => `<tr class="${r.pending ? 'pend' : ''}"><td class="n">${esc(r.date)}</td><td><b>${esc(r.person)}</b></td><td>${r.type === 'goods' ? '<span class="pill warn">بضاعة</span>' : r.fromDrawer ? '<span class="pill ok">من الدرج</span>' : 'فلوس'}${r.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td><td>${egp(r.amount)}</td>${multi() ? `<td>${esc(branchName(key(r.branch_id)))}</td>` : ''}<td class="muted">${esc(r.note)}</td>${isOwner() ? `<td class="acts"><button class="btn" data-delwd="${esc(r.id)}" data-wdtype="${r.type}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
+  return `<p>اللي صاحب الصيدلية أو شريك أخده لنفسه، فلوس أو بضاعة. المسحوبات مش مصروف ومش بتقلل المكسب، بس بتتخصم من «اللي فاضل في الصيدلية» في «الحسابات».</p>
+  <div class="calc">${form}
+    <div class="card"><div class="row" style="justify-content:space-between"><h3>كل واحد أخد كام</h3>${periodSelect('wdPeriodSel', WD_PERIOD)}</div>${people}</div>
+  </div>` + (rows.length ? `<div class="tablebox"><table><thead><tr><th>التاريخ</th><th>مين</th><th>النوع</th><th>القيمة</th>${multi() ? '<th>الفرع</th>' : ''}<th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '');
+}
+async function addWithdrawal(ev) {
+  ev.preventDefault();
+  const amount = Math.round((+$('wdAmount').value || 0) * 100) / 100;
+  const date = $('wdDate').value;
+  const person = $('wdPerson').value.trim() || OWNER_LABEL;
+  if (!(amount > 0)) { $('wdMsg').textContent = 'اكتب المبلغ.'; return; }
+  if (!date || date > isoDay(TODAY)) { $('wdMsg').textContent = 'اختار تاريخ النهارده أو قبله.'; return; }
+  const bk = multi() ? $('wdBranch').value : key(BRANCHES[0]?.id);
+  await insertExpense({ branch_id: bk === 'main' ? null : bk, spent_on: date, kind: 'withdrawal', amount, person, note: $('wdNote').value.trim() || null });
+  WD_NOTE = `اتسجل: ${person} أخد ${fmt(amount, 2)} ج.${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+  render();
+  sync();
+}
+async function deleteWithdrawal(id, type) {
+  if (!confirm('تمسح السحب ده؟')) return;
+  WD_NOTE = '';
+  if (type === 'goods') await localDelete('stock_moves', id); // the boxes go back on the shelf
+  else await deleteExpense(id, true);
 }
 
 let EDIT_EXP = null; // id of the expense being edited
@@ -387,9 +448,9 @@ async function addFixedExpenses() {
   sync();
 }
 
-async function deleteExpense(id) {
+async function deleteExpense(id, asked = false) {
   const e = EXPENSES.find((x) => x.id === id);
-  if (!e || !confirm(`تمسح ${kindLabel(e.kind)} بـ ${fmt(+e.amount)} جنيه بتاريخ ${e.spent_on}؟`)) return;
+  if (!e || (!asked && !confirm(`تمسح ${kindLabel(e.kind)} بـ ${fmt(+e.amount)} جنيه بتاريخ ${e.spent_on}؟`))) return;
   if (EDIT_EXP === id) EDIT_EXP = null;
   await removeExpense(id);
   render(); sync();
@@ -404,8 +465,13 @@ async function loadExpenses() {
   const deleted = new Set(queued.filter((q) => q.type === 'deleteExpense').map((q) => q.payload.id));
   let server = null;
   if (isOnline()) {
-    const { data, error } = await SESS.client.from('expenses').select('id, branch_id, spent_on, kind, amount, note, created_at')
-      .eq('pharmacy_id', SESS.pharmacy.id).gte('spent_on', isoDay(addDays(TODAY, -400))).order('spent_on', { ascending: false }).limit(5000);
+    // person and shift_id came with the withdrawals update (0002); a database without it still works.
+    let res;
+    for (const cols of ['id, branch_id, spent_on, kind, amount, note, person, shift_id, created_at', 'id, branch_id, spent_on, kind, amount, note, created_at']) {
+      res = await SESS.client.from('expenses').select(cols).eq('pharmacy_id', SESS.pharmacy.id).gte('spent_on', isoDay(addDays(TODAY, -400))).order('spent_on', { ascending: false }).limit(5000);
+      if (!res.error || /fetch|network/i.test(res.error.message)) break;
+    }
+    const { data, error } = res;
     if (error && !/fetch|network/i.test(error.message)) { EXP_READY = false; return; }
     if (!error) server = data;
   }
@@ -611,10 +677,10 @@ function renderShifts() {
   const t = (d) => new Date(d).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
   return `<p class="note">كل كاشير بيدخل برقمه السري على جهاز الكاشير، وبيفتح وردية بالفلوس اللي في الدرج، ويقفلها بعدّ الدرج. الموظفين وأرقامهم من صفحة «الحضور والانصراف».</p>
   ${missing < 0 ? `<p class="err">إجمالي العجز في الورديات اللي هنا: ${fmt(-missing, 2)} ج</p>` : ''}
-  ${list.length ? table(['الكاشير', 'من', 'لحد', 'مبيعات', 'المفروض في الدرج', 'اتعدّ', 'الفرق', 'ملاحظة'], list.map((x) => {
+  ${list.length ? table(['الكاشير', 'من', 'لحد', 'مبيعات', 'اتسحب من الدرج', 'المفروض في الدرج', 'اتعدّ', 'الفرق', 'ملاحظة'], list.map((x) => {
     const d = diffOf(x);
     return `<tr><td><b>${esc(x.employee_name)}</b></td><td class="n">${esc(t(x.opened_at))}</td><td>${x.closed_at ? `<span class="n">${esc(t(x.closed_at))}</span>` : '<span class="pill ok">مفتوحة</span>'}</td>
-      <td class="n">${x.totals ? fmt(x.totals.net, 2) : '—'}</td><td class="n">${x.expected_cash != null ? fmt(x.expected_cash, 2) : '—'}</td><td class="n">${x.counted_cash != null ? fmt(x.counted_cash, 2) : '—'}</td>
+      <td class="n">${x.totals ? fmt(x.totals.net, 2) : '—'}</td><td class="n">${x.totals?.outs ? fmt(x.totals.outs, 2) : '—'}</td><td class="n">${x.expected_cash != null ? fmt(x.expected_cash, 2) : '—'}</td><td class="n">${x.counted_cash != null ? fmt(x.counted_cash, 2) : '—'}</td>
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
@@ -1015,7 +1081,8 @@ async function loadInventory() {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
       loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
       loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on'),
-      loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at'),
+      loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, person, happened_at, created_at', 'happened_at')
+        .catch((e) => (e.missing ? loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at') : Promise.reject(e))),
     ]);
     SUP_PAYMENTS = SESS.role === 'device' ? [] : await loadTable('supplier_payments', 'id, supplier_id, supplier_name, paid_on, amount, note, created_at', 'paid_on');
     INV_READY = true;
@@ -1309,8 +1376,10 @@ function adjustForm() {
       ${ADJ.kind === 'transfer' ? `<label>حوّلها لفرع<select id="adjTo">${BRANCHES.filter((b) => key(b.id) !== here).map((b) => `<option value="${esc(key(b.id))}">${esc(b.name)}</option>`).join('')}</select></label>` : ''}
       ${ADJ.kind === 'supplier_return' ? `<label>رجّعتها لمين<select id="adjSup">${sup.map((x) => `<option value="${esc(x.id)}" ${x.id === ADJ.supplier ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       <label>سعر الشراء للعلبة (بيتخصم من حساب المورد)<input id="adjCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(ADJ.cost || it?.cost || '')}"></label>` : ''}
+      ${ADJ.kind === 'withdrawal' ? `<label>مين أخدها<input id="adjPerson" maxlength="80" list="wdPeople" autocomplete="off" value="${esc(ADJ.person || OWNER_LABEL)}"></label>${peopleList()}` : ''}
       <label>ملاحظة (اختياري)<input id="adjNote" maxlength="300" value="${esc(ADJ.note)}"></label>
     </div>
+    ${ADJ.kind === 'withdrawal' ? '<p class="note">بتتشال من الرصيد بسعر شرائها، وبتظهر في «المسحوبات». مش بتتحسب خسارة.</p>' : ''}
     ${ADJ.kind === 'supplier_return' && !sup.length ? '<p class="note">ضيف الموردين الأول من «اطلب إيه».</p>' : ''}
     <div class="row"><button class="btn primary" type="submit">سجّل</button><span class="note" id="adjMsg" role="status">${esc(ADJ_NOTE)}</span></div>
   </form>`;
@@ -1347,7 +1416,7 @@ function renderAdjust() {
     hist.map((m) => `<tr><td>${dayText(m.happened_at)}</td><td class="name">${esc(viewItem(m.code)?.name ?? m.code)}</td><td>${moveLabel(m.kind)}</td>
       <td class="n"><span class="pill ${+m.qty < 0 ? 'crit' : 'ok'}">${+m.qty > 0 ? '+' : ''}${fmt(+m.qty)}</span></td><td>${esc(m.note || '')}</td>
       <td>${isOwner() ? `<button class="btn" type="button" data-delmove="${esc(m.id)}">امسح</button>` : ''}${pendingPill(m)}</td></tr>`)) : '';
-  return `<p>الجرد بيظبط الرصيد على اللي موجود فعلاً، والتالف والمنتهي بيتشالوا من الرصيد ويتحسبوا خسارة في «الحسابات»، والمرتجع للمورد بيتخصم من حسابه.</p>
+  return `<p>الجرد بيظبط الرصيد على اللي موجود فعلاً، والتالف والمنتهي بيتشالوا من الرصيد ويتحسبوا خسارة في «الحسابات»، والمرتجع للمورد بيتخصم من حسابه، ومسحوبات البضاعة بتروح «المسحوبات».</p>
     ${isOwner() ? adjustForm() : ''}${exp}${count}${history}`;
 }
 
@@ -1398,6 +1467,7 @@ async function saveAdjust(e) {
     const pay = cost > 0 ? await localInsert('supplier_payments', { supplier_id: s.id, supplier_name: s.name, amount: Math.round(qty * cost * 100) / 100, paid_on: isoDay(TODAY), note: `مرتجع بضاعة: ${qty} × ${it.name}` }) : null;
     Object.assign(row, { cost, note: [`لـ${s.name}`, note].filter(Boolean).join(' · '), ...(pay ? { ref: pay.id } : {}) });
   } else row.cost = it.cost || null;
+  if (ADJ.kind === 'withdrawal') { row.person = $('adjPerson')?.value.trim() || OWNER_LABEL; ADJ.person = row.person; }
   await localInsert('stock_moves', row);
   ADJ_NOTE = `اتسجل: ${moveLabel(ADJ.kind)} ${qty} من «${it.name}».${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
   ADJ = { code: null, kind: ADJ.kind, qty: '', supplier: ADJ.supplier, cost: '', note: '' };
@@ -2163,6 +2233,7 @@ async function boot() {
 $('panel').addEventListener('change', (e) => {
   if (e.target.id === 'periodSel') { PERIOD = e.target.value; render(); }
   if (e.target.id === 'expPeriodSel') { EXP_PERIOD = e.target.value; render(); }
+  if (e.target.id === 'wdPeriodSel') { WD_PERIOD = e.target.value; render(); }
   if (e.target.id === 'posPeriodSel') { POS_PERIOD = e.target.value; render(); }
   if (e.target.id === 'logFilter') { LOG_FILTER = e.target.value; render(); }
   if (e.target.matches('select[data-supfor]')) chooseSupplier(e.target.dataset.supfor, e.target.value);
@@ -2170,6 +2241,7 @@ $('panel').addEventListener('change', (e) => {
 $('panel').addEventListener('toggle', (e) => { if (e.target.id === 'supBox') SUP_OPEN = e.target.open; }, true);
 $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'expForm') addExpense(e);
+  if (e.target.id === 'wdForm') addWithdrawal(e);
   if (e.target.id === 'shortForm') addShortage(e);
   if (e.target.id === 'priceForm') submitPrice(e);
   if (e.target.id === 'remForm') addReminder(e);
@@ -2180,6 +2252,8 @@ $('panel').addEventListener('click', (e) => {
   const d = e.target.closest('[data-delexp]'); if (d) deleteExpense(d.dataset.delexp);
   const ed = e.target.closest('[data-editexp]'); if (ed) { EDIT_EXP = ed.dataset.editexp; render(); $('expForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   if (e.target.id === 'expCancel') { EDIT_EXP = null; render(); }
+  if (e.target.id === 'wdGoods') { ADJ = { ...ADJ, kind: 'withdrawal', code: null, qty: '' }; ADJ_NOTE = ''; TAB = 'adjust'; render(); $('adjQ')?.focus(); }
+  const dw = e.target.closest('[data-delwd]'); if (dw) deleteWithdrawal(dw.dataset.delwd, dw.dataset.wdtype);
   if (e.target.id === 'addFixed') addFixedExpenses();
   const es = e.target.closest('[data-editsup]'); if (es) { EDIT_SUP = es.dataset.editsup; render(); $('supForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   const ds = e.target.closest('[data-delsup]'); if (ds) deleteSupplier(ds.dataset.delsup);

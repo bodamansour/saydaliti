@@ -68,7 +68,11 @@ async function api(req, env, url) {
     const ctx = await contextOf(env, req);
     if (q.op === 'select') { const r = await select(ctx, env, q); return json(rowsJson(r.rows, r.blob)); }
     if (q.op === 'insert' || q.op === 'upsert') {
-      await insert(ctx, env, q, { beforeInsert: async (table, row) => { if (table === 'pos_sales') await checkPosSale(env, row); } });
+      await insert(ctx, env, q, { beforeInsert: async (table, row) => {
+        if (table === 'pos_sales') await checkPosSale(env, row);
+        // The cashier device records only money taken out of the drawer; other expenses are the owner's.
+        if (table === 'expenses' && ctx.roles.get(row.pharmacy_id) !== 'owner' && row.kind !== 'withdrawal') throw new ApiError('not allowed', '42501', 403);
+      } });
       return json({ data: null, error: null }, 201);
     }
     if (q.op === 'update') { await update(ctx, env, q); return json({ data: null, error: null }); }
