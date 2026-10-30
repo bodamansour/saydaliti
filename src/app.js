@@ -14,6 +14,8 @@ import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
 import { labelHtml } from './labels.js';
+import { answerLocally, runTool, toolSpecs, EXAMPLES } from './assistant.js';
+import { overview, monthlySeries, categoryPerformance, trending, profitClasses, supplierPerformance, healthScore, forecast, stockoutPlan, anomalies, alerts, recommendations } from './insights.js';
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
@@ -114,6 +116,7 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
+  ['insights', 'الملخص', [['overview', 'نظرة عامة'], ['analysis', 'التحليلات'], ['health', 'صحة الصيدلية'], ['alerts', 'التنبيهات'], ['assistant', 'اسأل صيدليتي'], ['tasks', 'المهام']]],
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
@@ -137,7 +140,7 @@ function showView(v) {
   document.body.dataset.view = v;
   if (v === 'tools') { $('viewTitle').textContent = 'الإعدادات والأدوات'; for (const b of $('sections').querySelectorAll('.sec')) b.setAttribute('aria-pressed', 'false'); }
 }
-const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
+const NEEDS_DATA = new Set(['overview', 'analysis', 'health', 'reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
 
 function taxNote(A, s) {
   if (s.taxMode === 'simplified') {
@@ -233,7 +236,13 @@ function render(background = false) {
   else if (TAB === 'prices') html = renderPrices(A);
   else if (TAB === 'changes' && has) html = renderPriceChanges();
   else if (TAB === 'patients') html = renderPatients();
+  else if (TAB === 'alerts') html = renderAlerts(A);
+  else if (TAB === 'assistant') html = renderAssistant();
+  else if (TAB === 'tasks') html = renderTasks();
   else if (!has && NEEDS_DATA.has(TAB)) html = emptyState();
+  else if (TAB === 'overview') html = renderOverview(A);
+  else if (TAB === 'analysis') html = renderAnalysis(A);
+  else if (TAB === 'health') html = renderHealth(A);
   else if (TAB === 'reorder') {
     html = renderReorder(A, s);
   } else if (TAB === 'expiry') {
@@ -816,7 +825,7 @@ function renderShifts() {
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
-const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف' };
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة' };
 const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
@@ -847,7 +856,7 @@ let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
 const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
   customers: () => CUSTOMERS, customer_payments: () => CUST_PAYMENTS,
-  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES };
+  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -1698,8 +1707,29 @@ $('panel').addEventListener('keydown', (e) => {
   if (e.target.dataset?.count !== undefined) { e.preventDefault(); const all = [...document.querySelectorAll('[data-count]')]; all[all.indexOf(e.target) + 1]?.focus(); }
 });
 $('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); });
-$('panel').addEventListener('click', (e) => {
+$('panel').addEventListener('click', async (e) => {
   if (e.target.id === 'logReload') { LOG_ROWS = null; render(); }
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  // The summary: go to a tab, mark alerts read, turn alerts and recommendations into tasks.
+  if (t('gotab')) { TAB = t('gotab'); render(); scrollTo({ top: 0 }); return; }
+  if (t('ask')) { ask(t('ask')); return; }
+  if (e.target.id === 'chatClear') { CHAT = []; render(true); return; }
+  if (e.target.id === 'alertsRead') { for (const a of currentAlerts(ANALYSIS.full)) ALERTS_READ.add(a.key); store.set(READ_KEY, [...ALERTS_READ].slice(-500)); render(); return; }
+  if (t('alerttask')) {
+    const a = currentAlerts(ANALYSIS.full).find((x) => x.key === t('alerttask'));
+    if (a) { await addTask({ title: a.title, note: a.detail, priority: a.level === 'crit' ? 'high' : a.level === 'warn' ? 'medium' : 'low', ref: `alert:${a.key}` }); ALERTS_READ.add(a.key); store.set(READ_KEY, [...ALERTS_READ].slice(-500)); }
+    return;
+  }
+  if (t('rectask') || t('recno')) {
+    const key = t('rectask') || t('recno');
+    const r = currentRecs(ANALYSIS.full).find((x) => x.key === key);
+    if (r && t('rectask')) await addTask({ title: r.title, note: `${r.action}. ${r.data}`, priority: r.priority, ref: `rec:${r.key}` });
+    REC_DISMISSED.add(key); store.set(REC_KEY, [...REC_DISMISSED].slice(-300)); render();
+    return;
+  }
+  if (t('taskdone')) { await localUpdate('tasks', t('taskdone'), { status: 'done', done_at: new Date().toISOString() }); return; }
+  if (t('taskopen')) { await localUpdate('tasks', t('taskopen'), { status: 'open', done_at: null }); return; }
+  if (t('taskdel') && confirm('تمسح المهمة دي؟')) await localDelete('tasks', t('taskdel'));
 });
 $('panel').addEventListener('click', async (e) => {
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
@@ -1747,6 +1777,13 @@ $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'itemForm') saveItem(e);
   if (e.target.id === 'rcvForm') saveReceive(e);
   if (e.target.id === 'payForm') savePayment(e);
+  if (e.target.id === 'askForm') { e.preventDefault(); ask($('askQ').value); return; }
+  if (e.target.id === 'taskForm') {
+    e.preventDefault();
+    const title = $('tkTitle').value.trim();
+    if (!title) { $('tkMsg').textContent = 'اكتب المهمة.'; return; }
+    addTask({ title, note: $('tkNote').value.trim(), assignee: $('tkWho').value.trim(), due_on: $('tkDue').value || null, priority: $('tkPrio').value });
+  }
 });
 $('panel').addEventListener('click', (e) => {
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
@@ -1894,6 +1931,201 @@ function renderClaims() {
 }
 
 // ---------- Profit by day and by month ----------
+// ---------- The summary: overview, analysis, health, alerts, tasks (src/insights.js) ----------
+const pctPill = (g) => (g === null || g === undefined ? '<span class="muted">—</span>' : `<span class="pill ${g >= 0 ? 'ok' : 'warn'}"><span class="n">${g > 0 ? '+' : ''}${fmt(g, 1)}%</span></span>`);
+const branchArg = () => (BRANCH === 'all' ? 'all' : BRANCH_ID());
+// A simple grouped bar chart (SVG, no library): series [{ key, label, values }], labels under the bars.
+function barChart(labels, series, { height = 180 } = {}) {
+  const all = series.flatMap((s) => s.values);
+  const max = Math.max(1, ...all.map((v) => Math.abs(v)));
+  const hasNeg = all.some((v) => v < 0);
+  const w = 640, top = 10, base = hasNeg ? height * 0.62 : height - 24, scale = (base - top) / max;
+  const gw = w / labels.length, bw = Math.max(3, (gw - 8) / series.length);
+  let bars = '';
+  labels.forEach((lab, i) => {
+    series.forEach((s, k) => {
+      const v = s.values[i] || 0, h = Math.abs(v) * scale, x = i * gw + 4 + k * bw;
+      bars += `<rect class="b${k}" x="${x.toFixed(1)}" y="${(v >= 0 ? base - h : base).toFixed(1)}" width="${(bw - 1).toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}"><title>${esc(lab)} · ${esc(s.label)}: ${fmt(v)}</title></rect>`;
+    });
+    bars += `<text x="${(i * gw + gw / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  return `<figure class="chart"><svg viewBox="0 0 ${w} ${height}" role="img" aria-label="${esc(series.map((s) => s.label).join('، '))}"><line x1="0" x2="${w}" y1="${base}" y2="${base}" class="axis"/>${bars}</svg>
+    <figcaption>${series.map((s, k) => `<span class="key"><i class="b${k}"></i>${esc(s.label)}</span>`).join('')}</figcaption></figure>`;
+}
+
+// Recommendations: computed from the data; «اعملها» turns one into a task, «مش دلوقتي» hides it on this
+// device until its reason changes (its key is built from the items it is about).
+const REC_KEY = 'saydaliti-recs-dismissed-v1';
+let REC_DISMISSED = new Set(store.get(REC_KEY, []));
+function currentRecs(A) {
+  const from = addDays(TODAY, -89), to = addDays(TODAY, 1);
+  const h = healthScore({ rows: A.rows, data: DATA, today: TODAY, expenses: EXP_READY ? EXPENSES : [], branchId: branchArg() });
+  return recommendations({ A, classes: profitClasses(DATA, from, to), trend: trending(DATA, TODAY), health: h });
+}
+function recsHtml(A) {
+  const done = new Set(TASKS.map((t) => t.ref));
+  const list = currentRecs(A).filter((r) => !REC_DISMISSED.has(r.key) && !done.has(`rec:${r.key}`));
+  if (!list.length) return '';
+  const P = { high: ['مهم', 'crit'], medium: ['متوسط', 'warn'], low: ['ممكن', 'ok'] };
+  return `<h3>اقتراحات</h3><div class="stack">${list.slice(0, 6).map((r) => `<div class="card rec"><div class="row" style="justify-content:space-between"><b>${esc(r.title)}</b><span class="pill ${P[r.priority][1]}">${P[r.priority][0]}</span></div>
+    <p class="note"><b>البيانات:</b> ${esc(r.data)}</p>
+    <p class="note"><b>الفايدة:</b> ${esc(r.benefit)} · <b>الثقة:</b> ${esc(r.confidence)} · <b>الخطر:</b> ${esc(r.risk)}</p>
+    <div class="row"><button class="btn" type="button" data-gotab="${r.tab}">${esc(r.action)}</button>${isOwner() && TASKS_READY ? `<button class="btn primary" type="button" data-rectask="${esc(r.key)}">اعملها (مهمة)</button>` : ''}<button class="btn" type="button" data-recno="${esc(r.key)}">مش دلوقتي</button></div></div>`).join('')}</div>`;
+}
+
+function renderOverview(A) {
+  const o = overview(DATA, { receipts: POS_SALES.filter((x) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(x)), expenses: EXP_READY ? EXPENSES : [], today: TODAY, branchId: branchArg() });
+  const m = monthlySeries(DATA, EXP_READY ? EXPENSES : [], TODAY, 12, branchArg());
+  const monthStart = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+  const cats = categoryPerformance(DATA, addDays(TODAY, -89), addDays(TODAY, 1));
+  const card = (title, t) => `<div class="tile"><span class="k">${title}</span><span class="v">${fmt(t.sales)}</span><span class="s">مكسب ${fmt(t.gross)} · ${pctPill(t.growth)} عن اللي قبلها</span></div>`;
+  return `<p class="note">كل الأرقام من سجلات الصيدلية (المبيعات من برنامج الصيدلية + الكاشير، والمصروفات المتسجلة). النمو = مقارنة بنفس المدة اللي قبلها مباشرة؛ الشهر بنفس أيام الشهر اللي فات.</p>
+  <section class="tiles">${card('النهارده', o.today)}${card('الأسبوع ده', o.week)}${card('الشهر ده', o.month)}${card('السنة دي', o.year)}</section>
+  ${recsHtml(A)}
+  <div class="calc"><div class="card"><h3>الشهر ده</h3><div class="ledger">
+    <div><span>المبيعات (بعد الخصم)</span><span class="n">${fmt(o.month.sales, 2)}</span></div>
+    <div><span>تكلفة اللي اتباع</span><span class="n">${fmt(o.month.cogs, 2)}</span></div>
+    <div><span>مجمل الربح</span><span class="n">${fmt(o.month.gross, 2)}</span></div>
+    <div><span>المصروفات</span><span class="n">${EXP_READY ? fmt(o.expenses, 2) : '—'}</span></div>
+    <div class="tot"><span>صافي الربح</span><span class="n">${fmt(o.net, 2)}</span></div>
+    <div><span>فواتير الكاشير</span><span class="n">${fmt(o.receipts.month)}</span></div>
+    <div><span>متوسط الفاتورة</span><span class="n">${o.receipts.avg === null ? '—' : fmt(o.receipts.avg, 2)}</span></div></div></div>
+  <div class="card"><h3>المخزون</h3><div class="ledger">
+    <div><span>قيمته بسعر الشراء</span><span class="n">${fmt(o.stock)}</span></div>
+    <div><span>الأصناف (فيها رصيد)</span><span class="n">${fmt(o.items)} (${fmt(o.inStock)})</span></div>
+    <div><span>بيلف في السنة</span><span class="n">${o.turnover === null ? '—' : `${fmt(o.turnover, 1)} مرة`}</span></div>
+    <div><span>يكفي حوالي</span><span class="n">${o.daysOfStock === null ? '—' : `${fmt(o.daysOfStock)} يوم`}</span></div>
+    <div><span>قرب ينتهي (فلوس معرضة)</span><span class="n">${fmt(A.expiring.reduce((a, r) => a + r.riskValue, 0))}</span></div>
+    <div><span>راكد</span><span class="n">${fmt(A.deadStock.reduce((a, r) => a + r.value, 0))}</span></div></div>
+    <p class="note">الدوران وأيام التغطية محسوبين من تكلفة مبيعات آخر ${fmt(o.basisDays)} يوم وقيمة المخزون دلوقتي.</p></div></div>
+  <div class="card"><h3>آخر 12 شهر</h3>${barChart(m.map((x) => x.key.slice(5)), [{ label: 'المبيعات', values: m.map((x) => x.sales) }, { label: 'مجمل الربح', values: m.map((x) => x.gross) }, { label: 'المصروفات', values: m.map((x) => x.expenses) }, { label: 'الصافي', values: m.map((x) => x.net) }])}</div>
+  ${cats.length ? `<h3>الفئات (آخر 90 يوم)</h3>${table(['الفئة', 'المبيعات', 'مجمل الربح', 'الهامش', 'أصناف'], cats.map((c) => `<tr><td>${esc(c.category)}</td><td>${egp(c.sales)}</td><td>${egp(c.gross)}</td><td class="n">${fmt(c.margin, 1)}%</td><td class="n">${fmt(c.items)}</td></tr>`))}` : ''}
+  <p class="note">من أول الشهر (${dayText(isoDay(monthStart))}).</p>`;
+}
+
+function renderAnalysis(A) {
+  const from = addDays(TODAY, -89), to = addDays(TODAY, 1);
+  const t = trending(DATA, TODAY);
+  const c = profitClasses(DATA, from, to);
+  const sup = supplierPerformance(PURCHASES.filter((p) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(p)));
+  const an = anomalies({ receipts: POS_SALES, shifts: Array.isArray(SHIFT_ROWS) ? SHIFT_ROWS : [], priceChanges: PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items) : [], expenses: EXP_READY ? EXPENSES : [], today: TODAY });
+  if (SHIFT_ROWS === null) loadLatest('pos_shifts', 'id, branch_id, employee_name, opened_at, opening_cash, closed_at, expected_cash, counted_cash, totals, note', 'opened_at', 500).then((r) => { SHIFT_ROWS = r || []; if (TAB === 'analysis') render(true); });
+  const trendRows = (list) => list.map((r) => `<tr><td class="name">${esc(r.name)}</td><td class="n">${fmt(r.before)}</td><td class="n"><b>${fmt(r.now)}</b></td><td>${r.change === null ? '<span class="pill ok">جديد</span>' : pctPill(r.change)}</td></tr>`);
+  const cls = (title, list, note) => (list.length ? `<details class="help"><summary><b>${title}</b> (${fmt(list.length)}) — ${note}</summary>${table(['الصنف', 'علب', 'المبيعات', 'المكسب', 'الهامش'], list.slice(0, 50).map((r) => `<tr><td class="name">${esc(r.name)}</td><td class="n">${fmt(r.qty)}</td><td>${egp(r.sales)}</td><td>${egp(r.gross)}</td><td class="n">${fmt(r.margin, 1)}%</td></tr>`))}</details>` : '');
+  return `<h3>حاجات تستاهل نظرة</h3>
+  ${an.length ? `<div class="stack">${an.slice(0, 30).map((x) => `<div class="card alert ${x.level}"><b>${esc(x.title)}</b><p class="note">${esc(x.evidence)}</p></div>`).join('')}</div><p class="note">دي أرقام بس، مش اتهام لحد: مثلاً كاشير الوردية الزحمة طبيعي يبقى عنده مرتجعات أكتر. راجع وقرر بنفسك.</p>` : '<p class="muted">مفيش حاجة غريبة في آخر 30 يوم.</p>'}
+  <h3>الطلب زاد (آخر 30 يوم مقابل الـ 30 اللي قبلهم)</h3>${t.up.length ? table(['الصنف', 'قبل', 'دلوقتي', 'التغيير'], trendRows(t.up)) : '<p class="muted">مفيش أصناف زاد الطلب عليها بشكل واضح.</p>'}
+  <h3>الطلب قلّ</h3>${t.down.length ? table(['الصنف', 'قبل', 'دلوقتي', 'التغيير'], trendRows(t.down)) : '<p class="muted">مفيش أصناف قلّ الطلب عليها بشكل واضح.</p>'}
+  <h3>ذكاء الربح (آخر 90 يوم)</h3>
+  <p class="note">«كتير» و«هامش كويس» = أعلى من النص (الوسيط) بين الأصناف اللي اتباعت: ${fmt(c.medianQty)} علبة و ${fmt(c.medianMargin, 1)}%. الكمية مش هي المكسب: صنف بيتباع كتير بهامش ضعيف ممكن يكسب أقل من صنف قليل بهامش كويس.</p>
+  ${cls('بتتباع بخسارة', c.losing, 'سعر البيع أقل من سعر الشراء المتسجل')}${cls('النجوم', c.stars, 'بتتباع كتير وهامشها كويس: متخلّصهاش')}${cls('كمية بهامش ضعيف', c.volume, 'اتفاوض مع المورد عليها')}${cls('قليلة بهامش كويس', c.niche, 'اعرضها أكتر')}${cls('قليلة وهامشها ضعيف', c.weak, 'راجع لزومها')}
+  <h3>الموردين</h3>${sup.length ? table(['المورد', 'فواتير', 'القيمة', 'أصناف', 'مرتجع', 'تغيّر الأسعار', 'آخر طلبية'], sup.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${fmt(x.invoices)}</td><td>${egp(x.value)}</td><td class="n">${fmt(x.items)}</td><td class="n">${fmt(x.returnedPct, 1)}%</td><td>${x.priceChangePct === null ? '—' : pctPill(x.priceChangePct)}</td><td>${x.last ? dayText(x.last) : '—'}</td></tr>`)) : '<p class="muted">لسه مفيش طلبيات متسجلة هنا.</p>'}
+  <p class="note">تغيّر الأسعار = متوسط الفرق بين أول وآخر سعر شراء للأصناف اللي اتطلبت من المورد أكتر من مرة. مدة التوصيل مش بتتسجل لسه.</p>`;
+}
+
+function renderHealth(A) {
+  const h = healthScore({ rows: A.rows, data: DATA, today: TODAY, expenses: EXP_READY ? EXPENSES : [], branchId: branchArg() });
+  const lvl = (v) => (v === null ? '' : v >= 75 ? 'ok' : v >= 50 ? 'warn' : 'crit');
+  return `<div class="card health"><div class="score ${lvl(h.score)}"><span class="n">${h.score ?? '—'}</span><span>/100</span></div>
+    <p>مؤشر استرشادي بيجمع 6 حاجات بأوزان ثابتة. مش قياس علمي ومش تقييم رسمي: هو طريقة سريعة تعرف فين نقط الضعف.${h.missing.length ? ` مش محسوب فيه (مفيش بيانات): ${esc(h.missing.join('، '))}.` : ''}</p></div>
+  ${table(['الجزء', 'الوزن', 'الدرجة', 'بيتحسب إزاي'], h.parts.map((p) => `<tr><td><b>${esc(p.label)}</b></td><td class="n">${p.weight}%</td><td>${p.value === null ? '<span class="muted">—</span>' : `<span class="pill ${lvl(p.value)}"><span class="n">${p.value}</span></span>`}</td><td class="name">${esc(p.rule)}</td></tr>`))}`;
+}
+
+// Alerts read on this device (an alert's key changes when its numbers change, so it shows again).
+const READ_KEY = 'saydaliti-alerts-read-v1';
+let ALERTS_READ = new Set(store.get(READ_KEY, []));
+function currentAlerts(A) {
+  const o = overview(DATA, { today: TODAY });
+  const an = anomalies({ receipts: POS_SALES, shifts: Array.isArray(SHIFT_ROWS) ? SHIFT_ROWS : [], priceChanges: PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items) : [], expenses: EXP_READY ? EXPENSES : [], today: TODAY });
+  return alerts({ A, overviewData: o, anomaliesList: an, pending: OUTBOX_COUNT.pending, stuck: OUTBOX_COUNT.stuck, today: TODAY });
+}
+let OUTBOX_COUNT = { pending: 0, stuck: 0 };
+function renderAlerts(A) {
+  const list = currentAlerts(A);
+  const unread = list.filter((x) => !ALERTS_READ.has(x.key));
+  const done = new Set(TASKS.map((t) => t.ref));
+  return `<div class="row"><span class="muted">${fmt(unread.length)} جديد من ${fmt(list.length)}</span>${unread.length ? '<button class="btn" type="button" id="alertsRead">علّم الكل اتقرا</button>' : ''}</div>
+  ${list.length ? `<div class="stack">${list.map((x) => `<div class="card alert ${x.level}${ALERTS_READ.has(x.key) ? ' read' : ''}"><b>${esc(x.title)}</b>${x.detail ? `<p class="note">${esc(x.detail)}</p>` : ''}
+    <div class="row">${x.tab ? `<button class="btn" type="button" data-gotab="${x.tab}">افتح</button>` : ''}${isOwner() && !done.has(`alert:${x.key}`) ? `<button class="btn" type="button" data-alerttask="${esc(x.key)}">حوّلها لمهمة</button>` : ''}</div></div>`).join('')}</div>` : '<div class="card emptybox"><p>مفيش تنبيهات دلوقتي.</p></div>'}
+  <p class="note">التنبيهات بتتحسب من البيانات كل مرة بتفتح اللوحة، فلو المشكلة اتحلت بتختفي لوحدها.</p>`;
+}
+
+// ---------- «اسأل صيدليتي» (src/assistant.js) ----------
+// The conversation lives in memory on this page. Each answer shows the numbers it is based on, the
+// period and the source, with a link to the screen they come from.
+let CHAT = [], CHAT_BUSY = false, AI_ON = null;
+function assistantCtx() {
+  const here = (r) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(r);
+  return { data: DATA, A: ANALYSIS.full, receipts: POS_SALES.filter(here), expenses: EXP_READY ? EXPENSES : [], purchases: PURCHASES.filter(here), suppliers: SUPPLIERS(), chosen: CHOSEN(),
+    shifts: Array.isArray(SHIFT_ROWS) ? SHIFT_ROWS : [], today: TODAY, role: SESS.role, branchId: branchArg() };
+}
+const resultHtml = (r) => `${r.text ? `<p>${esc(r.text)}</p>` : ''}${r.table?.rows?.length ? `<div class="tablebox"><table><thead><tr>${r.table.head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${r.table.rows.slice(0, 50).map((row) => `<tr>${row.map((c) => `<td class="${typeof c === 'number' ? 'n' : 'name'}">${esc(typeof c === 'number' ? fmt(c, Number.isInteger(c) ? 0 : 2) : c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''}
+  <p class="muted small">${r.range ? `الفترة: <span class="n">${esc(r.range)}</span> · ` : ''}${r.source ? `المصدر: ${esc(r.source)}` : ''}${r.tab ? ` · <button class="linkbtn" type="button" data-gotab="${r.tab}">افتح الشاشة</button>` : ''}</p>`;
+function renderAssistant() {
+  if (AI_ON === null && SESS.client?.ai) { AI_ON = false; SESS.client.ai('status').then((r) => { AI_ON = !!r.data?.enabled; if (TAB === 'assistant') render(true); }); }
+  return `<p class="note">اسأل بالعربي أو بالإنجليزي عن المبيعات والأرباح والمخزون والصلاحية والموردين. كل رقم بيطلع من حسابات البرنامج على بيانات الصيدلية، ومعاه الفترة ومصدره${AI_ON ? '. (فيه نموذج ذكاء اصطناعي بيفهم السؤال ويصيغ الإجابة، والأرقام برضه من البرنامج)' : '.'} المساعد مش بيشخّص ولا بيوصف أدوية.</p>
+  <div class="chips">${EXAMPLES.map((q) => `<button class="btn" type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+  <div class="chat" id="chatLog">${CHAT.map((m) => (m.role === 'user' ? `<div class="msg me">${esc(m.text)}</div>` : `<div class="msg bot card">${m.results.map((r) => `<b>${esc(r.title)}</b>${resultHtml(r)}`).join('')}${m.text ? `<p>${esc(m.text)}</p>` : ''}</div>`)).join('')}${CHAT_BUSY ? '<div class="msg bot card"><p class="muted">بيحسب…</p></div>' : ''}</div>
+  <form id="askForm" class="row"><input id="askQ" autocomplete="off" maxlength="300" placeholder="مثلاً: كام مبيعات النهارده؟" style="flex:1;min-width:0" aria-label="سؤالك"><button class="btn primary" type="submit">اسأل</button>${CHAT.length ? '<button class="btn" type="button" id="chatClear">امسح</button>' : ''}</form>`;
+}
+async function ask(q) {
+  q = String(q || '').trim();
+  if (!q || CHAT_BUSY) return;
+  CHAT.push({ role: 'user', text: q });
+  const ctx = assistantCtx();
+  if (!AI_ON) { const r = answerLocally(q, ctx); CHAT.push({ role: 'bot', results: [r], text: '' }); render(true); $('askQ')?.focus(); return; }
+  // With the model: it picks tools, the tools run here, it words the answer (at most 4 rounds).
+  CHAT_BUSY = true; render(true);
+  const results = [];
+  let text = '';
+  try {
+    const messages = [{ role: 'user', content: q }];
+    for (let round = 0; round < 4; round++) {
+      const res = await SESS.client.ai({ pharmacy: SESS.pharmacy.id, messages, tools: toolSpecs(SESS.role) });
+      if (res.error) throw new Error(res.error.message);
+      const content = res.data.content || [];
+      text = content.filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
+      const uses = content.filter((c) => c.type === 'tool_use');
+      if (!uses.length) break;
+      messages.push({ role: 'assistant', content });
+      messages.push({ role: 'user', content: uses.map((u) => { const r = runTool(u.name, u.input, ctx); results.push(r); return { type: 'tool_result', tool_use_id: u.id, content: JSON.stringify({ title: r.title, text: r.text, range: r.range, table: r.table ? { head: r.table.head, rows: r.table.rows.slice(0, 30) } : null, error: !!r.error }) }; }) });
+    }
+  } catch (e) {
+    // The model is not reachable: answer the plain way.
+    const r = answerLocally(q, ctx); results.push(r); text = '';
+  }
+  CHAT_BUSY = false;
+  CHAT.push({ role: 'bot', results, text });
+  render(true); $('askQ')?.focus();
+}
+
+// ---------- Tasks (migration 0007) ----------
+let TASKS = [], TASKS_READY = false;
+async function loadTasks() {
+  try { TASKS = await loadTable('tasks', 'id, title, note, assignee, due_on, priority, status, ref, created_at, done_at'); TASKS_READY = true; } catch (e) { if (e.missing) TASKS_READY = false; }
+}
+const PRIO = { high: ['عاجلة', 'crit'], medium: ['متوسطة', 'warn'], low: ['عادية', 'ok'] };
+function renderTasks() {
+  if (!TASKS_READY) return '<div class="card emptybox"><h3>المهام محتاجة تحديث قاعدة البيانات 0007</h3></div>';
+  const open = TASKS.filter((t) => t.status !== 'done').sort((a, b) => (a.due_on || '9999').localeCompare(b.due_on || '9999'));
+  const done = TASKS.filter((t) => t.status === 'done').sort((a, b) => String(b.done_at).localeCompare(String(a.done_at))).slice(0, 30);
+  const row = (t) => `<div class="card task ${t.status}"><div class="row" style="justify-content:space-between"><b>${esc(t.title)}</b><span class="pill ${PRIO[t.priority]?.[1] || ''}">${PRIO[t.priority]?.[0] || ''}</span></div>
+    ${t.note ? `<p class="note">${esc(t.note)}</p>` : ''}<p class="muted">${t.assignee ? `لـ ${esc(t.assignee)} · ` : ''}${t.due_on ? `لحد ${dayText(t.due_on)}` : 'من غير ميعاد'}${t.status === 'done' && t.done_at ? ` · خلصت ${dayText(String(t.done_at).slice(0, 10))}` : ''}</p>
+    ${isOwner() ? `<div class="row">${t.status === 'done' ? `<button class="btn" type="button" data-taskopen="${esc(t.id)}">رجّعها</button>` : `<button class="btn primary" type="button" data-taskdone="${esc(t.id)}">خلصت</button>`}<button class="btn" type="button" data-taskdel="${esc(t.id)}">امسح</button></div>` : ''}</div>`;
+  return `${isOwner() ? `<form id="taskForm" class="card stack"><h3>مهمة جديدة</h3><div class="grid2">
+      <label>المهمة<input id="tkTitle" maxlength="200" required placeholder="مثلاً: رجّع الأصناف الراكدة لمخزن الأمل"></label>
+      <label>لمين (اختياري)<input id="tkWho" maxlength="120"></label>
+      <label>لحد يوم (اختياري)<input id="tkDue" type="date"></label>
+      <label>الأهمية<select id="tkPrio"><option value="high">عاجلة</option><option value="medium" selected>متوسطة</option><option value="low">عادية</option></select></label></div>
+      <label>تفاصيل (اختياري)<input id="tkNote" maxlength="1000"></label>
+      <div class="row"><button class="btn primary" type="submit">ضيف</button><span class="note" id="tkMsg" role="status"></span></div></form>` : ''}
+  <h3>مفتوحة (${fmt(open.length)})</h3>${open.length ? `<div class="stack">${open.map(row).join('')}</div>` : '<p class="muted">مفيش مهام مفتوحة.</p>'}
+  ${done.length ? `<details class="help"><summary>اللي خلص (${fmt(done.length)})</summary><div class="stack">${done.map(row).join('')}</div></details>` : ''}`;
+}
+async function addTask(fields) {
+  return localInsert('tasks', { title: fields.title, note: fields.note || null, assignee: fields.assignee || null, due_on: fields.due_on || null, priority: fields.priority || 'medium', status: 'open', ref: fields.ref || null });
+}
+
 function renderProfit() {
   const months = profitByPeriod(DATA, 'month', new Date(TODAY.getFullYear(), TODAY.getMonth() - 11, 1), addDays(TODAY, 1));
   const days = profitByPeriod(DATA, 'day', new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), addDays(TODAY, 1));
@@ -2414,7 +2646,8 @@ async function boot() {
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription()]);
+  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription(), SESS.role !== 'device' ? loadTasks() : null]);
+  OUTBOX_COUNT = { pending: (await pending()).length, stuck: (await stuck()).length };
   renderBranches(); setView(); render();
   sync();
 }

@@ -160,6 +160,12 @@ export const TABLES = {
   subscriptions: { pk: 'pharmacy_id', read: ROLES_ALL, cols: {
     pharmacy_id: ['id', { nn: true }], status: ['text', { nn: true, def: 'trial', in: ['trial', 'active', 'free', 'suspended'] }],
     trial_ends: ['date'], paid_until: ['date'], price_month: ['num'], note: ['text', { max: 600 }], updated_at: ['ts', { nn: true, def: 'now' }] } },
+  // The owner's to-do list: from a recommendation, an alert, or written by hand (migration 0007).
+  tasks: { pk: 'id', added: 7, read: MANAGERS, insert: OWNER, update: OWNER, updCols: ['title', 'note', 'assignee', 'due_on', 'priority', 'status', 'done_at'], del: OWNER, audit: true, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], title: ['text', { nn: true, max: 200, trim: true }], note: ['text', { max: 1000 }],
+    assignee: ['text', { max: 120, trim: true }], due_on: ['date'], priority: ['text', { nn: true, def: 'medium', in: ['high', 'medium', 'low'] }],
+    status: ['text', { nn: true, def: 'open', in: ['open', 'done'] }], ref: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }], done_at: ['ts'] },
+  index: [['pharmacy_id', 'status']] },
   client_errors: { pk: 'id', internal: true, cols: {
     id: ['serial'], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], pharmacy_id: ['id'], page: ['text'], message: ['text', { nn: true }],
     stack: ['text'], agent: ['text'], version: ['text'] },
@@ -171,6 +177,7 @@ export function schemaSql() {
   const sqlType = { id: 'TEXT', text: 'TEXT', int: 'INTEGER', num: 'REAL', bool: 'INTEGER', json: 'TEXT', ts: 'TEXT', date: 'TEXT' };
   const out = [];
   for (const [name, t] of Object.entries(TABLES)) {
+    if (t.added) continue; // a whole table added later by migrations/000<added>_*.sql
     const lines = [];
     for (const [col, [type, o = {}]] of Object.entries(t.cols)) {
       if (o.added) continue; // added later by migrations/000<added>_*.sql (ALTER TABLE)

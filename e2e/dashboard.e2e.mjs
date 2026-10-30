@@ -69,7 +69,7 @@ test('sign-in comes first, and sign-up asks to confirm the password', async () =
 
 test('dashboard opens with no example data, grouped in sections', async () => {
   assert.equal(await text('#phTitle'), 'صيدلية أحمد منصور');
-  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
+  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['الملخص', 'المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
   assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'الفواتير والمبيعات', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
@@ -608,11 +608,35 @@ test('opens offline with saved data even after the sign-in expired', async () =>
   await goOnline();
 });
 
+test('the summary: overview numbers, health score, alerts, the assistant answers from the data, tasks', async () => {
+  await page.click('[data-sec=insights]');
+  await page.click('#tabs [data-tab=overview]');
+  assert.match(await text('#panel'), /النهارده/);
+  assert.ok(await page.locator('#panel .chart svg').count(), 'the 12-month chart');
+  await page.click('#tabs [data-tab=health]');
+  assert.match(await text('#panel .health'), /\/100/);
+  await page.click('#tabs [data-tab=alerts]');
+  assert.ok(await until(async () => /تنبيه|مفيش تنبيهات|صنف/.test(await text('#panel'))));
+  await page.click('#tabs [data-tab=assistant]');
+  await page.fill('#askQ', 'إيه الأصناف الراكدة؟');
+  await page.press('#askQ', 'Enter');
+  assert.ok(await until(async () => /الراكد/.test(await text('#chatLog'))), 'answered');
+  assert.match(await text('#chatLog'), /المصدر/);
+  await page.click('[data-ask="رصيد بانادول"]');
+  assert.ok(await until(async () => /الرصيد/.test(await text('#chatLog'))));
+  await page.click('#tabs [data-tab=tasks]');
+  await page.fill('#tkTitle', 'رجّع الراكد للمورد');
+  await page.click('#taskForm button[type=submit]');
+  assert.ok(await until(async () => (await db('tasks')).length === 1));
+  await page.click('[data-taskdone]');
+  assert.ok(await until(async () => (await db('tasks'))[0].status === 'done'));
+});
+
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const tabs = ['customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
