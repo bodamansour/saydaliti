@@ -122,6 +122,8 @@ function Read-Genius($w) {
       if ($have.Count -eq 0) { $w.WriteLine('@@' + $table); $w.WriteLine("@t"); continue }
       $cols = New-Object System.Collections.ArrayList
       foreach ($want in $s[1].Split(',')) { foreach ($h in $have) { if ($h -ieq $want) { [void]$cols.Add((Br $h)); break } } }
+      # The scientific name (for alternatives) is named differently between versions of the program.
+      if ($table -eq 'Item_Catalog') { foreach ($h in $have) { if ($h -match 'sci|generic|effect|ingredient|material|substance' -and -not $cols.Contains((Br $h))) { [void]$cols.Add((Br $h)) } } }
       if ($cols.Count -eq 0) { $w.WriteLine('@@' + $table); $w.WriteLine("@t"); continue }
       $where = $s[2]
       if ($where -eq 'DATE') {

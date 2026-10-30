@@ -6,7 +6,7 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, lo
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -207,6 +207,8 @@ function addItem(it) {
   else CART.push({ code: it.code, name: it.name, price: +it.price || 0, box: +it.price || 0, qty: 1, discount: 0 });
   const inCart = CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0);
   const left = stockOf(it.code) - inCart;
+  const alts = MODE === 'sale' && left < -0.0005 ? alternativesOf(it, ITEMS, stockOf).filter((a) => a.qty > 0) : [];
+  if (alts.length) { msg(`«${it.name}» رصيده خلص. بدائله اللي عندك (نفس المادة الفعالة) تحت: اختار واحد، أو كمّل لو العلبة قدامك.`, true); renderCart(); showResults(alts.map((a) => a.item), $('results'), 'pick', `بدائل «${it.name}»`); ALT_OF = it.code; return; }
   if (MODE === 'sale' && left < -0.0005) msg(`«${it.name}»: الرصيد المسجل مش كفاية (آخر رصيد ${fmt(Math.max(0, left + inCart))} علبة). كمّل لو العلبة قدامك.`, true);
   else if (w?.level === 'soon') msg(`«${it.name}» أقرب تشغيلة منه بتنتهي بعد ${w.days} يوم.`);
   else if (!w || w.level !== 'expired') msg('');
@@ -343,9 +345,11 @@ async function addCustomer(e) {
 }
 
 // ---------- Search / scan ----------
-function showResults(list, box = $('results'), attr = 'pick') {
+let ALT_OF = null; // the item whose alternatives are showing: picking one takes it off the bill
+function showResults(list, box = $('results'), attr = 'pick', title = '') {
+  if (box === $('results')) ALT_OF = null;
   box.hidden = !list.length;
-  box.innerHTML = list.map((it, i) => {
+  box.innerHTML = (title && list.length ? `<div class="res-title">${esc(title)}</div>` : '') + list.map((it, i) => {
     const left = stockOf(it.code);
     return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}${it.en ? ` <span class="muted" dir="ltr">${esc(it.en)}</span>` : ''}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
   }).join('');
@@ -747,7 +751,10 @@ async function reload() {
 // ---------- Events ----------
 $('q').addEventListener('input', () => onSearch(false));
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onSearch(true); } });
-$('results').addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (!b) return; addItem(ITEMS.find((i) => i.code === b.dataset.pick)); $('q').value = ''; showResults([]); focusSearch(); });
+$('results').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pick]'); if (!b) return;
+  if (ALT_OF) { const j = CART.findIndex((l) => l.code === ALT_OF); if (j >= 0 && --CART[j].qty <= 0) CART.splice(j, 1); ALT_OF = null; msg(''); }
+  addItem(ITEMS.find((i) => i.code === b.dataset.pick)); $('q').value = ''; showResults([]); focusSearch(); });
 $('linkQ').addEventListener('input', () => showResults(lookup($('linkQ').value, ITEMS).matches ?? [], $('linkResults'), 'link'));
 $('linkResults').addEventListener('click', (e) => { const b = e.target.closest('[data-link]'); if (b) linkBarcode(b.dataset.link); });
 $('unknownCancel').addEventListener('click', () => { $('unknownDlg').close(); focusSearch(); });

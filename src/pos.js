@@ -30,6 +30,18 @@ export const unitLabel = (l) => (+l.per > 1 ? (l.unit === 'pill' ? 'حباية' 
 // The price of one strip or pill: the box's price shared, rounded to the piaster.
 export const unitPrice = (boxPrice, per) => Math.round(((+boxPrice || 0) / (+per || 1)) * 100) / 100;
 
+// ---------- Alternatives ----------
+// Other items with the same active ingredient, those in stock first (then the cheapest). stockOf(code)
+// gives the shelf stock; without it the item's own qty is used.
+export function alternativesOf(item, items, stockOf = (c) => items.find((i) => i.code === c)?.qty ?? 0, max = 6) {
+  const g = normalize(item?.generic || '');
+  if (!g) return [];
+  return items.filter((i) => i.code !== item.code && normalize(i.generic || '') === g)
+    .map((i) => ({ item: i, qty: stockOf(i.code) }))
+    .sort((a, b) => (b.qty > 0) - (a.qty > 0) || (+a.item.price || 0) - (+b.item.price || 0))
+    .slice(0, max);
+}
+
 // A scanned or typed code as plain digits: Arabic/Persian digits (an Arabic keyboard) become 0-9, and
 // what a scanner may add around it (spaces, a prefix letter, a dash) is dropped.
 export function scanDigits(s) {
@@ -71,7 +83,7 @@ export function lookup(query, items, barcodes = new Map()) {
   const words = n.split(' ');
   const scored = [];
   for (const it of items) {
-    const name = normalize(it.en ? `${it.name} | ${it.en}` : it.name);
+    const name = normalize([it.name, it.en, it.generic].filter(Boolean).join(' | '));
     if (!words.every((w) => name.includes(w))) continue;
     scored.push([name.startsWith(n) || name.includes(`| ${n}`) ? 0 : name.includes(n) ? 1 : 2, it]);
   }

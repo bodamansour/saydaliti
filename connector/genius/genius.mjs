@@ -217,6 +217,12 @@ export class GeniusDb {
 }
 
 // ---------- Genius tables → Saydaliti upload ----------
+// The scientific name column differs between versions of the program: any text column named like it.
+const GENERIC_COL = /sci|generic|effect|ingredient|material|substance/i;
+function genericOf(r) {
+  for (const [k, v] of Object.entries(r)) if (GENERIC_COL.test(k) && typeof v === 'string' && /\p{L}{3}/u.test(v)) return v.trim().slice(0, 160);
+  return null;
+}
 const ok = (v, hi = 1e6) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < hi;
 const r2 = (n) => Math.round(n * 100) / 100;
 const r3 = (n) => Math.round(n * 1000) / 1000;
@@ -248,6 +254,8 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
       cost: ok(r.itm_def_pharm_price, 1e5) ? r.itm_def_pharm_price : 0,
       price: ok(r.itm_def_sell_price, 1e5) ? r.itm_def_sell_price : 0,
       owner: null, qty: null, expiry: null, active: String(r.itm_active ?? '1') !== '0',
+      // The active ingredient (scientific name), for suggesting alternatives, when the program has it.
+      ...((g) => (g ? { generic: g } : {}))(genericOf(r)),
       // How many strips and pills in a box, so the cashier can sell by the strip or the pill.
       ...(u2 > 1 ? { strips: u2 } : {}), ...(u3 > 1 && u3 !== u2 ? { pills: u3 } : {}),
     });

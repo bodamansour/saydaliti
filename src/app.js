@@ -1206,7 +1206,7 @@ let ITEM_INDEX = { data: null, sorted: [], norm: new Map() };
 function itemIndex() {
   if (ITEM_INDEX.data !== DATA) {
     const sorted = [...DATA.items].sort((a, b) => (b.qty > 0) - (a.qty > 0) || AR.compare(a.name, b.name));
-    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize(i.en ? `${i.name} | ${i.en}` : i.name)])) };
+    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize([i.name, i.en, i.generic].filter(Boolean).join(' | '))])) };
   }
   return ITEM_INDEX;
 }
@@ -1220,7 +1220,7 @@ function itemMatches(q) {
 }
 function itemsRows() {
   const list = itemMatches(ITEMS_Q);
-  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}${i.en ? ` <span class="muted" dir="ltr">${esc(i.en)}</span>` : ''}<span class="cat">${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
+  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}${i.en ? ` <span class="muted" dir="ltr">${esc(i.en)}</span>` : ''}<span class="cat">${i.generic ? `<span dir="ltr">${esc(i.generic)}</span> · ` : ''}${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
     <td class="n">${i.qty < 0 ? `<span class="pill crit">${fmt(i.qty)}</span>` : i.qty === 0 ? '<span class="muted">خلصان</span>' : `<b>${fmt(i.qty)}</b>`}</td>
     <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}</td><td>${expText(i.expiry)}</td>
     ${isOwner() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);

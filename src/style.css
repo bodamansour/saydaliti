@@ -454,3 +454,4 @@ tr.sale-lines .ledger { max-width: 560px; }
 .hours .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
 /* Box / strip / pill on a cashier line */
 .unitsel { display: block; margin-top: 4px; padding: 2px 6px; font-size: .85em; max-width: 100%; border: 1px solid var(--line, #d0d7e2); border-radius: 8px; background: var(--card, #fff); color: inherit; }
+.res-title { padding: 6px 10px; font-weight: 700; font-size: .9em; color: var(--muted, #667); border-bottom: 1px solid var(--line, #e3e8ef); }
