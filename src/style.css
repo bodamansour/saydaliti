@@ -490,3 +490,7 @@ tr.sale-lines .ledger { max-width: 560px; }
 .tiles .tile .s { overflow-wrap: anywhere; }
 .itemimg img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .res .thumb { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; background: #fff; flex: none; }
+/* The language switch (src/i18n.js), on every page */
+.langbtn { font: inherit; font-size: .8rem; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); cursor: pointer; }
+.langbtn.end { display: block; margin: 16px auto; }
+@media print { .langbtn { display: none; } }
