@@ -87,8 +87,8 @@ async function loadStock() {
     return rows;
   };
   const [catalog, purchases, moves] = await Promise.all([
-    (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
-    get('purchases', 'id, branch_id, received_on, lines, created_at'),
+    (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+    (await get('purchases', 'id, branch_id, received_on, lines, kind, created_at')) ?? get('purchases', 'id, branch_id, received_on, lines, created_at'),
     get('stock_moves', 'id, branch_id, code, qty, kind, expiry, happened_at, created_at'),
   ]);
   STOCK = mergePendingItems({ catalog: catalog ?? cached.catalog, purchases: purchases ?? cached.purchases, moves: moves ?? cached.moves }, cached);

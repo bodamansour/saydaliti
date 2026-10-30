@@ -134,13 +134,16 @@ export function analyze(data, settings = {}, today = startOfDay()) {
     const risk = batchRisk(batches, rate, today, s.expWin);
     const nearest = batches.find((b) => b.expiry);
     const expDays = risk.firstRiskDays ?? (nearest ? Math.round((startOfDay(nearest.expiry) - today) / DAY) : null);
-    const order = rate > 0 && daysCover <= s.lead + 7 ? Math.max(1, Math.ceil(rate * s.cover - qty)) : 0;
+    let order = rate > 0 && daysCover <= s.lead + 7 ? Math.max(1, Math.ceil(rate * s.cover - qty)) : 0;
+    // Below the minimum set for it (and it does sell): at least back up to the minimum.
+    const belowMin = +it.min > 0 && qty < +it.min && rate > 0;
+    if (belowMin) order = Math.max(order, Math.ceil(+it.min - qty));
     const dead = qty > 0 && (lastSale === null || lastSale >= s.deadDays);
     // Money on the shelf and money at risk, at what each batch cost (not today's buying price).
     const boxCost = (b) => b.cost ?? it.cost ?? 0;
     const value = batches.reduce((a, b) => a + b.qty * boxCost(b), 0);
     const riskValue = risk.detail.reduce((a, b) => a + b.atRisk * boxCost(b), 0);
-    return { ...it, qty, value, riskValue, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk: risk.atRisk, batchRisk: risk.detail, order, dead, revenue: q * it.price };
+    return { ...it, qty, value, riskValue, sold: q, rate, monthly: rate * 30, daysCover, lastSale, expDays, atRisk: risk.atRisk, batchRisk: risk.detail, order, belowMin, dead, revenue: q * it.price };
   });
 
   const revenue = rows.reduce((a, r) => a + r.revenue, 0);
@@ -181,6 +184,8 @@ export function fromExport(json) {
       ...(+i.strips > 1 ? { strips: Math.round(+i.strips) } : {}),
       ...(+i.pills > 1 ? { pills: Math.round(+i.pills) } : {}),
       ...(i.generic ? { generic: String(i.generic).trim() } : {}),
+      ...(i.maker ? { maker: String(i.maker).trim() } : {}),
+      ...(+i.min > 0 ? { min: +i.min } : {}),
       category: String(i.category ?? '').trim() || 'غير محدد',
       owner: String(i.owner ?? '').trim() || UNASSIGNED,
       cost: +i.cost || 0,
@@ -220,6 +225,8 @@ export function toExport(data) {
     if (+i.strips > 1) row.strips = i.strips;
     if (+i.pills > 1) row.pills = i.pills;
     if (i.generic) row.generic = t(i.generic);
+    if (i.maker) row.maker = t(i.maker);
+    if (+i.min > 0) row.min = +i.min;
     if (i.qty && !i.batches?.length) row.qty = i.qty;
     if (i.expiry && !i.batches?.length) row.expiry = iso(i.expiry);
     items.push(row);

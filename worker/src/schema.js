@@ -108,18 +108,22 @@ export const TABLES = {
     opened_at: ['ts', { nn: true }], opening_cash: ['num', { nn: true, def: 0, min: 0 }], closed_at: ['ts'], expected_cash: ['num'], counted_cash: ['num', { min: 0 }],
     totals: ['json'], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id', 'opened_at']] },
-  catalog_items: { pk: 'id', read: ROLES_ALL, insert: SELLERS, update: OWNER, updCols: ['name', 'category', 'price', 'cost', 'barcode', 'strips', 'pills', 'generic', 'updated_at'], del: OWNER, audit: true, cols: {
+  catalog_items: { pk: 'id', read: ROLES_ALL, insert: SELLERS, update: OWNER, updCols: ['name', 'category', 'price', 'cost', 'barcode', 'strips', 'pills', 'generic', 'maker', 'min_qty', 'updated_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], code: ['text', { nn: true, max: 60 }], name: ['text', { max: 160 }], category: ['text', { max: 60 }],
     price: ['num', { min: 0, maxv: 9999999 }], cost: ['num', { min: 0, maxv: 9999999 }], barcode: ['text', { max: 64 }], created_by: ['id'],
     created_at: ['ts', { nn: true, def: 'now' }], updated_at: ['ts'],
     // Strips and pills in a box (selling by the strip or pill), and the active ingredient (alternatives).
-    strips: ['int', { min: 1, maxv: 1000, added: 3 }], pills: ['int', { min: 1, maxv: 10000, added: 3 }], generic: ['text', { max: 160, trim: true, added: 3 }] },
+    strips: ['int', { min: 1, maxv: 1000, added: 3 }], pills: ['int', { min: 1, maxv: 10000, added: 3 }], generic: ['text', { max: 160, trim: true, added: 3 }],
+    // The maker, and the least to keep on the shelf (below it the item is «low»).
+    maker: ['text', { max: 120, trim: true, added: 6 }], min_qty: ['num', { min: 0, maxv: 100000, added: 6 }] },
   unique: [['pharmacy_id', 'code']] },
   purchases: { pk: 'id', read: ROLES_ALL, insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],
     invoice_no: ['text', { max: 60 }], received_on: ['date', { nn: true }], lines: ['json', { nn: true, array: [1, 500] }],
     total: ['num', { nn: true, min: 0, maxv: 99999999.99 }], paid: ['num', { nn: true, def: 0, min: 0, maxv: 99999999.99 }], note: ['text', { max: 300 }],
-    created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+    created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
+    // 'return': goods sent back to the supplier — out of stock, and off what is owed to them.
+    kind: ['text', { nn: true, def: 'buy', in: ['buy', 'return'], added: 5 }] },
   index: [['pharmacy_id', 'received_on']] },
   supplier_payments: { pk: 'id', read: MANAGERS, insert: OWNER, del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],
@@ -152,10 +156,19 @@ export const TABLES = {
   app_config: { pk: 'id', read: 'public', cols: {
     id: ['int', { nn: true, def: 1 }], trial_days: ['int', { nn: true, def: 14 }], grace_days: ['int', { nn: true, def: 7 }],
     price_month: ['num', { nn: true, def: 0 }], price_branch: ['num', { nn: true, def: 0 }], pay_note: ['text', { nn: true, def: '' }],
-    support_phone: ['text', { nn: true, def: '' }], updated_at: ['ts', { nn: true, def: 'now' }] } },
+    support_phone: ['text', { nn: true, def: '' }], updated_at: ['ts', { nn: true, def: 'now' }],
+    // The plans on sale (src/plans.js): name, prices, features and limits, changed from the admin page.
+    plans: ['json', { added: 8 }] } },
   subscriptions: { pk: 'pharmacy_id', read: ROLES_ALL, cols: {
     pharmacy_id: ['id', { nn: true }], status: ['text', { nn: true, def: 'trial', in: ['trial', 'active', 'free', 'suspended'] }],
-    trial_ends: ['date'], paid_until: ['date'], price_month: ['num'], note: ['text', { max: 600 }], updated_at: ['ts', { nn: true, def: 'now' }] } },
+    trial_ends: ['date'], paid_until: ['date'], price_month: ['num'], note: ['text', { max: 600 }], updated_at: ['ts', { nn: true, def: 'now' }],
+    plan: ['text', { max: 30, added: 8 }] } },
+  // The owner's to-do list: from a recommendation, an alert, or written by hand (migration 0007).
+  tasks: { pk: 'id', added: 7, read: MANAGERS, insert: OWNER, update: OWNER, updCols: ['title', 'note', 'assignee', 'due_on', 'priority', 'status', 'done_at'], del: OWNER, audit: true, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], title: ['text', { nn: true, max: 200, trim: true }], note: ['text', { max: 1000 }],
+    assignee: ['text', { max: 120, trim: true }], due_on: ['date'], priority: ['text', { nn: true, def: 'medium', in: ['high', 'medium', 'low'] }],
+    status: ['text', { nn: true, def: 'open', in: ['open', 'done'] }], ref: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }], done_at: ['ts'] },
+  index: [['pharmacy_id', 'status']] },
   client_errors: { pk: 'id', internal: true, cols: {
     id: ['serial'], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], pharmacy_id: ['id'], page: ['text'], message: ['text', { nn: true }],
     stack: ['text'], agent: ['text'], version: ['text'] },
@@ -167,6 +180,7 @@ export function schemaSql() {
   const sqlType = { id: 'TEXT', text: 'TEXT', int: 'INTEGER', num: 'REAL', bool: 'INTEGER', json: 'TEXT', ts: 'TEXT', date: 'TEXT' };
   const out = [];
   for (const [name, t] of Object.entries(TABLES)) {
+    if (t.added) continue; // a whole table added later by migrations/000<added>_*.sql
     const lines = [];
     for (const [col, [type, o = {}]] of Object.entries(t.cols)) {
       if (o.added) continue; // added later by migrations/000<added>_*.sql (ALTER TABLE)

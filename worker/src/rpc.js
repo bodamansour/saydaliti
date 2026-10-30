@@ -1,6 +1,7 @@
 // The database functions the app calls by name (rpc), the same ones the Supabase database had:
 // pharmacies and branches, employees and attendance, invites, uploads, the cashier's PIN and
 // returns, subscriptions and the admin page, and error reports.
+import { planOf, readPlans } from '../../src/plans.js';
 import { ApiError, requireRole, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
@@ -17,6 +18,13 @@ const audit = (env, ctx, table, op, before, after) => {
     .bind(r.pharmacy_id, nowIso(), ctx.user?.id ?? null, table, op, String(r.id), strip(before), strip(after));
 };
 
+// The plan limits of a pharmacy (src/plans.js). No plan set = no limits.
+async function planFor(env, p) {
+  const s = await one(env, 'SELECT plan FROM subscriptions WHERE pharmacy_id = ?', p).catch(() => null);
+  const c = await one(env, 'SELECT plans FROM app_config WHERE id = 1').catch(() => null);
+  return planOf(s, c?.plans);
+}
+export { planFor };
 async function mainBranch(env, p) { return (await one(env, 'SELECT id FROM branches WHERE pharmacy_id = ? ORDER BY created_at LIMIT 1', p))?.id ?? null; }
 async function branchOf(env, p, b) {
   if (!b) return mainBranch(env, p);
@@ -74,6 +82,8 @@ export const RPC = {
     requireRole(ctx, p_pharmacy, ['owner']);
     const name = String(p_name || '').trim();
     if (!name) throw new ApiError('name required');
+    const plan = await planFor(env, p_pharmacy);
+    if ((await one(env, 'SELECT count(*) AS n FROM branches WHERE pharmacy_id = ?', p_pharmacy)).n >= plan.max_branches) throw new ApiError('plan limit: branches');
     const id = uuid();
     await env.DB.prepare('INSERT INTO branches (id, pharmacy_id, name, created_at) VALUES (?, ?, ?, ?)').bind(id, p_pharmacy, name.slice(0, 80), nowIso()).run();
     return id;
@@ -131,6 +141,8 @@ export const RPC = {
       ]);
       return null;
     }
+    const plan = await planFor(env, i.pharmacy_id);
+    if ((await one(env, 'SELECT count(*) AS n FROM members WHERE pharmacy_id = ?', i.pharmacy_id)).n >= plan.max_users) throw new ApiError('plan limit: users');
     await env.DB.batch([
       env.DB.prepare('INSERT INTO members (pharmacy_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').bind(i.pharmacy_id, ctx.user.id, i.role),
       env.DB.prepare('UPDATE invites SET used_by = ?, used_at = ? WHERE code = ? AND used_by IS NULL').bind(ctx.user.id, nowIso(), i.code),
@@ -193,19 +205,26 @@ export const RPC = {
         (SELECT u.email FROM members m JOIN users u ON u.id = m.user_id WHERE m.pharmacy_id = p.id AND m.role = 'owner' LIMIT 1) AS owner_email,
         (SELECT count(*) FROM branches b WHERE b.pharmacy_id = p.id) AS branches,
         (SELECT count(*) FROM employees e WHERE e.pharmacy_id = p.id AND e.active = 1) AS employees,
-        s.status, s.trial_ends, s.paid_until, s.price_month, s.note,
+        s.status, s.trial_ends, s.paid_until, s.price_month, s.note, s.plan,
         (SELECT max(x.sold_at) FROM pos_sales x WHERE x.pharmacy_id = p.id) AS last_sale,
         (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS sales_30d
       FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id ORDER BY p.created_at DESC`, since);
   },
-  async admin_set_subscription(env, ctx, { p_pharmacy, p_status, p_trial_ends = null, p_paid_until = null, p_price = null, p_note = null }) {
+  async admin_set_subscription(env, ctx, { p_pharmacy, p_status, p_trial_ends = null, p_paid_until = null, p_price = null, p_note = null, p_plan }) {
     await needAdmin(env, ctx);
     if (!['trial', 'active', 'free', 'suspended'].includes(p_status)) throw new ApiError('bad status');
+    if (p_plan !== undefined && p_plan !== null && p_plan !== '' && !['starter', 'pro', 'business'].includes(p_plan)) throw new ApiError('bad plan');
     const note = String(p_note ?? '').trim().slice(0, 600) || null;
     await env.DB.prepare(`INSERT INTO subscriptions (pharmacy_id, status, trial_ends, paid_until, price_month, note, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(pharmacy_id) DO UPDATE SET status = excluded.status, trial_ends = excluded.trial_ends, paid_until = excluded.paid_until,
       price_month = excluded.price_month, note = excluded.note, updated_at = excluded.updated_at`)
       .bind(p_pharmacy, p_status, p_trial_ends, p_paid_until, p_price === null || p_price === '' ? null : +p_price, note, nowIso()).run();
+    if (p_plan !== undefined) await env.DB.prepare('UPDATE subscriptions SET plan = ? WHERE pharmacy_id = ?').bind(p_plan || null, p_pharmacy).run();
+    return null;
+  },
+  async admin_set_plans(env, ctx, { p_plans }) {
+    await needAdmin(env, ctx);
+    await env.DB.prepare('UPDATE app_config SET plans = ?, updated_at = ? WHERE id = 1').bind(JSON.stringify(readPlans(p_plans)), nowIso()).run();
     return null;
   },
   async admin_set_config(env, ctx, { p_trial_days, p_grace_days, p_price_month, p_price_branch, p_pay_note, p_support_phone }) {
