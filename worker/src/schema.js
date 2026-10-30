@@ -94,7 +94,9 @@ export const TABLES = {
     kind: ['text', { nn: true, def: 'sale', in: ['sale', 'return'] }], lines: ['json', { nn: true, array: [1, 300] }], total: ['num', { nn: true }],
     discount: ['num', { nn: true, def: 0, min: 0 }], paid: ['num'], payment: ['text', { nn: true, def: 'cash', in: ['cash', 'card', 'wallet', 'credit'] }],
     customer_id: ['id'], credit: ['num', { nn: true, def: 0 }], claim_no: ['text', { max: 60 }], return_of: ['id'], note: ['text', { max: 300 }],
-    employee_id: ['id'], employee_name: ['text', { max: 120 }], shift_id: ['id'], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+    employee_id: ['id'], employee_name: ['text', { max: 120 }], shift_id: ['id'], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
+    // A home delivery: its fee (inside the total) and where it went.
+    delivery_fee: ['num', { min: 0, maxv: 99999, added: 4 }], delivery_to: ['text', { max: 200, trim: true, added: 4 }] },
   index: [['pharmacy_id', 'sold_at'], ['branch_id', 'sold_at'], ['customer_id'], ['return_of'], ['pharmacy_id', 'number'], ['shift_id']] },
   pos_barcodes: { pk: 'id', read: ROLES_ALL, insert: SELLERS, del: OWNER, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], barcode: ['text', { nn: true, max: 64 }], code: ['text', { nn: true, max: 60 }],

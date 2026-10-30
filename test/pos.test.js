@@ -140,3 +140,15 @@ test('selling by the strip: stock, returns and receipts count boxes', async () =
   const ret = returnableLines(sale, [{ kind: 'return', return_of: 's1', lines: [{ code: '9', qty: 1, per: 3, price: 15 }] }]);
   assert.deepEqual(ret.map((r) => [r.left, r.per, r.price]), [[1, 3, 15]]);
 });
+
+test('alternatives: same active ingredient, in stock first, then cheapest', async () => {
+  const { alternativesOf } = await import('../src/pos.js');
+  const items = [
+    { code: '1', name: 'بانادول', generic: 'Paracetamol', qty: 0, price: 50 },
+    { code: '2', name: 'أبيمول', generic: 'paracetamol', qty: 0, price: 20 },
+    { code: '3', name: 'سيتال', generic: 'paracetamol ', qty: 4, price: 30 },
+    { code: '4', name: 'بروفين', generic: 'ibuprofen', qty: 9, price: 25 },
+  ];
+  assert.deepEqual(alternativesOf(items[0], items).map((a) => a.item.code), ['3', '2']);
+  assert.deepEqual(alternativesOf({ code: 'x' }, items), []);
+});

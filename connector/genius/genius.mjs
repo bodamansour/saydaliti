@@ -241,13 +241,15 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     const u3 = ok(r.itm_unit1_unit3, 1e5) && r.itm_unit1_unit3 > 0 ? r.itm_unit1_unit3 : u2;
     units.set(code, [u2, u3]);
     items.set(code, {
-      code, name: String(r.itm_name_ar || r['itm_name]en'] || r.itm_name_en || code).trim(),
+      code, name: String(r.itm_name_ar || r['itm_name^en'] || r['itm_name]en'] || r.itm_name_en || code).trim(),
       // The English name too (United keeps both), so the item is found by either.
-      ...((en) => (en && en !== String(r.itm_name_ar || '').trim() ? { en } : {}))(String(r.itm_name_en || r['itm_name]en'] || '').trim()),
+      ...((en) => (en && en !== String(r.itm_name_ar || '').trim() ? { en } : {}))(String(r['itm_name^en'] || r.itm_name_en || r['itm_name]en'] || '').trim()),
       category: r.itm_ismedicine === 1 || r.itm_ismedicine === true ? 'أدوية' : 'غير دوائي',
       cost: ok(r.itm_def_pharm_price, 1e5) ? r.itm_def_pharm_price : 0,
       price: ok(r.itm_def_sell_price, 1e5) ? r.itm_def_sell_price : 0,
       owner: null, qty: null, expiry: null, active: String(r.itm_active ?? '1') !== '0',
+      // The active ingredient (itm_effictive, e.g. «BISOPROLOL FUMERATE»), for suggesting alternatives.
+      ...((g) => (g ? { generic: g } : {}))(String(r.itm_effictive || '').trim().slice(0, 160)),
       // How many strips and pills in a box, so the cashier can sell by the strip or the pill.
       ...(u2 > 1 ? { strips: u2 } : {}), ...(u3 > 1 && u3 !== u2 ? { pills: u3 } : {}),
     });
