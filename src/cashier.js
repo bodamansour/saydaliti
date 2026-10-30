@@ -783,8 +783,8 @@ async function boot() {
   if (SESS.mode === 'local') { $('auth').innerHTML = '<p>البرنامج مش متوصل بقاعدة البيانات.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
-  if (SESS.role === 'partner') {
-    $('auth').innerHTML = '<p>حساب الشريك بيشوف الأرقام بس، ومبيبيعش. الكاشير بيشتغل بحساب صاحب الصيدلية أو حساب جهاز الصيدلية.</p><a class="btn primary" href="./index.html">افتح اللوحة</a>';
+  if (!['owner', 'device', 'pharmacist'].includes(SESS.role)) {
+    $('auth').innerHTML = `<p>حساب ${ROLE_LABEL[SESS.role] || ''} مبيبيعش. الكاشير بيشتغل بحساب صاحب الصيدلية أو الصيدلي أو جهاز الصيدلية.</p><a class="btn primary" href="./index.html">افتح اللوحة</a>`;
     return;
   }
   $('gate').hidden = true; $('pos').hidden = false;

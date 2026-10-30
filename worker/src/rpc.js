@@ -121,7 +121,7 @@ export const RPC = {
   // ---------- Invites ----------
   async create_invite(env, ctx, { p_pharmacy, p_role }) {
     requireRole(ctx, p_pharmacy, ['owner']);
-    if (!['partner', 'device'].includes(p_role)) throw new ApiError('bad role');
+    if (!['partner', 'device', 'pharmacist', 'accountant', 'stock'].includes(p_role)) throw new ApiError('bad role');
     let c;
     do c = inviteCode(); while (await one(env, 'SELECT 1 FROM invites WHERE code = ?', c));
     await env.DB.prepare('INSERT INTO invites (code, pharmacy_id, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
@@ -178,7 +178,7 @@ export const RPC = {
     return null;
   },
   async clock(env, ctx, { p_pharmacy, p_pin }) {
-    requireRole(ctx, p_pharmacy, ['owner', 'partner', 'device']);
+    requireRole(ctx, p_pharmacy, ['owner', 'partner', 'device', 'pharmacist', 'stock', 'accountant']);
     const e = await pinEmployee(env, ctx, p_pharmacy, p_pin, 'wrong pin');
     const open = await one(env, 'SELECT id FROM attendance WHERE employee_id = ? AND check_out IS NULL', e.id);
     const at = nowIso();
@@ -187,11 +187,11 @@ export const RPC = {
     return [{ employee_name: e.name, action: 'in', at }];
   },
   async cashier_staff(env, ctx, { p_pharmacy }) {
-    if (!['owner', 'device'].includes(ctx.roles.get(String(p_pharmacy)))) return 0;
+    if (!['owner', 'device', 'pharmacist'].includes(ctx.roles.get(String(p_pharmacy)))) return 0;
     return (await one(env, 'SELECT count(*) AS n FROM employees WHERE pharmacy_id = ? AND active = 1', p_pharmacy)).n;
   },
   async cashier_pin(env, ctx, { p_pharmacy, p_pin }) {
-    requireRole(ctx, p_pharmacy, ['owner', 'device']);
+    requireRole(ctx, p_pharmacy, ['owner', 'device', 'pharmacist']);
     const e = await pinEmployee(env, ctx, p_pharmacy, p_pin, null);
     return e ? [{ employee_id: e.id, employee_name: e.name }] : [];
   },
