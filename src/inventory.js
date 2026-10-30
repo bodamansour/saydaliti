@@ -128,6 +128,13 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       // Set here, these win over the upload whenever they were set (1 = not sold by the strip/pill).
       for (const k of ['strips', 'pills']) if (row[k] != null) { if (+row[k] > 1) it[k] = +row[k]; else delete it[k]; }
       if (row.generic) it.generic = String(row.generic).trim();
+    } else if (kind === 'buy' && row.kind === 'return') {
+      // Goods sent back to the supplier: out of the batch with that expiry (else the earliest).
+      for (const l of row.lines || []) {
+        const it = get(String(l.code), l);
+        const qty = +l.qty || 0;
+        if (qty > 0) takeOut(it, qty, l.expiry ? fromIsoDay(l.expiry) : undefined);
+      }
     } else if (kind === 'buy') {
       const date = fromIsoDay(row.received_on) || dayOf(row.created_at);
       for (const l of row.lines || []) {
@@ -202,16 +209,18 @@ export function supplierBalances(purchases, payments = []) {
   const m = new Map();
   const row = (id, name) => {
     const k = id || `name:${name}`;
-    if (!m.has(k)) m.set(k, { id: id || null, name: name || 'من غير مورد', invoices: 0, bought: 0, paid: 0, due: 0, last: null });
+    if (!m.has(k)) m.set(k, { id: id || null, name: name || 'من غير مورد', invoices: 0, bought: 0, returned: 0, paid: 0, due: 0, last: null });
     return m.get(k);
   };
   for (const p of purchases) {
     const r = row(p.supplier_id, p.supplier_name);
+    // A return to the supplier takes its value off what is owed (paid = money they gave back).
+    if (p.kind === 'return') { r.returned += +p.total || 0; r.paid -= +p.paid || 0; continue; }
     r.invoices += 1; r.bought += +p.total || 0; r.paid += +p.paid || 0;
     if (!r.last || String(p.received_on) > r.last) r.last = String(p.received_on);
   }
   for (const x of payments) row(x.supplier_id, x.supplier_name).paid += +x.amount || 0;
-  for (const r of m.values()) { r.bought = round2(r.bought); r.paid = round2(r.paid); r.due = round2(r.bought - r.paid); }
+  for (const r of m.values()) { r.bought = round2(r.bought); r.returned = round2(r.returned); r.paid = round2(r.paid); r.due = round2(r.bought - r.returned - r.paid); }
   return [...m.values()].sort((a, b) => b.due - a.due || a.name.localeCompare(b.name, 'ar'));
 }
 

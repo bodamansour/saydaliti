@@ -373,6 +373,32 @@ test('stock: add a new item, receive a delivery, pay the supplier', async () => 
   await shot('accounts');
   await page.click('[data-tab=invoices]');
   assert.match(await text('#panel details summary'), /مخزن الأمل/);
+
+  // A return to the supplier: 2 boxes back, out of stock and off the account; then deleted again.
+  await page.click('[data-tab=receive]');
+  await page.check('#rcvReturn');
+  await page.selectOption('#rcvSup', ids['مخزن الأمل']);
+  await page.fill('#rcvQ', '6220000000001');
+  await page.press('#rcvQ', 'Enter');
+  await page.fill('[data-l="0"][data-f="qty"]', '2');
+  await page.fill('[data-l="0"][data-f="cost"]', '9');
+  await page.click('#rcvForm button[type=submit]');
+  assert.ok(await until(async () => (await db('purchases')).some((x) => x.kind === 'return')));
+  assert.match(await text('#rcvMsg'), /اتسجل المرتجع/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'شاش');
+  assert.match(await text('#itemsBody tr'), /30/, '32 − 2 sent back');
+  await page.fill('#itemsQ', '');
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=supaccounts]');
+  assert.match(await text('#panel tbody tr'), /18/, 'returned 2 × 9');
+  await page.click('[data-tab=invoices]');
+  assert.match(await text('#panel'), /مرتجع للمورد/);
+  const rid = (await db('purchases')).find((x) => x.kind === 'return').id;
+  await page.locator(`details:has([data-delpurchase="${rid}"]) summary`).click();
+  await page.click(`[data-delpurchase="${rid}"]`);
+  assert.ok(await until(async () => !(await db('purchases')).some((x) => x.kind === 'return')));
 });
 
 test('cashier: sells from the stock entered here, and adds a brand-new item on the spot', async () => {

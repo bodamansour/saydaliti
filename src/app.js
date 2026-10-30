@@ -1220,7 +1220,8 @@ async function loadInventory() {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
       loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')
         .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at') : Promise.reject(e))),
-      loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on'),
+      loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, kind, created_at', 'received_on')
+        .catch((e) => (e.missing ? loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on') : Promise.reject(e))),
       loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, person, happened_at, created_at', 'happened_at')
         .catch((e) => (e.missing ? loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at') : Promise.reject(e))),
     ]);
@@ -1384,6 +1385,7 @@ function renderReceive() {
   ${ITEM_FORM?.forReceive ? itemForm() : ''}
   <form id="rcvForm" class="card stack${RCV.editing ? ' editing' : ''}" novalidate>
     ${RCV.editing ? '<p><b>بتعدّل فاتورة متسجلة.</b> لما تحفظ، الفاتورة القديمة هتتبدل بالجديدة، والرصيد وحساب المورد يتعدلوا على الفرق.</p>' : ''}
+    <div class="row"><label class="checkline"><input id="rcvReturn" type="checkbox" ${RCV.kind === 'return' ? 'checked' : ''}> <b>مرتجع للمورد</b> (بضاعة راجعة: بتخرج من الرصيد وتتخصم من حسابه)</label></div>
     <div class="grid2">
       <label>المورد<select id="rcvSup">${`<option value="">— اختار المورد —</option>${sup.map((x) => `<option value="${esc(x.id)}" ${x.id === RCV.supplier ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}<option value="__new" ${RCV.supplier === '__new' ? 'selected' : ''}>مورد مش في القايمة…</option>`}</select></label>
       <label ${RCV.supplier === '__new' ? '' : 'hidden'} id="rcvSupNameWrap">اسم المورد الجديد<input id="rcvSupName" maxlength="80" value="${esc(RCV.supplierName)}"></label>
@@ -1395,11 +1397,11 @@ function renderReceive() {
     <div class="tablebox cart"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء للعلبة</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th><th></th></tr></thead>
       <tbody id="rcvLines">${receiveLinesHtml()}</tbody></table>${RCV.lines.length ? '' : '<p class="empty">امسح أول صنف في الطلبية.</p>'}</div>
     <div class="grid2">
-      <label>دفعت كام للمورد دلوقتي<input id="rcvPaid" type="number" min="0" step="0.5" inputmode="decimal" value="${esc(RCV.paid)}" placeholder="0 لو آجل"></label>
+      <label>${RCV.kind === 'return' ? 'استلمت من المورد فلوس كام (لو رجّعلك كاش)' : 'دفعت كام للمورد دلوقتي'}<input id="rcvPaid" type="number" min="0" step="0.5" inputmode="decimal" value="${esc(RCV.paid)}" placeholder="${RCV.kind === 'return' ? '0 لو هيتخصم من حسابه' : '0 لو آجل'}"></label>
       <label>ملاحظة (اختياري)<input id="rcvNote" maxlength="300" value="${esc(RCV.note)}"></label>
     </div>
     <div class="ledger"><div class="tot"><span>إجمالي الفاتورة</span><span class="n" id="rcvTotal">0.00</span></div><div><span>الباقي عليك للمورد</span><span class="n" id="rcvDue">0.00</span></div></div>
-    <div class="row"><button class="btn primary" type="submit">${RCV.editing ? 'احفظ التعديل' : 'سجّل الطلبية'}</button><button class="btn" type="button" id="rcvClear">${RCV.editing ? 'إلغاء التعديل' : 'ابدأ من الأول'}</button><span class="note" id="rcvMsg" role="status">${esc(RCV_NOTE)}</span></div>
+    <div class="row"><button class="btn primary" type="submit">${RCV.editing ? 'احفظ التعديل' : RCV.kind === 'return' ? 'سجّل المرتجع' : 'سجّل الطلبية'}</button><button class="btn" type="button" id="rcvClear">${RCV.editing ? 'إلغاء التعديل' : 'ابدأ من الأول'}</button><span class="note" id="rcvMsg" role="status">${esc(RCV_NOTE)}</span></div>
   </form>`;
 }
 function rerenderReceiveLines() {
@@ -1457,10 +1459,11 @@ async function saveReceive(e) {
   const editing = RCV.editing;
   // An edited invoice keeps its place in time, so stock counts it exactly once.
   if (editing) await localDelete('purchases', editing);
-  await localInsert('purchases', { branch_id: bid, supplier_id: supId, supplier_name: supName, invoice_no: RCV.invoice.trim() || null, received_on: RCV.date, lines, total, paid, note: RCV.note.trim() || null, ...(editing && RCV.editingAt ? { created_at: RCV.editingAt } : {}) });
+  const ret = RCV.kind === 'return';
+  await localInsert('purchases', { branch_id: bid, supplier_id: supId, supplier_name: supName, invoice_no: RCV.invoice.trim() || null, received_on: RCV.date, lines: ret ? lines.map(({ bonus, price, ...l }) => l) : lines, total, paid, note: RCV.note.trim() || null, ...(ret ? { kind: 'return' } : {}), ...(editing && RCV.editingAt ? { created_at: RCV.editingAt } : {}) });
   const n = lines.length;
   RCV = blankReceive(); saveDraft();
-  RCV_NOTE = editing ? `اتعدلت الفاتورة (${n} صنف بـ ${fmt(total, 2)} ج).` : `اتسجلت الطلبية (${n} صنف بـ ${fmt(total, 2)} ج)، والرصيد زاد.${paid < total ? ` الباقي للمورد ${fmt(total - paid, 2)} ج.` : ''}${isOnline() ? '' : ' هتترفع أول ما النت يرجع.'}`;
+  RCV_NOTE = ret ? `اتسجل المرتجع (${n} صنف بـ ${fmt(total, 2)} ج): خرج من الرصيد واتخصم من حساب «${supName}».` : editing ? `اتعدلت الفاتورة (${n} صنف بـ ${fmt(total, 2)} ج).` : `اتسجلت الطلبية (${n} صنف بـ ${fmt(total, 2)} ج)، والرصيد زاد.${paid < total ? ` الباقي للمورد ${fmt(total - paid, 2)} ج.` : ''}${isOnline() ? '' : ' هتترفع أول ما النت يرجع.'}`;
   render();
 }
 
@@ -1471,9 +1474,9 @@ function renderInvoices() {
   const list = PURCHASES.filter((p) => bid === 'all' || inBranch({ id: bid })(p))
     .sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)) || String(b.created_at).localeCompare(String(a.created_at)));
   if (!list.length) return `<div class="card emptybox"><h3>لسه مفيش طلبيات متسجلة</h3><p>سجّل أول طلبية من تبويب «طلبية وصلت».</p></div>`;
-  const tot = list.reduce((a, p) => ({ t: a.t + +p.total, p: a.p + +p.paid }), { t: 0, p: 0 });
-  return `<div class="ledger card"><div><span>عدد الفواتير</span><span class="n">${fmt(list.length)}</span></div><div><span>إجماليها</span><span class="n">${fmt(tot.t, 2)}</span></div><div><span>اتدفع وقت الاستلام</span><span class="n">${fmt(tot.p, 2)}</span></div></div>
-  ${list.map((p) => `<details class="help"><summary>${dayText(p.received_on)} · <b>${esc(p.supplier_name || 'من غير مورد')}</b>${p.invoice_no ? ` · فاتورة <span class="n">${esc(p.invoice_no)}</span>` : ''} · <span class="n">${fmt(p.lines.length)}</span> صنف · <b class="n">${fmt(+p.total, 2)}</b> ج${+p.paid < +p.total ? ` · <span class="pill warn">باقي <span class="n">${fmt(+p.total - +p.paid, 2)}</span></span>` : ' · <span class="pill ok">مدفوعة</span>'}${multi() ? ` · ${esc(BRANCHES.find((b) => b.id === (p.branch_id ?? mainBranchId()))?.name || '')}` : ''}${pendingPill(p)}</summary>
+  const tot = list.reduce((a, p) => (p.kind === 'return' ? { ...a, r: a.r + +p.total } : { ...a, t: a.t + +p.total, p: a.p + +p.paid }), { t: 0, p: 0, r: 0 });
+  return `<div class="ledger card"><div><span>عدد الفواتير</span><span class="n">${fmt(list.length)}</span></div><div><span>إجماليها</span><span class="n">${fmt(tot.t, 2)}</span></div><div><span>اتدفع وقت الاستلام</span><span class="n">${fmt(tot.p, 2)}</span></div>${tot.r ? `<div><span>مرتجعات للموردين</span><span class="n">${fmt(tot.r, 2)}</span></div>` : ''}</div>
+  ${list.map((p) => `<details class="help"><summary>${p.kind === 'return' ? '<span class="pill warn">مرتجع للمورد</span> ' : ''}${dayText(p.received_on)} · <b>${esc(p.supplier_name || 'من غير مورد')}</b>${p.invoice_no ? ` · فاتورة <span class="n">${esc(p.invoice_no)}</span>` : ''} · <span class="n">${fmt(p.lines.length)}</span> صنف · <b class="n">${fmt(+p.total, 2)}</b> ج${+p.paid < +p.total ? ` · <span class="pill warn">باقي <span class="n">${fmt(+p.total - +p.paid, 2)}</span></span>` : ' · <span class="pill ok">مدفوعة</span>'}${multi() ? ` · ${esc(BRANCHES.find((b) => b.id === (p.branch_id ?? mainBranchId()))?.name || '')}` : ''}${pendingPill(p)}</summary>
     <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th></tr></thead><tbody>
     ${p.lines.map((l) => `<tr><td class="name">${esc(l.name || l.code)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${fmt(l.bonus || 0)}</td><td class="n">${fmt(l.cost, 2)}</td><td class="n">${l.price ? fmt(l.price, 2) : '—'}</td><td>${l.expiry ? expText(new Date(`${l.expiry}T00:00:00`)) : '—'}</td><td class="n">${fmt(l.qty * l.cost, 2)}</td></tr>`).join('')}
     </tbody></table></div>${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
@@ -1494,8 +1497,8 @@ function renderSupplierAccounts() {
       <div class="row"><button class="btn primary" type="submit">سجّل الدفعة</button><span class="note" id="payMsg" role="status"></span></div></form>` : '';
   const pays = [...SUP_PAYMENTS].sort((a, b) => String(b.paid_on).localeCompare(String(a.paid_on))).slice(0, 30);
   return `<p>الحساب مع كل مورد: إجمالي الفواتير، واللي اتدفع، والباقي عليك.</p>`
-    + table(['المورد', 'فواتير', 'إجمالي البضاعة', 'اتدفع', 'الباقي عليك', 'آخر طلبية'],
-      bal.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td class="n">${fmt(b.invoices)}</td><td>${egp(b.bought)}</td><td>${egp(b.paid)}</td><td>${b.due > 0.005 ? `<span class="pill warn"><span class="n">${fmt(b.due, 2)}</span> ج</span>` : b.due < -0.005 ? `<span class="pill ok">ليك <span class="n">${fmt(-b.due, 2)}</span> ج</span>` : '<span class="pill ok">خالص</span>'}</td><td>${dayText(b.last)}</td></tr>`))
+    + table(['المورد', 'فواتير', 'إجمالي البضاعة', 'مرتجع ليه', 'اتدفع', 'الباقي عليك', 'آخر طلبية'],
+      bal.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td class="n">${fmt(b.invoices)}</td><td>${egp(b.bought)}</td><td>${b.returned ? egp(b.returned) : '—'}</td><td>${egp(b.paid)}</td><td>${b.due > 0.005 ? `<span class="pill warn"><span class="n">${fmt(b.due, 2)}</span> ج</span>` : b.due < -0.005 ? `<span class="pill ok">ليك <span class="n">${fmt(-b.due, 2)}</span> ج</span>` : '<span class="pill ok">خالص</span>'}</td><td>${dayText(b.last)}</td></tr>`))
     + form
     + (pays.length ? `<h3>آخر الدفعات</h3>` + table(['يوم', 'المورد', 'المبلغ', 'ملاحظة', ''], pays.map((x) => `<tr><td>${dayText(x.paid_on)}</td><td>${esc(x.supplier_name)}</td><td>${egp(+x.amount)}</td><td>${esc(x.note || '')}</td><td>${isOwner() ? `<button class="btn" type="button" data-delpay="${esc(x.id)}">امسح</button>` : ''}${pendingPill(x)}</td></tr>`)) : '');
 }
@@ -1715,6 +1718,7 @@ $('panel').addEventListener('input', (e) => {
   if (f) { RCV[f] = t.value; if (f === 'paid') receiveTotals(); saveDraft(); }
 });
 $('panel').addEventListener('change', (e) => {
+  if (e.target.id === 'rcvReturn') { RCV.kind = e.target.checked ? 'return' : 'buy'; saveDraft(); render(); return; }
   if (e.target.id === 'rcvSup') { RCV.supplier = e.target.value; saveDraft(); $('rcvSupNameWrap').hidden = RCV.supplier !== '__new'; if (!$('rcvSupNameWrap').hidden) $('rcvSupName').focus(); }
   if (e.target.id === 'rcvBranch') { RCV.branch = e.target.value; saveDraft(); }
 });
@@ -1754,7 +1758,7 @@ $('panel').addEventListener('click', (e) => {
     if (p && (!RCV.lines.length || confirm('فيه طلبية بتكتبها في «طلبية وصلت». تبدّلها بالفاتورة دي عشان تعدّلها؟'))) {
       const known = SUPPLIERS().some((x) => x.id === p.supplier_id);
       RCV = { editing: p.id, editingAt: p.created_at, supplier: known ? p.supplier_id : '__new', supplierName: known ? '' : (p.supplier_name || ''), invoice: p.invoice_no || '', date: String(p.received_on).slice(0, 10),
-        branch: key(p.branch_id ?? mainBranchId()), paid: String(p.paid ?? ''), note: p.note || '',
+        branch: key(p.branch_id ?? mainBranchId()), paid: String(p.paid ?? ''), note: p.note || '', kind: p.kind === 'return' ? 'return' : 'buy',
         lines: p.lines.map((l) => ({ code: l.code, name: l.name || l.code, qty: l.qty, bonus: l.bonus || 0, cost: l.cost, price: l.price || '', expiry: l.expiry ? String(l.expiry).slice(0, 7) : '' })) };
       saveDraft(); RCV_NOTE = ''; TAB = 'receive'; render();
     }

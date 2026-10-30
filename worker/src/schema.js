@@ -119,7 +119,9 @@ export const TABLES = {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],
     invoice_no: ['text', { max: 60 }], received_on: ['date', { nn: true }], lines: ['json', { nn: true, array: [1, 500] }],
     total: ['num', { nn: true, min: 0, maxv: 99999999.99 }], paid: ['num', { nn: true, def: 0, min: 0, maxv: 99999999.99 }], note: ['text', { max: 300 }],
-    created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+    created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
+    // 'return': goods sent back to the supplier — out of stock, and off what is owed to them.
+    kind: ['text', { nn: true, def: 'buy', in: ['buy', 'return'], added: 5 }] },
   index: [['pharmacy_id', 'received_on']] },
   supplier_payments: { pk: 'id', read: MANAGERS, insert: OWNER, del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],

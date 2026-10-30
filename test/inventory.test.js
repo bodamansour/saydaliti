@@ -229,3 +229,16 @@ test('a price change: old boxes keep the old price, a sale at the old price take
   const by = Object.fromEntries(k.batches.map((x) => [x.price, x.qty]));
   assert.deepEqual(by, { 45: 2, 52: 2 }, 'the new-price box was sold, the two old ones stay at 45');
 });
+
+test('a return to the supplier takes the boxes out and comes off what is owed', async () => {
+  const { supplierBalances } = await import('../src/inventory.js');
+  const buy = { created_at: '2026-10-21T10:00:00Z', received_on: '2026-10-21', supplier_id: 's1', supplier_name: 'مخزن الأمل', lines: [{ code: 'Z0', qty: 10, cost: 12, expiry: '2027-03-01' }], total: 120, paid: 0 };
+  const ret = { created_at: '2026-10-22T10:00:00Z', received_on: '2026-10-22', supplier_id: 's1', supplier_name: 'مخزن الأمل', kind: 'return', lines: [{ code: 'Z0', qty: 4, cost: 12, expiry: '2027-03-01' }], total: 48, paid: 0 };
+  const d = liveData(base, AT, { purchases: [buy, ret] });
+  assert.equal(d.items.find((i) => i.code === 'Z0').qty, 6);
+  assert.equal(d.purchases.length, 1, 'the return is not a delivery');
+  const [b] = supplierBalances([buy, ret], []);
+  assert.deepEqual([b.bought, b.returned, b.due], [120, 48, 72]);
+  const [c] = supplierBalances([buy, { ...ret, paid: 48 }], []);
+  assert.equal(c.due, 120, 'paid back in cash: still owe for all that was kept and the cash');
+});
