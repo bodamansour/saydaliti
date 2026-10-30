@@ -153,5 +153,9 @@
 - حدّثت رابط المتصفح والتخزين المؤقت وحزمة Windows، وأضافت اختبارات round-trip لقراءة ملف XLSX وتصديره. ثبّت npm الحزمة من أرشيف CDN مع `--ignore-scripts`، وحفظ بصمة SHA-512 في ملفي القفل.
 - عولجت تنبيهات `npm audit` أيضًا: Electron `45.2.0` و`electron-builder 26.18.0` للمثبت الأساسي، وWrangler `4.156.0` لأدوات Cloudflare. التدقيق في الجذر و`desktop/` و`worker/` يعرض صفر ثغرات معروفة.
 - النسخة القديمة المخصصة لـWindows 7/8 و32-bit ما زالت تستخدم Electron `22.3.27` المنتهي الدعم للحفاظ على التوافق؛ لم يتغير تصميمها.
-- **التحقق المحلي:** `npm test`: 170 ناجحًا و15 تخطّيًا من 185؛ `npm run e2e`: 43/43؛ `worker/npm run build`: ناجح. `desktop/npm run app`: ناجح، لكن `desktop/node smoke.mjs` تعذر تشغيله محليًا لأن Windows AppContainer في بيئة العمل لا يملك صلاحية قراءة ملفات Electron داخل مجلد المشروع. يتطلب تأكيد اختبار Windows في GitHub Actions.
+- **التحقق المحلي:** `npm test`: 170 ناجحًا و15 تخطّيًا من 185؛ `npm run e2e`: 43/43؛ `worker/npm run build`: ناجح. `desktop/npm run app`: ناجح. تعذّر تشغيل `desktop/node smoke.mjs` محليًا بسبب صلاحيات Windows AppContainer، ثم نجح فحصه على Windows في GitHub Actions #80.
 - إصدارات SheetJS المصححة غير منشورة في سجل npm؛ ثُبت أرشيف CDN الرسمي مع بصمة SHA-512، ويلزم متابعة نشرات CDN الرسمية.
+
+### 2026-10-30: تأكيد CI بعد تحديثات الأمان
+- GitHub Actions #106 نجح بالكامل: اختبارات الواجهة 43/43، واختبارات Worker وD1/R2 عددها 26/26، واختبار مزامنة United على SQL Server حقيقي في Windows.
+- Windows program #80 نجح في بناء وفحص مثبتي Windows 10/11 وWindows 7، بما في ذلك تشغيل Electron واختبار حفظ البيانات والعمل دون اتصال.
