@@ -150,6 +150,12 @@ export function stockLeft(item, sales, uploadedAt) {
 }
 
 // Warning for the cashier: the nearest batch has expired, or expires within `days`.
+// Every box on the shelf has expired (there is stock, and none of it is still good).
+export function allExpired(item, today = startOfDay()) {
+  const list = batchesOf(item).filter((x) => x.qty > 0);
+  return list.length > 0 && list.every((x) => x.expiry && startOfDay(x.expiry) < startOfDay(today));
+}
+
 export function expiryWarning(item, today = startOfDay(), days = 30) {
   const b = batchesOf(item).filter((x) => x.expiry && x.qty > 0).sort((a, c) => a.expiry - c.expiry)[0];
   if (!b) return null;

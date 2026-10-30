@@ -159,3 +159,12 @@ test('old and new price boxes: listed earliest expiry first, one price gives non
   assert.deepEqual(pricesOf(item), [{ price: 45, qty: 2 }, { price: 52, qty: 4 }]);
   assert.deepEqual(pricesOf({ price: 52, batches: [{ qty: 3 }] }), []);
 });
+
+test('all stock expired: only when every box on the shelf is past its date', async () => {
+  const { allExpired } = await import('../src/pos.js');
+  const today = new Date('2026-10-30T00:00:00');
+  assert.equal(allExpired({ batches: [{ qty: 2, expiry: new Date('2026-09-01') }] }, today), true);
+  assert.equal(allExpired({ batches: [{ qty: 2, expiry: new Date('2026-09-01') }, { qty: 1, expiry: new Date('2027-01-01') }] }, today), false);
+  assert.equal(allExpired({ batches: [{ qty: 0, expiry: new Date('2026-09-01') }] }, today), false, 'no stock: nothing to stop');
+  assert.equal(allExpired({ qty: 3 }, today), false, 'no expiry known');
+});
