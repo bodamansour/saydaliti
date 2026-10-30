@@ -114,6 +114,9 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         if (+row.price > 0) it.price = +row.price;
         if (+row.cost > 0) it.cost = +row.cost;
       }
+      // Set here, these win over the upload whenever they were set (1 = not sold by the strip/pill).
+      for (const k of ['strips', 'pills']) if (row[k] != null) { if (+row[k] > 1) it[k] = +row[k]; else delete it[k]; }
+      if (row.generic) it.generic = String(row.generic).trim();
     } else if (kind === 'buy') {
       const date = fromIsoDay(row.received_on) || dayOf(row.created_at);
       for (const l of row.lines || []) {
@@ -144,7 +147,9 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       for (const l of lines) {
         const code = String(l.code);
         const it = get(code, l);
-        const qty = +l.qty;
+        // A line sold by the strip or pill: qty of them at their price, per = how many in a box.
+        const per = +l.per > 1 ? +l.per : 1;
+        const qty = +l.qty / per;
         // The cost of what was sold is the cost of the boxes it came out of. A return of a receipt
         // made here puts the boxes back on the batches (expiry and cost) they were sold from; one with
         // no receipt (or a receipt from before the upload) goes back at the item's buying price.
@@ -165,9 +170,9 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
           if (left > 0) { putBack(it, left); cost += left * it.cost; }
           unitCost = round4(cost / qty);
         }
-        const net = (+l.price || 0) * qty - (+l.discount || 0);
+        const net = (+l.price || 0) * +l.qty - (+l.discount || 0);
         const off = round2((+l.discount || 0) + (gross > 0 ? (extra * net) / gross : 0));
-        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * qty, price: +l.price || 0, cost: unitCost, ...(off ? { discount: sign * off } : {}) });
+        out.sales.push({ date: dayOf(row.sold_at), code, qty: sign * round4(qty), price: round4((+l.price || 0) * per), cost: unitCost, ...(off ? { discount: sign * off } : {}) });
       }
     }
   }

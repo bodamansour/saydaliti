@@ -42,3 +42,17 @@ test('per hour, and the whole report', () => {
   assert.equal(r.costMissing, 1);
   assert.equal(hourLabel(0), '12 ص'); assert.equal(hourLabel(9), '9 ص'); assert.equal(hourLabel(12), '12 م'); assert.equal(hourLabel(15), '3 م');
 });
+
+test('per cashier: receipts, money, discounts and returns', async () => {
+  const { byEmployee, salesReport } = await import('../src/sales-report.js');
+  const rows = byEmployee([
+    { kind: 'sale', total: 100, discount: 5, employee_name: 'سارة' },
+    { kind: 'sale', total: 50, discount: 0, employee_name: 'سارة' },
+    { kind: 'return', total: -20, discount: 0, employee_name: 'سارة' },
+    { kind: 'sale', total: 30, discount: 0, employee_name: 'أحمد', delivery_fee: 10 },
+  ]);
+  assert.deepEqual(rows[0], { name: 'سارة', receipts: 2, sales: 150, discount: 5, returns: 1, returned: 20, avg: 75 });
+  assert.equal(rows[1].name, 'أحمد');
+  const r = salesReport([{ kind: 'sale', total: 30, discount: 0, lines: [], sold_at: '2026-10-30T10:00:00Z', delivery_fee: 10, delivery_to: 'x' }]);
+  assert.deepEqual(r.delivery, { count: 1, fees: 10 });
+});

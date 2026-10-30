@@ -1,6 +1,6 @@
 import { createLocalStore } from './attendance-store.js';
 import { createSupabaseStore } from './supabase-store.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { attendanceReport } from './attendance.js';
 
 const $ = (id) => document.getElementById(id);
@@ -175,7 +175,7 @@ async function boot() {
     show(TAB); return;
   }
   $('app').hidden = true;
-  $('logout').hidden = sess.mode === 'signed-out' || !!sess.local;
+  if (sess.local) localModeButton($('logout')); else $('logout').hidden = sess.mode === 'signed-out';
   if (sess.mode === 'signed-out') { $('modeChip').textContent = 'مش مسجّل دخول'; return renderSignIn($('auth'), boot); }
   if (sess.mode === 'no-pharmacy') { $('modeChip').textContent = sess.user.email; return renderPharmacyChoice($('auth'), boot); }
 

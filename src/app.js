@@ -2,7 +2,7 @@ import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings } from './session.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
@@ -13,7 +13,8 @@ import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck,
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
-import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits } from './pos.js';
+import { labelHtml } from './labels.js';
+import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -636,7 +637,8 @@ function renderPriceChanges() {
     <td class="n">${fmt(c.qty)}</td>
     <td><span class="pill ${c.newMargin < 0 ? 'crit' : c.newMargin < c.oldMargin ? 'warn' : 'ok'}"><span class="n">${fmt(c.oldMargin, 2)}</span> ← <span class="n">${fmt(c.newMargin, 2)}</span></span></td></tr>`);
   return `<p>الأصناف اللي سعر بيعها أو سعر شرائها اتغير بين آخر ملفين اترفعوا (${prevAt ? when(prevAt) : '—'} و${curAt ? when(curAt) : '—'}).</p>
-    <p class="note">اتأكد إن سعر البيع في برنامج الصيدلية مطابق للسعر المكتوب على العلبة اللي بتبيعها، وراجع سعر العروض على الأصناف دي.</p>`
+    <p class="note">اتأكد إن سعر البيع في برنامج الصيدلية مطابق للسعر المكتوب على العلبة اللي بتبيعها، وراجع سعر العروض على الأصناف دي.</p>
+    ${ch.some((c) => c.priceMoved && c.qty > 0) ? '<div class="row"><button class="btn" type="button" id="printChanged">اطبع ملصقات بالسعر الجديد</button><span class="note">ملصق لكل علبة في الرف.</span></div>' : ''}`
     + (rows.length ? `<div class="tablebox"><table><thead><tr><th>الصنف</th><th>سعر البيع</th><th>سعر الشراء</th><th>في الرف</th><th>مكسب العلبة</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
       : '<div class="tablebox"><p class="empty">مفيش أسعار اتغيرت بين آخر ملفين.</p></div>');
 }
@@ -667,9 +669,11 @@ const posCost = () => { const m = new Map(DATA.items.map((i) => [String(i.code),
 const posWhen = (x) => new Date(x.sold_at).toLocaleString('ar-EG', POS_PERIOD === 'day' ? { hour: 'numeric', minute: '2-digit' } : { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 function posLines(x) {
   return `<tr class="sale-lines"><td colspan="${multi() ? 9 : 8}"><div class="ledger">
-    ${(x.lines || []).map((l) => `<div><span>${esc(l.name)} <span class="muted n">${fmt(l.qty)} × ${fmt(l.price, 2)}${l.discount ? ` − ${fmt(l.discount, 2)}` : ''}</span></span><span class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</span></div>`).join('')}
+    ${(x.lines || []).map((l) => `<div><span>${esc(l.name)} <span class="muted n">${fmt(l.qty)}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price, 2)}${l.discount ? ` − ${fmt(l.discount, 2)}` : ''}</span></span><span class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</span></div>`).join('')}
     ${+x.discount > (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0) + 0.004 ? `<div><span>خصم على الفاتورة</span><span class="n">−${fmt(+x.discount - (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0), 2)}</span></div>` : ''}
+    ${x.delivery_fee ? `<div><span>التوصيل</span><span class="n">${fmt(x.delivery_fee, 2)}</span></div>` : ''}
     <div class="tot"><span>${x.kind === 'return' ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
+    ${x.delivery_to ? `<div><span>توصيل لـ</span><span>${esc(x.delivery_to)}</span></div>` : ''}
     ${x.customer_id ? `<div><span>العميل</span><span>${esc(custName(x.customer_id))}${x.claim_no ? ` · موافقة <span class="n">${esc(x.claim_no)}</span>` : ''}</span></div>` : ''}
     ${x.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(x.credit), 2)}</span></div>` : ''}
     ${x.note ? `<div><span>ملاحظة</span><span>${esc(x.note)}</span></div>` : ''}
@@ -695,6 +699,7 @@ function renderPosSales() {
       <div><span>فواتير</span><span class="n">${fmt(sum.receipts)}</span></div>
       <div><span>مبيعات</span><span class="n">${fmt(sum.sales, 2)}</span></div>
       ${sum.returns ? `<div><span>مرتجعات (${fmt(sum.returns)})</span><span class="n">${fmt(sum.returned, 2)}</span></div>` : ''}
+      ${R.delivery?.count ? `<div><span>توصيل (${fmt(R.delivery.count)} طلب)</span><span class="n">${fmt(R.delivery.fees, 2)}</span></div>` : ''}
       <div><span>خصومات</span><span class="n">${fmt(sum.discount, 2)}</span></div>
       ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(payName(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('')}
       <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div>
@@ -706,12 +711,15 @@ function renderPosSales() {
   const rows = list.slice(0, POS_Q || SHOW_ALL.has(TAB) ? 2000 : 200).map((x) => `<tr class="sale-row${POS_OPEN.has(x.id) ? ' open' : ''}" data-sale="${esc(x.id)}" tabindex="0"><td class="n">${esc(x.number)}</td>
       <td class="n">${esc(posWhen(x))}</td>
       ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : 'بيع'}</td>
-      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
+      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + boxQty(l), 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
   const invoices = `<h3>الفواتير (${fmt(list.length)}${POS_Q ? ` من ${fmt(all.length)}` : ''})</h3>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>علب</th><th>الإجمالي</th><th>الدفع</th><th>العميل</th><th>الكاشير</th></tr></thead><tbody>${rows.join('')}</tbody></table>${list.length > rows.length ? `<div class="more"><span class="muted">ظاهر أول ${fmt(rows.length)} من ${fmt(list.length)}. دوّر برقم الفاتورة أو الصنف عشان توصلها أسرع.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`
     : `<div class="card emptybox"><p>${POS_Q ? 'مفيش فاتورة بالبحث ده.' : 'مفيش فواتير في الفترة دي.'}</p></div>`);
+  // Per cashier (only when more than one person sold): who sold how much, the discounts and returns.
+  const staff = R.employees.length > 1 || (R.employees[0] && R.employees[0].name !== 'من غير اسم') ? `<h3>أداء الكاشيرز</h3>` + table(['الكاشير', 'فواتير', 'المبيعات', 'متوسط الفاتورة', 'خصومات', 'مرتجعات'],
+    R.employees.map((e) => `<tr><td class="name">${esc(e.name)}</td><td class="n">${fmt(e.receipts)}</td><td>${egp(e.sales)}</td><td>${egp(e.avg)}</td><td>${egp(e.discount)}</td><td class="n">${e.returns ? `${fmt(e.returns)} · ${fmt(e.returned, 2)}` : '—'}</td></tr>`)) : '';
   return `${controls}<p class="note">دوس على أي فاتورة عشان تشوف أصنافها وتطبعها تاني. الفواتير دي من شاشة الكاشير.</p>
-  <div class="calc">${summary}${hours}</div>${invoices}${items}`;
+  <div class="calc">${summary}${hours}</div>${invoices}${items}${staff}`;
 }
 // The report on paper (or PDF): the totals, the hours and what sold.
 function printPosReport() {
@@ -739,7 +747,7 @@ function printSale(id) {
     @page{margin:0} body{font:12px/1.45 system-ui,sans-serif;width:72mm;margin:0;padding:2mm 3mm;color:#000} .c{text-align:center;border-bottom:1px dashed #000;padding-bottom:2mm;margin-bottom:2mm}
     table{width:100%;border-collapse:collapse} td{padding:0 0 1px} .n{direction:ltr;text-align:left} .t{border-top:1px dashed #000;margin-top:2mm;padding-top:2mm} .t div{display:flex;justify-content:space-between} .b{font-size:15px;font-weight:700}
   </style></head><body><div class="c"><b>${esc(SESS.pharmacy?.name || '')}</b><div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(x.number)}</span> (نسخة)</div><div>${esc(new Date(x.sold_at).toLocaleString('ar-EG'))}</div></div>
-    <table>${(x.lines || []).map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td class="n">${fmt(l.qty)} × ${fmt(l.price, 2)}${l.discount ? ` −${fmt(l.discount, 2)}` : ''}</td><td class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</td></tr>`).join('')}</table>
+    <table>${(x.lines || []).map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td class="n">${fmt(l.qty)}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price, 2)}${l.discount ? ` −${fmt(l.discount, 2)}` : ''}</td><td class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</td></tr>`).join('')}</table>
     <div class="t">${+x.discount ? `<div><span>الخصم</span><span class="n">${fmt(+x.discount, 2)}</span></div>` : ''}<div class="b"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
     <div><span>الدفع</span><span>${esc(payName(x.payment))}</span></div>${x.employee_name ? `<div><span>الكاشير</span><span>${esc(x.employee_name)}</span></div>` : ''}</div></body></html>`;
   printDoc(html);
@@ -751,6 +759,34 @@ function printDoc(html) {
   document.body.append(f);
   f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
   setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } finally { setTimeout(() => f.remove(), 1000); } }, 50);
+}
+
+// Barcode labels for an item: its own barcode (set here, learned at the cashier, or from the pharmacy
+// program), or its code when it has none (the cashier finds an item by its code too).
+function itemBarcode(code) {
+  const own = CATALOG.find((c) => c.code === code)?.barcode;
+  if (own) return own;
+  for (const [b, c] of barcodeMap()) if (c === code) return b;
+  return String(code);
+}
+// list: [{ code, count }] — at most 300 labels in one go.
+function printLabels(list) {
+  let left = 300;
+  const parts = [];
+  for (const { code, count } of list) {
+    const it = DATA.items.find((i) => i.code === code);
+    if (!it || left <= 0) continue;
+    const n = Math.min(left, Math.max(1, Math.round(count)));
+    left -= n;
+    parts.push(labelHtml({ pharmacy: SESS.pharmacy?.name || '', name: it.name, price: it.price ? fmt(it.price, 2) : '', barcode: itemBarcode(code) }).repeat(n));
+  }
+  if (!parts.length) return;
+  printDoc(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ملصقات</title><style>
+    @page { size: 38mm 25mm; margin: 0 } body { margin: 0; font-family: system-ui, Tahoma, sans-serif }
+    .label { width: 38mm; height: 25mm; box-sizing: border-box; padding: 1mm 1.5mm; page-break-after: always; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between }
+    .lb-ph { font-size: 6pt; color: #444; white-space: nowrap; overflow: hidden } .lb-name { font-size: 7.5pt; font-weight: 700; line-height: 1.1; max-height: 2.2em; overflow: hidden }
+    .lb-bc svg { width: 100%; height: 9mm; display: block } .lb-row { display: flex; justify-content: space-between; font-size: 7pt } .n { font-variant-numeric: tabular-nums; direction: ltr }
+  </style></head><body>${parts.join('')}</body></html>`);
 }
 
 // ---------- Cashier shifts and the log of changes (database update 013) ----------
@@ -860,7 +896,7 @@ async function loadFeatures() {
     // an older database is read without them.
     const base = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
     POS_READY = false;
-    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
+    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
       try { POS_SALES = await loadTable('pos_sales', base + extra, 'sold_at'); POS_READY = true; break; } catch (e) { if (!e.missing) break; }
     }
     if (isOwner()) {
@@ -1182,7 +1218,8 @@ const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year
 async function loadInventory() {
   try {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
-      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')
+        .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at') : Promise.reject(e))),
       loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on'),
       loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, person, happened_at, created_at', 'happened_at')
         .catch((e) => (e.missing ? loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at') : Promise.reject(e))),
@@ -1205,7 +1242,7 @@ let ITEM_INDEX = { data: null, sorted: [], norm: new Map() };
 function itemIndex() {
   if (ITEM_INDEX.data !== DATA) {
     const sorted = [...DATA.items].sort((a, b) => (b.qty > 0) - (a.qty > 0) || AR.compare(a.name, b.name));
-    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize(i.name)])) };
+    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize([i.name, i.en, i.generic].filter(Boolean).join(' | '))])) };
   }
   return ITEM_INDEX;
 }
@@ -1219,7 +1256,7 @@ function itemMatches(q) {
 }
 function itemsRows() {
   const list = itemMatches(ITEMS_Q);
-  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}<span class="cat">${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
+  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}${i.en ? ` <span class="muted" dir="ltr">${esc(i.en)}</span>` : ''}<span class="cat">${i.generic ? `<span dir="ltr">${esc(i.generic)}</span> · ` : ''}${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
     <td class="n">${i.qty < 0 ? `<span class="pill crit">${fmt(i.qty)}</span>` : i.qty === 0 ? '<span class="muted">خلصان</span>' : `<b>${fmt(i.qty)}</b>`}</td>
     <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}</td><td>${expText(i.expiry)}</td>
     ${isOwner() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);
@@ -1237,6 +1274,9 @@ function itemForm() {
       <label>النوع<select id="itCat">${[...new Set([f.category, ...CATEGORIES].filter(Boolean))].map((c) => `<option ${c === (f.category || 'دواء') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
       <label>سعر البيع للجمهور<input id="itPrice" type="number" min="0" step="0.25" inputmode="decimal" value="${esc(f.price ?? '')}" required></label>
       <label>سعر الشراء (اختياري)<input id="itCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(f.cost ?? '')}"></label>
+      <label>عدد الشرايط في العلبة (للبيع بالشريط)<input id="itStrips" type="number" min="1" max="1000" step="1" inputmode="numeric" value="${esc(f.strips ?? '')}" placeholder="مثلاً 3"></label>
+      <label>عدد الحبايات في العلبة (للبيع بالحباية)<input id="itPills" type="number" min="1" max="10000" step="1" inputmode="numeric" value="${esc(f.pills ?? '')}" placeholder="اختياري"></label>
+      <label>المادة الفعالة (عشان البدائل)<input id="itGeneric" maxlength="160" value="${esc(f.generic ?? '')}" placeholder="مثلاً: paracetamol"></label>
       ${editing || f.forReceive ? '' : `<label>الكمية اللي عندك دلوقتي (اختياري)<input id="itQty" type="number" min="0" step="1" inputmode="numeric"></label>
       <label>الصلاحية (اختياري)<input id="itExp" type="month"></label>`}
     </div>
@@ -1246,6 +1286,8 @@ function itemForm() {
       <div class="row"><button class="btn" type="button" id="addBatch">+ تشغيلة</button><span class="muted">الإجمالي: <b class="n" id="batchTotal">${fmt(f.batches.reduce((a, b) => a + (+b.qty || 0), 0))}</b></span></div></div>`
       : '<p class="note">عشان تعدّل الرصيد والصلاحية، اختار الفرع من فوق.</p>') : ''}
     <div class="row"><button class="btn primary" type="submit">${editing ? 'احفظ' : f.forReceive ? 'ضيفه وكمّل الطلبية' : 'ضيف الصنف'}</button><button class="btn" type="button" id="itemCancel">إلغاء</button><span class="note" id="itemMsg" role="status"></span></div>
+    ${editing ? `<div class="row"><b>ملصقات باركود:</b><input id="lbCount" class="disc n" type="number" min="1" max="200" step="1" value="1" aria-label="عدد الملصقات"><button class="btn" type="button" id="printLabels">اطبع ملصقات</button>
+      <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>` : ''}
   </form>`;
 }
 function batchRows() {
@@ -1281,7 +1323,9 @@ async function saveItem(e) {
   const owner = barcode && barcodeMap().get(barcode);
   if (barcode && owner && owner !== f.code) return msg(`الباركود ده متسجل لـ«${DATA.items.find((i) => i.code === owner)?.name ?? owner}».`);
   if (!f.code && DATA.items.some((i) => i.name.trim() === name)) return msg('فيه صنف بنفس الاسم. دوّر عليه وعدّله بدل ما تضيفه تاني.');
-  const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null };
+  const int = (id) => ($(id).value === '' ? null : Math.max(1, Math.round(+$(id).value || 1)));
+  const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null,
+    strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null };
   const qty = +($('itQty')?.value || 0), exp = $('itExp')?.value;
   if (f.batches?.some((b) => b.qty !== '' && (!(+b.qty >= 0)))) return msg('الكمية لازم تبقى صفر أو أكتر.');
   const moves = f.batches ? stockEdits(f.orig, f.batches.filter((b) => +b.qty > 0).map((b) => ({ qty: +b.qty, expiry: b.expiry || null }))) : [];
@@ -1290,7 +1334,8 @@ async function saveItem(e) {
   if (code) {
     const row = CATALOG.find((c) => c.code === code);
     const it = DATA.items.find((i) => i.code === code);
-    const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null);
+    const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null)
+      || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic;
     if (row && changed) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
     else if (!row && changed) await localInsert('catalog_items', { code, ...fields });
     const t0 = Date.now();
@@ -1691,13 +1736,15 @@ $('panel').addEventListener('click', (e) => {
     const i = DATA.items.find((x) => x.code === t('edititem')); const c = CATALOG.find((x) => x.code === i?.code);
     if (i) {
       const batches = needBranch() ? null : editableBatches(i);
-      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
+      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
       ITEM_NOTE = ''; render(); $('itemForm')?.scrollIntoView({ block: 'center' });
     }
   }
   if (e.target.id === 'addBatch') { ITEM_FORM.batches.push({ qty: '', expiry: '' }); $('batchRows').innerHTML = batchRows(); $('batchRows').querySelector('tr:last-child input')?.focus(); }
   if (t('bdel') !== undefined) { ITEM_FORM.batches[+t('bdel')].qty = 0; ITEM_FORM.batches.splice(+t('bdel'), 1); $('batchRows').innerHTML = batchRows(); $('batchTotal').textContent = fmt(ITEM_FORM.batches.reduce((a, b) => a + (+b.qty || 0), 0)); }
   if (e.target.id === 'itemCancel') { ITEM_FORM = null; render(); }
+  if (e.target.id === 'printLabels' && ITEM_FORM?.code) printLabels([{ code: ITEM_FORM.code, count: +$('lbCount').value || 1 }]);
+  if (e.target.id === 'printChanged') printLabels(PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).filter((c) => c.priceMoved && c.qty > 0).map((c) => ({ code: c.code, count: Math.ceil(c.qty) })) : []);
   if (t('rcvpick')) { $('rcvQ').value = ''; $('rcvResults').hidden = true; addReceiveLine(DATA.items.find((i) => i.code === t('rcvpick'))); }
   if (t('rcvnew')) { const q = $('rcvQ').value.trim(); const digits = /^\d{6,}$/.test(q); ITEM_FORM = { forReceive: true, name: digits ? '' : q, barcode: digits ? q : '' }; render(); $(digits ? 'itName' : 'itPrice')?.focus(); }
   if (t('rcvdel') !== undefined) { RCV.lines.splice(+t('rcvdel'), 1); rerenderReceiveLines(); }
@@ -1996,7 +2043,8 @@ $('cloudImportFile').addEventListener('change', async (e) => {
 // ---------- Offline desktop version: no accounts, backups to a file ----------
 const desktop = () => window.saydalitiDesktop; // provided by the Windows app
 function setupLocal() {
-  for (const id of ['logout', 'inviteBox', 'connectorBox']) { const el = $(id); if (el) el.hidden = true; }
+  for (const id of ['inviteBox', 'connectorBox']) { const el = $(id); if (el) el.hidden = true; }
+  localModeButton($('logout'));
   $('localBox').hidden = false;
   updateNet();
   $('backupWhere').textContent = desktop() ? 'البرنامج بيعمل نسخة احتياطية لوحده كل يوم في فولدر «Saydaliti» جوه «Documents». احتفظ بنسخة كمان على فلاشة أو على الموبايل.' : 'نزّل نسخة احتياطية كل فترة واحتفظ بيها على فلاشة.';
@@ -2055,7 +2103,7 @@ function exportTables() {
     'الكمية': l.qty, 'بونص': l.bonus || 0, 'سعر الشراء': l.cost, 'سعر البيع': l.price || '', 'الصلاحية': l.expiry ? String(l.expiry).slice(0, 10) : '', 'الإجمالي': Math.round(l.qty * l.cost * 100) / 100 })));
   const pay = (k) => PAYMENTS.find(([p]) => p === k)?.[1] ?? k;
   const receipts = POS_SALES.filter(here).sort((a, b) => String(a.sold_at).localeCompare(String(b.sold_at))).map((x) => ({
-    'رقم الفاتورة': x.number, 'الوقت': String(x.sold_at).replace('T', ' ').slice(0, 16), 'النوع': x.kind === 'return' ? 'مرتجع' : 'بيع', 'مرتجع من': x.return_of ? (POS_SALES.find((y) => y.id === x.return_of)?.number ?? '') : x.note || '', 'الأصناف': (x.lines || []).map((l) => `${l.name} × ${l.qty}`).join('، '),
+    'رقم الفاتورة': x.number, 'الوقت': String(x.sold_at).replace('T', ' ').slice(0, 16), 'النوع': x.kind === 'return' ? 'مرتجع' : 'بيع', 'مرتجع من': x.return_of ? (POS_SALES.find((y) => y.id === x.return_of)?.number ?? '') : x.note || '', 'الأصناف': (x.lines || []).map((l) => `${l.name} × ${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''}`).join('، '),
     'الإجمالي': +x.total, 'الخصم': +x.discount || 0, 'الدفع': pay(x.payment), 'العميل': custName(x.customer_id) || '', 'على الحساب': +x.credit || 0, 'رقم الموافقة': x.claim_no || '' }));
   const suppliers = supplierBalances(PURCHASES, SUP_PAYMENTS).map((b) => ({ 'المورد': b.name, 'فواتير': b.invoices, 'إجمالي البضاعة': b.bought, 'اتدفع': b.paid, 'الباقي': b.due, 'آخر طلبية': b.last || '' }));
   const customers = CUST_READY ? customerBalances(CUSTOMERS, POS_SALES, CUST_PAYMENTS).map((c) => ({ 'الاسم': c.name, 'الموبايل': c.phone || '', 'النوع': c.kind === 'insurance' ? `تأمين ${+c.coverage_pct}%` : 'عميل', 'على الحساب': c.onAccount, 'دفع': c.paid, 'الباقي عليه': c.owed })) : [];

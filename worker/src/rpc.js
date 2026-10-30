@@ -339,7 +339,8 @@ export async function checkPosSale(env, row) {
   if (!row.return_of) return;
   const o = await one(env, "SELECT lines FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
   if (!o) throw new ApiError('receipt not found');
-  const sum = (lines) => { const m = new Map(); for (const l of lines || []) m.set(String(l.code), (m.get(String(l.code)) || 0) + (+l.qty || 0)); return m; };
+  // In boxes: a line sold by the strip or pill has qty of them and per = how many in a box.
+  const sum = (lines) => { const m = new Map(); for (const l of lines || []) m.set(String(l.code), (m.get(String(l.code)) || 0) + (+l.qty || 0) / (+l.per > 1 ? +l.per : 1)); return m; };
   const sold = sum(JSON.parse(o.lines));
   const back = new Map();
   for (const p of await all(env, 'SELECT lines FROM pos_sales WHERE return_of = ? AND id <> ?', row.return_of, row.id)) for (const [k, v] of sum(JSON.parse(p.lines))) back.set(k, (back.get(k) || 0) + v);

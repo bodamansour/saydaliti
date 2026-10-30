@@ -210,3 +210,16 @@ export function renderPharmacyChoice(box, onDone) {
     onDone();
   });
 }
+
+// The Windows program working on this computer only has no accounts: its «خروج» button takes you
+// back to the start page instead, to switch to online (the account) or stay on this computer.
+export function localModeButton(btn) {
+  const d = window.saydalitiDesktop;
+  if (!btn || !d?.chooseMode) { if (btn) btn.hidden = true; return; }
+  const b = btn.cloneNode(true);
+  b.hidden = false;
+  b.title = 'اشتغل أونلاين بحساب الصيدلية، أو كمّل على الجهاز ده';
+  b.textContent = 'تشغيل أونلاين';
+  b.addEventListener('click', () => d.chooseMode());
+  btn.replaceWith(b);
+}

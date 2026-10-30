@@ -235,3 +235,12 @@ test('toExport drops invisible control characters the database refuses', () => {
   assert.equal(out.sales[0].code, 'A1');
   assert.ok(!JSON.stringify(out).includes('\\u0000'));
 });
+
+test('an upload keeps the barcodes, the English name, strips, pills and the active ingredient', async () => {
+  const { toExport, fromExport } = await import('../src/core.js');
+  const d = fromExport({ items: [{ code: '5', name: 'بانادول', en: 'Panadol', strips: 2, pills: 24, generic: 'paracetamol', price: 50 }], barcodes: [['6224008097136', '5']] });
+  const back = fromExport(toExport(d));
+  assert.deepEqual(back.barcodes, [['6224008097136', '5']]);
+  const i = back.items[0];
+  assert.deepEqual([i.en, i.strips, i.pills, i.generic], ['Panadol', 2, 24, 'paracetamol']);
+});

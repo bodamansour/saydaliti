@@ -177,6 +177,10 @@ export function fromExport(json) {
     return {
       code,
       name: String(i.name ?? code).trim(),
+      ...(i.en ? { en: String(i.en).trim() } : {}),
+      ...(+i.strips > 1 ? { strips: Math.round(+i.strips) } : {}),
+      ...(+i.pills > 1 ? { pills: Math.round(+i.pills) } : {}),
+      ...(i.generic ? { generic: String(i.generic).trim() } : {}),
       category: String(i.category ?? '').trim() || 'غير محدد',
       owner: String(i.owner ?? '').trim() || UNASSIGNED,
       cost: +i.cost || 0,
@@ -212,6 +216,10 @@ export function toExport(data) {
     // Empty fields are left out: a full item list from the pharmacy program can be 60,000 items.
     const row = { code: t(i.code), name: t(i.name), category: t(i.category), cost: i.cost, price: i.price };
     if (i.owner && i.owner !== UNASSIGNED) row.owner = t(i.owner);
+    if (i.en) row.en = t(i.en);
+    if (+i.strips > 1) row.strips = i.strips;
+    if (+i.pills > 1) row.pills = i.pills;
+    if (i.generic) row.generic = t(i.generic);
     if (i.qty && !i.batches?.length) row.qty = i.qty;
     if (i.expiry && !i.batches?.length) row.expiry = iso(i.expiry);
     items.push(row);
@@ -221,7 +229,8 @@ export function toExport(data) {
     amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}), ...(x.cost != null ? { cost: x.cost } : {}) }));
   const purchases = (data.purchases || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, cost: x.cost }));
   const losses = (data.losses || []).map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty, reason: t(x.reason), ...(x.cost != null ? { cost: x.cost } : {}) }));
-  return { items, batches, sales, purchases, losses };
+  // The barcodes from the pharmacy program go up with the items (the cashier finds items by them).
+  return { items, batches, sales, purchases, losses, ...(data.barcodes?.length ? { barcodes: data.barcodes.map(([b, c]) => [t(String(b)), t(String(c))]) } : {}) };
 }
 
 // ---------- Partners (who owns which stock) ----------

@@ -203,3 +203,17 @@ test('a return of a receipt puts the boxes back on the batches they were sold fr
   const L = ledger(d, { taxRate: 0, overheadRate: 0 }, new Date(2026, 9, 21), new Date(2026, 9, 22));
   assert.equal(Math.round(L.totals.cogs), 40); // 7 × 40 sold − 6 × 40 back
 });
+
+test('a strip sold at the cashier takes a third of a box off, and a catalog row can set strips', () => {
+  const d = liveData(base, AT, {
+    catalog: [{ code: 'P1', strips: 3, generic: 'paracetamol', created_at: '2026-10-21T09:00:00Z' }],
+    sales: [{ id: 'x', kind: 'sale', sold_at: '2026-10-21T10:00:00Z', discount: 0, lines: [{ code: 'P1', price: 16.67, qty: 1, per: 3, unit: 'strip', discount: 0 }] }],
+  });
+  const p = d.items.find((i) => i.code === 'P1');
+  assert.equal(p.strips, 3);
+  assert.equal(p.generic, 'paracetamol');
+  assert.ok(Math.abs(p.qty - (15 - 1 / 3)) < 0.001);
+  const s = d.sales.at(-1);
+  assert.equal(s.qty, 0.3333);
+  assert.equal(s.price, 50.01);
+});

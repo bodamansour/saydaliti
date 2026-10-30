@@ -110,3 +110,45 @@ test('a barcode scanned with an Arabic keyboard, or with or without its leading 
   assert.equal(scanDigits('بانادول'), 'بانادول');
   assert.ok(lookup('بانادول', items, barcodes).matches.length);
 });
+
+test('a barcode is found when its check digit is missing on one side', async () => {
+  const { lookup } = await import('../src/pos.js');
+  const items = [{ code: '7', name: 'كونجستال' }, { code: '8', name: 'أوجمنتين' }];
+  const barcodes = new Map([['6221032120058', '7'], ['622103299001', '8']]);
+  assert.equal(lookup('622103212005', items, barcodes).item?.code, '7', 'scanner does not send the check digit');
+  assert.equal(lookup('6221032990017', items, barcodes).item?.code, '8', 'saved without the check digit');
+});
+
+test('an item is found by its English name too', async () => {
+  const { lookup } = await import('../src/pos.js');
+  const items = [{ code: '1', name: 'بانادول اكسترا', en: 'Panadol Extra' }, { code: '2', name: 'كتافلام' }];
+  assert.equal(lookup('panadol', items).matches[0]?.code, '1');
+  assert.equal(lookup('PANADOL ext', items).matches[0]?.code, '1');
+  assert.equal(lookup('بانادول', items).matches[0]?.code, '1');
+});
+
+test('selling by the strip: stock, returns and receipts count boxes', async () => {
+  const { boxQty, unitsOf, unitPrice, stockLeft, returnableLines, cartTotals } = await import('../src/pos.js');
+  const item = { code: '9', name: 'كونكور', price: 45, qty: 2, strips: 3, pills: 30 };
+  assert.deepEqual(unitsOf(item).map((u) => [u.key, u.per]), [['box', 1], ['strip', 3], ['pill', 30]]);
+  assert.equal(unitPrice(45, 3), 15);
+  const line = { code: '9', name: 'كونكور', price: 15, qty: 2, per: 3, unit: 'strip', discount: 0 };
+  assert.equal(boxQty(line), 2 / 3);
+  assert.equal(cartTotals([line]).total, 30);
+  const sale = { id: 's1', kind: 'sale', sold_at: '2026-10-30T10:00:00Z', lines: [line], discount: 0 };
+  assert.ok(Math.abs(stockLeft(item, [sale], null) - 4 / 3) < 1e-9);
+  const ret = returnableLines(sale, [{ kind: 'return', return_of: 's1', lines: [{ code: '9', qty: 1, per: 3, price: 15 }] }]);
+  assert.deepEqual(ret.map((r) => [r.left, r.per, r.price]), [[1, 3, 15]]);
+});
+
+test('alternatives: same active ingredient, in stock first, then cheapest', async () => {
+  const { alternativesOf } = await import('../src/pos.js');
+  const items = [
+    { code: '1', name: 'بانادول', generic: 'Paracetamol', qty: 0, price: 50 },
+    { code: '2', name: 'أبيمول', generic: 'paracetamol', qty: 0, price: 20 },
+    { code: '3', name: 'سيتال', generic: 'paracetamol ', qty: 4, price: 30 },
+    { code: '4', name: 'بروفين', generic: 'ibuprofen', qty: 9, price: 25 },
+  ];
+  assert.deepEqual(alternativesOf(items[0], items).map((a) => a.item.code), ['3', '2']);
+  assert.deepEqual(alternativesOf({ code: 'x' }, items), []);
+});

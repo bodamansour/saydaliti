@@ -26,7 +26,10 @@ jobs:
       - name: Browser for the dashboard test
         run: npx playwright install --with-deps chromium
       - name: Dashboard test (sign-in, branches, expenses, offline, phone size)
-        run: npm run e2e
+        # A failing test is also shown as an annotation on the run (readable without the full log).
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee e2e.log || { grep -A12 '^not ok' e2e.log | tr '\n' ' ' | sed 's/not ok/\n::error::not ok/g'; echo; exit 1; }
       - name: Cloudflare server on this machine (D1 and R2 kept locally)
         working-directory: worker
         run: |

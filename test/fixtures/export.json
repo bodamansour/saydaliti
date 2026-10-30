@@ -1,5 +1,5 @@
 {"exportedAt":"2026-10-24T08:00:00","items":[
- {"code":"101","name":"Panadol Extra 24 tab","category":null,"cost":40,"price":51,"owner":null,"qty":null,"expiry":null},
+ {"code":"101","name":"Panadol Extra 24 tab","strips":2,"category":null,"cost":40,"price":51,"owner":null,"qty":null,"expiry":null},
  {"code":"202","name":"Sun cream SPF50","category":"Cosmetics","cost":290,"price":420,"owner":"Partner B","qty":null,"expiry":null},
  {"code":"303","name":"Old hair oil","category":null,"cost":95,"price":140,"owner":null,"qty":null,"expiry":null}],
 "batches":[
