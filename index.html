@@ -100,9 +100,16 @@
         <p class="note" id="branchMsg" role="status"></p>
         <div id="inviteBox" hidden>
           <hr>
-          <b>دعوة شريك أو جهاز الصيدلية</b>
-          <p class="note">اعمل كود وابعته. الشريك (أو جهاز الصيدلية) يعمل حساب بإيميله ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 3 أيام. الشريك بيشوف الأرقام بس ومبيعدّلش، وجهاز الصيدلية بيسجّل الحضور بس.</p>
-          <div class="row"><button class="btn" type="button" data-invite="partner">كود لشريك</button><button class="btn" type="button" data-invite="device">كود لجهاز الصيدلية</button></div>
+          <b>دعوة شريك أو موظف أو جهاز الصيدلية</b>
+          <p class="note">اعمل كود وابعته. اللي هيدخل يعمل حساب بإيميله ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 3 أيام.</p>
+          <ul class="note">
+            <li><b>شريك:</b> بيشوف الأرقام بس.</li>
+            <li><b>صيدلي:</b> بيبيع من الكاشير وبيشوف المخزون.</li>
+            <li><b>محاسب:</b> بيشوف الأرقام وبيسجّل المصروفات ودفعات الموردين والعملاء.</li>
+            <li><b>مسؤول مخزن:</b> بيسجّل الطلبيات والمرتجعات والجرد، وبيعدّل الأصناف.</li>
+            <li><b>جهاز الصيدلية:</b> للكاشير والحضور على جهاز الصيدلية.</li>
+          </ul>
+          <div class="row"><button class="btn" type="button" data-invite="partner">كود لشريك</button><button class="btn" type="button" data-invite="pharmacist">كود لصيدلي</button><button class="btn" type="button" data-invite="accountant">كود لمحاسب</button><button class="btn" type="button" data-invite="stock">كود لمسؤول مخزن</button><button class="btn" type="button" data-invite="device">كود لجهاز الصيدلية</button></div>
           <div class="row" id="inviteOut" role="status" hidden><span id="inviteText"></span><button class="btn" type="button" id="inviteShare">ابعته على واتساب</button></div>
         </div>
       </details>

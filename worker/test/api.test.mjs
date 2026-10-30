@@ -121,6 +121,29 @@ test('strips sold and returned are counted in boxes; returns to the supplier; ta
   assert.equal((await device.select('tasks', 'title', [['pharmacy_id', 'eq', P]])).data?.length ?? 0, 0, 'the cashier device does not');
 });
 
+test('staff roles: the pharmacist sells, the accountant pays, the stock manager buys and counts — each only that', { skip }, async () => {
+  const join = async (role) => { const u = user(); await u.signUp(); assert.equal((await u.rpc('join_pharmacy', { p_code: (await owner.rpc('create_invite', { p_pharmacy: P, p_role: role })).data })).data, P); return u; };
+  const ph = await join('pharmacist'), acc = await join('accountant'), st = await join('stock');
+  const sale = (n) => ({ id: uuid(), pharmacy_id: P, branch_id: B, number: n, sold_at: new Date().toISOString(), lines: [{ code: 'A1', qty: 1, price: 50 }], total: 50 });
+  assert.equal((await ph.insert('pos_sales', sale('PH1'))).error, null, 'the pharmacist sells');
+  assert.equal((await acc.insert('pos_sales', sale('AC1'))).status, 403);
+  assert.equal((await st.insert('pos_sales', sale('ST9'))).status, 403);
+  const buy = () => ({ id: uuid(), pharmacy_id: P, received_on: '2026-10-28', lines: [{ code: 'A1', qty: 1, cost: 1 }], total: 1 });
+  assert.equal((await st.insert('purchases', buy())).error, null, 'the stock manager records deliveries');
+  assert.equal((await st.insert('stock_moves', { id: uuid(), pharmacy_id: P, code: 'A1', qty: -1, kind: 'damaged', happened_at: new Date().toISOString() })).error, null);
+  assert.equal((await ph.insert('purchases', buy())).status, 403);
+  assert.equal((await acc.insert('purchases', buy())).status, 403);
+  assert.equal((await acc.insert('expenses', { id: uuid(), pharmacy_id: P, spent_on: '2026-10-28', kind: 'rent', amount: 100 })).error, null, 'the accountant records expenses');
+  assert.equal((await ph.insert('expenses', { id: uuid(), pharmacy_id: P, spent_on: '2026-10-28', kind: 'rent', amount: 100 })).status, 403, 'the pharmacist only takes money out of the drawer');
+  assert.equal((await acc.insert('supplier_payments', { id: uuid(), pharmacy_id: P, supplier_name: 'الأمل', paid_on: '2026-10-28', amount: 10 })).error, null);
+  assert.equal((await st.insert('supplier_payments', { id: uuid(), pharmacy_id: P, supplier_name: 'الأمل', paid_on: '2026-10-28', amount: 10 })).status, 403);
+  assert.ok((await acc.select('expenses', 'id', [['pharmacy_id', 'eq', P]])).data.length >= 1, 'the accountant reads the money');
+  assert.equal((await ph.select('expenses', 'id', [['pharmacy_id', 'eq', P]])).data?.length ?? 0, 0, 'the pharmacist does not');
+  assert.equal((await st.select('audit_log', 'id', [['pharmacy_id', 'eq', P]])).data?.length ?? 0, 0, 'only the owner reads the log');
+  assert.equal((await st.db({ op: 'update', table: 'catalog_items', patch: { price: 60, updated_at: new Date().toISOString() }, filters: [['code', 'eq', 'A1']] })).error, null, 'the stock manager edits items');
+  assert.equal((await owner.rpc('create_invite', { p_pharmacy: P, p_role: 'owner' })).error.message, 'bad role');
+});
+
 test('plans: limits on branches and accounts are kept by the server; AI is off with no key', { skip }, async () => {
   const st = await (await fetch(`${BASE}/api/ai/status`)).json();
   assert.equal(st.data.enabled, false);

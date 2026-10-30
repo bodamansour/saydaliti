@@ -106,6 +106,11 @@ const OFFERS = new Map();
 const key = (id) => id ?? 'main';
 const branchName = (k) => BRANCHES.find((b) => key(b.id) === k)?.name ?? 'الفرع الرئيسي';
 const isOwner = () => SESS.role === 'owner';
+// What each staff role may do (the server checks the same: worker/src/schema.js).
+const canBuy = () => ['owner', 'stock'].includes(SESS.role); // deliveries, returns to suppliers, counts, items
+const canPay = () => ['owner', 'accountant'].includes(SESS.role); // expenses, supplier and customer payments
+const canSell = () => ['owner', 'device', 'pharmacist'].includes(SESS.role);
+const ROLE_SECTIONS = { pharmacist: ['stock', 'sell'], stock: ['insights', 'stock', 'buy'], accountant: ['insights', 'money', 'buy', 'customers'] };
 const multi = () => BRANCHES.length > 1;
 
 function settings() {
@@ -128,7 +133,7 @@ const SECTIONS = [
 const TABS = SECTIONS.flatMap(([, , tabs]) => tabs);
 const sectionOf = (tab) => SECTIONS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) ?? SECTIONS[0];
 // Patients' and customers' names and phones are for the owner (and the cashier) only, not partners.
-const visibleSections = () => SECTIONS.filter(([id]) => (id !== 'patients' && id !== 'customers') || isOwner());
+const visibleSections = () => SECTIONS.filter(([id]) => (ROLE_SECTIONS[SESS.role] ? ROLE_SECTIONS[SESS.role].includes(id) : (id !== 'patients' && id !== 'customers') || isOwner()));
 const LAST_TAB = {}; // last tab opened in each section
 // 'work' = a section's lists; 'tools' = settings, backups, export and linking (one place, not under the lists).
 let VIEW = 'work';
@@ -209,7 +214,7 @@ function render(background = false) {
 
   const nChanged = changed;
   const counts = { reorder: A.reorder.length, expiry: A.expiring.length, dead: A.deadStock.length, offers: offerRows.length, movers: A.movers.length, partners: owners.length, ...(nChanged ? { changes: nChanged } : {}) };
-  if (!TABS.some(([id]) => id === TAB) || !visibleSections().includes(sectionOf(TAB)) || (TAB === 'log' && !isOwner())) TAB = 'reorder';
+  if (!TABS.some(([id]) => id === TAB) || !visibleSections().includes(sectionOf(TAB)) || (TAB === 'log' && !isOwner())) TAB = visibleSections().includes(sectionOf('reorder')) ? 'reorder' : visibleSections()[0][2][0][0];
   const [secId, , secTabs] = sectionOf(TAB);
   LAST_TAB[secId] = TAB;
   store.set('saydaliti-tab-v1', TAB);
@@ -350,7 +355,7 @@ function renderExpenses() {
   const E = EDIT_EXP ? EXPENSES.find((x) => x.id === EDIT_EXP) : null;
   if (EDIT_EXP && !E) EDIT_EXP = null;
   const defBranch = E ? key(E.branch_id) : BRANCH !== 'all' ? BRANCH : key(BRANCHES[0]?.id);
-  const form = isOwner() ? `<form id="expForm" class="card stack${E ? ' editing' : ''}">
+  const form = canPay() ? `<form id="expForm" class="card stack${E ? ' editing' : ''}">
       <h3>${E ? 'عدّل المصروف' : 'سجّل مصروف'}</h3>
       <div class="grid2">
         <label>النوع<select id="expKind">${EXPENSE_KINDS.filter(([v]) => v !== 'withdrawal' || E?.kind === v).map(([v, t]) => `<option value="${v}" ${E?.kind === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -364,7 +369,7 @@ function renderExpenses() {
     </form>` : '<p class="note">صاحب الصيدلية بس اللي بيسجّل المصروفات.</p>';
   const kinds = EXPENSE_KINDS.filter(([k]) => T.byKind[k]).map(([k, t]) => `<div><span>${k === 'withdrawal' ? 'مسحوبات' : t}</span><span class="n">${fmt(T.byKind[k], 2)}</span></div>`).join('');
   const rows = list.map((e) => `<tr class="${e.pending ? 'pend' : ''}"><td class="n">${esc(e.spent_on)}</td><td>${egp(+e.amount)}</td><td>${esc(e.kind === 'withdrawal' ? 'مسحوبات' : kindLabel(e.kind))}${e.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>${multi() ? `<td>${esc(branchName(key(e.branch_id)))}</td>` : ''}<td class="muted">${esc(e.note || '')}</td>${isOwner() ? `<td class="acts"><button class="btn" data-editexp="${esc(e.id)}">عدّل</button> <button class="btn" data-delexp="${esc(e.id)}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
-  const fixed = isOwner() ? recurringSuggestions(EXPENSES, TODAY).filter((x) => bid === 'all' || x.branch_id === bid) : [];
+  const fixed = canPay() ? recurringSuggestions(EXPENSES, TODAY).filter((x) => bid === 'all' || x.branch_id === bid) : [];
   const fixedCard = fixed.length ? `<div class="card stack" id="fixedCard"><h3>مصاريف ثابتة لسه متسجلتش الشهر ده</h3>
       <p class="note">زي الشهر اللي فات. لو المبلغ اتغير، سجّلهم وعدّل اللي اتغير.</p>
       <div class="ledger">${fixed.map((x) => `<div><span>${esc(kindLabel(x.kind))}${x.note ? ` · ${esc(x.note)}` : ''}${multi() ? ` · ${esc(branchName(key(x.branch_id)))}` : ''}</span><span class="n">${fmt(x.amount, 2)}</span></div>`).join('')}</div>
@@ -705,7 +710,7 @@ function renderPosSales() {
     ${day ? `<input id="posDay" type="date" value="${esc(POS_DAY)}" max="${isoDay(TODAY)}" aria-label="اليوم"><button class="btn" type="button" data-posday="${isoDay(TODAY)}">النهارده</button><button class="btn" type="button" data-posday="${isoDay(addDays(TODAY, -1))}">امبارح</button>` : ''}
     <input id="posQ" type="search" autocomplete="off" placeholder="رقم الفاتورة أو صنف أو عميل أو كاشير…" value="${esc(POS_Q)}" aria-label="دوّر في الفواتير">
     <button class="btn" type="button" id="posPrint">اطبع التقرير</button>
-    ${isOwner() ? '<a class="btn primary" href="./cashier.html">افتح الكاشير</a>' : ''}
+    ${canSell() ? '<a class="btn primary" href="./cashier.html">افتح الكاشير</a>' : ''}
   </div>`;
   const summary = `<div class="card"><h3>مبيعات ${esc(title)}</h3><div class="ledger">
       <div><span>فواتير</span><span class="n">${fmt(sum.receipts)}</span></div>
@@ -1238,7 +1243,7 @@ async function loadInventory() {
       loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, person, happened_at, created_at', 'happened_at')
         .catch((e) => (e.missing ? loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at') : Promise.reject(e))),
     ]);
-    SUP_PAYMENTS = SESS.role === 'device' ? [] : await loadTable('supplier_payments', 'id, supplier_id, supplier_name, paid_on, amount, note, created_at', 'paid_on');
+    SUP_PAYMENTS = !['owner', 'partner', 'accountant'].includes(SESS.role) ? [] : await loadTable('supplier_payments', 'id, supplier_id, supplier_name, paid_on, amount, note, created_at', 'paid_on');
     INV_READY = true;
   } catch (e) { if (e.missing) INV_READY = false; }
   try { LEARNED = await loadTable('pos_barcodes', 'id, barcode, code, created_at'); } catch { /* 009 not applied */ }
@@ -1273,7 +1278,7 @@ function itemsRows() {
   const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}${i.en ? ` <span class="muted" dir="ltr">${esc(i.en)}</span>` : ''}<span class="cat">${i.generic ? `<span dir="ltr">${esc(i.generic)}</span> · ` : ''}${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
     <td class="n">${i.qty < 0 ? `<span class="pill crit">${fmt(i.qty)}</span>` : i.qty === 0 ? '<span class="muted">خلصان</span>' : `<b>${fmt(i.qty)}</b>`}</td>
     <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}${pricesOf(i).filter((p) => Math.abs(p.price - i.price) >= 0.005).map((p) => `<span class="cat">قديم ${fmt(p.price, 2)} × ${fmt(p.qty)}</span>`).join('')}</td><td>${expText(i.expiry)}</td>
-    ${isOwner() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);
+    ${canBuy() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);
   const more = list.length > 150 ? `<tr><td colspan="6" class="muted">ظاهر أول 150 من ${fmt(list.length)}. اكتب أكتر عشان تلاقي الصنف.</td></tr>` : '';
   return rows.join('') + more || `<tr><td colspan="6" class="empty">${ITEMS_Q ? 'مفيش صنف بالاسم ده.' : 'لسه مفيش أصناف.'}</td></tr>`;
 }
@@ -1330,7 +1335,7 @@ function renderItems() {
   if (!INV_READY) return needInv();
   return `<p>كل أصناف الصيدلية، حتى اللي رصيدها صفر. الرصيد = آخر ملف اترفع + الطلبيات اللي وصلت − مبيعات الكاشير.</p>
     <div class="row"><input id="itemsQ" type="search" autocomplete="off" placeholder="دوّر بالاسم أو الكود أو الباركود…" value="${esc(ITEMS_Q)}" style="flex:1;min-width:0" aria-label="دوّر على صنف">
-      ${isOwner() ? '<button class="btn primary" type="button" id="newItemBtn">+ صنف جديد</button>' : ''}</div>
+      ${canBuy() ? '<button class="btn primary" type="button" id="newItemBtn">+ صنف جديد</button>' : ''}</div>
     ${ITEM_NOTE ? `<p class="note" role="status">${esc(ITEM_NOTE)}</p>` : ''}
     ${ITEM_FORM && !ITEM_FORM.forReceive ? itemForm() : ''}
     <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الرصيد</th><th>سعر الشراء</th><th>سعر البيع</th><th>أقرب صلاحية</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody id="itemsBody">${itemsRows()}</tbody></table></div>`;
@@ -1406,7 +1411,7 @@ function receiveTotals() {
 }
 function renderReceive() {
   if (!INV_READY) return needInv();
-  if (!isOwner()) return '<div class="card emptybox"><h3>تسجيل الطلبيات لصاحب الصيدلية</h3><p>تقدر تشوف الفواتير المتسجلة في تبويب «فواتير الشراء».</p></div>';
+  if (!canBuy()) return '<div class="card emptybox"><h3>تسجيل الطلبيات لصاحب الصيدلية ومسؤول المخزن</h3><p>تقدر تشوف الفواتير المتسجلة في تبويب «فواتير الشراء».</p></div>';
   const sup = SUPPLIERS();
   return `<p>وصلت طلبية؟ اختار المورد، وامسح باركود كل صنف أو اكتب اسمه، واكتب الكمية والبونص وسعر الشراء والصلاحية. أول ما تسجّلها، الرصيد بيزيد وبتتحسب على المورد.</p>
   ${ITEM_FORM?.forReceive ? itemForm() : ''}
@@ -1543,7 +1548,7 @@ function renderSupplierAccounts() {
   const bal = supplierBalances(PURCHASES, SUP_PAYMENTS);
   const sup = SUPPLIERS();
   const names = [...new Map([...sup.map((x) => [x.id, x.name]), ...bal.filter((b) => b.id).map((b) => [b.id, b.name])]).entries()];
-  const form = isOwner() && names.length ? `<form id="payForm" class="card stack"><h3>دفعت لمورد</h3><div class="grid2">
+  const form = canPay() && names.length ? `<form id="payForm" class="card stack"><h3>دفعت لمورد</h3><div class="grid2">
       <label>المورد<select id="paySup" required>${names.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></label>
       <label>المبلغ<input id="payAmount" type="number" min="0.5" step="0.5" inputmode="decimal" required></label>
       <label>يوم<input id="payDate" type="date" max="${isoDay(TODAY)}" value="${isoDay(TODAY)}"></label>
@@ -1624,14 +1629,14 @@ function renderAdjust() {
     <p class="note">اكتب اللي لقيته على الرف قدام كل صنف، حتى لو صفر. اللي بتكتبه بيتحفظ على الجهاز لحد ما تسجّل الجرد، فتقدر تجرد على كذا مرة.</p>
     <input id="countQ" type="search" autocomplete="off" placeholder="دوّر على صنف…" value="${esc(COUNT_Q)}" aria-label="دوّر في الجرد">
     <div class="tablebox"><table><thead><tr><th>الصنف</th><th>الرصيد المسجل</th><th>لقيت على الرف</th><th>الفرق</th></tr></thead><tbody id="countBody">${countRows()}</tbody></table></div>
-    ${isOwner() ? `<div class="row"><button class="btn primary" type="button" id="countSave">سجّل الجرد (<span id="countN">${countedN()}</span> صنف)</button><button class="btn" type="button" id="countClear">امسح اللي كتبته</button><span class="note" id="countMsg" role="status"></span></div>` : ''}
+    ${canBuy() ? `<div class="row"><button class="btn primary" type="button" id="countSave">سجّل الجرد (<span id="countN">${countedN()}</span> صنف)</button><button class="btn" type="button" id="countClear">امسح اللي كتبته</button><span class="note" id="countMsg" role="status"></span></div>` : ''}
   </details>`;
   const history = hist.length ? `<h3>آخر التعديلات</h3>` + table(['يوم', 'الصنف', 'النوع', 'الكمية', 'ملاحظة', ''],
     hist.map((m) => `<tr><td>${dayText(m.happened_at)}</td><td class="name">${esc(viewItem(m.code)?.name ?? m.code)}</td><td>${moveLabel(m.kind)}</td>
       <td class="n"><span class="pill ${+m.qty < 0 ? 'crit' : 'ok'}">${+m.qty > 0 ? '+' : ''}${fmt(+m.qty)}</span></td><td>${esc(m.note || '')}</td>
       <td>${isOwner() ? `<button class="btn" type="button" data-delmove="${esc(m.id)}">امسح</button>` : ''}${pendingPill(m)}</td></tr>`)) : '';
   return `<p>الجرد بيظبط الرصيد على اللي موجود فعلاً، والتالف والمنتهي بيتشالوا من الرصيد ويتحسبوا خسارة في «الحسابات»، والمرتجع للمورد بيتخصم من حسابه، ومسحوبات البضاعة بتروح «المسحوبات».</p>
-    ${isOwner() ? adjustForm() : ''}${exp}${count}${history}`;
+    ${canBuy() ? adjustForm() : ''}${exp}${count}${history}`;
 }
 
 function adjustSearch(enter) {
@@ -1911,7 +1916,7 @@ function renderCustomers() {
   const bal = customerBalances(CUSTOMERS, POS_SALES, CUST_PAYMENTS);
   const owedAll = bal.reduce((a, c) => a + Math.max(0, c.owed), 0);
   const view = CUST_VIEW && CUSTOMERS.find((c) => c.id === CUST_VIEW);
-  const pay = isOwner() && CUSTOMERS.length ? `<form id="cpayForm" class="card stack"><h3>استلمت فلوس من عميل أو شركة تأمين</h3><div class="grid2">
+  const pay = canPay() && CUSTOMERS.length ? `<form id="cpayForm" class="card stack"><h3>استلمت فلوس من عميل أو شركة تأمين</h3><div class="grid2">
       <label>من مين<select id="cpCust">${bal.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.owed > 0 ? ` (عليه ${fmt(c.owed, 2)})` : ''}</option>`).join('')}</select></label>
       <label>المبلغ<input id="cpAmount" type="number" min="0.5" step="0.5" inputmode="decimal"></label>
       <label>يوم<input id="cpDate" type="date" max="${isoDay(TODAY)}" value="${isoDay(TODAY)}"></label>
@@ -2684,7 +2689,7 @@ async function boot() {
   $('connectorBox').hidden = !isOwner();
   if (SESS.local) setupLocal();
   else if (isOwner()) setupGeniusLive({ $, esc, desk: desktop(), makeToken: () => connectorToken(BRANCH !== 'all' ? BRANCH : ($('tokenBranch').value || key(BRANCHES[0].id))) });
-  $('toCashier').hidden = !isOwner();
+  $('toCashier').hidden = !canSell();
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
@@ -2782,7 +2787,7 @@ $('inviteBox').addEventListener('click', async (e) => {
   if (error) { $('branchMsg').textContent = arabicError(error).message; return; }
   $('branchMsg').textContent = '';
   INVITE = { code: data, role };
-  $('inviteText').innerHTML = `الكود: <b class="n" style="font-size:1.2rem">${esc(data)}</b> (${role === 'device' ? 'لجهاز الصيدلية' : 'لشريك'})`;
+  $('inviteText').innerHTML = `الكود: <b class="n" style="font-size:1.2rem">${esc(data)}</b> (${{ device: 'لجهاز الصيدلية', partner: 'لشريك', pharmacist: 'لصيدلي', accountant: 'لمحاسب', stock: 'لمسؤول مخزن' }[role] || ''})`;
   $('inviteOut').hidden = false;
 });
 $('inviteShare').addEventListener('click', () => {

@@ -15,7 +15,7 @@ const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاتنين'], [2, '
 
 let store = null;
 let ROLE = 'owner'; // owner | partner | device
-const ALLOWED = { owner: ['kiosk', 'report', 'staff'], partner: ['report'], device: ['kiosk'] };
+const ALLOWED = { owner: ['kiosk', 'report', 'staff'], partner: ['report'], accountant: ['report'], device: ['kiosk'], pharmacist: ['kiosk'], stock: ['kiosk'] };
 let TAB = 'kiosk';
 let MONTH = 0; // 0 = this month, -1 = last month
 
@@ -183,7 +183,7 @@ async function boot() {
   store = createSupabaseStore(sess.client, sess.pharmacy.id);
   $('modeChip').textContent = `${sess.pharmacy.name} · ${ROLE_LABEL[ROLE]}`; $('modeChip').classList.add('real');
   $('auth').hidden = true; $('app').hidden = false;
-  show(ROLE === 'device' ? 'kiosk' : TAB);
+  show(ALLOWED[ROLE]?.includes('kiosk') && ROLE !== 'owner' ? 'kiosk' : TAB);
 }
 $('logout').addEventListener('click', async () => { await signOut(); boot(); });
 
