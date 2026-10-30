@@ -2,7 +2,7 @@
 // App files: network first (so updates arrive right away), falling back to the saved copy.
 // Libraries and fonts from CDNs: saved copy first. Database and /api calls are never cached here —
 // the app keeps its own copy of the data and queues changes until the connection is back.
-const VERSION = 'saydaliti-v39';
+const VERSION = 'saydaliti-v40';
 const SHELL = [
   './', './index.html', './cashier.html', './attendance.html', './manifest.webmanifest',
   './src/style.css', './src/app.js', './src/core.js', './src/branches-expenses.js', './src/features.js', './src/ordering.js', './src/pos.js', './src/inventory.js', './src/accounts.js', './src/genius.js', './src/local-db.js', './src/cashier.js', './src/session.js',
@@ -10,7 +10,7 @@ const SHELL = [
   './src/attendance.js', './src/attendance-app.js', './src/attendance-store.js',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
 ];
-const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+const CDN = ['cdn.jsdelivr.net', 'cdn.sheetjs.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -132,7 +132,7 @@
 - **الاختبارات:** `npm test`: 169، `e2e`: 43.
 
 ### 2026-10-30: فحص Windows وتوثيق الحالة الفعلية
-- المصدر الصحيح موجود في `bodamansour/saydaliti` على GitHub؛ اتعمل clone محلي على فرع `codex/fix-windows-powershell-test-path` من غير push أو نشر.
+- المصدر الصحيح موجود في `bodamansour/saydaliti` على GitHub؛ اتعمل clone محلي على فرع `codex/fix-windows-powershell-test-path` قبل رفع التغييرات لاحقًا في مسودة PR #46.
 - إصلاح مسار PowerShell في اختبار United بـ`fileURLToPath`، وتطبيع فواصل URL في خادمي اختبارات المتصفح على Windows.
 - اختبارات تنزيل Excel وCSV والنسخ الاحتياطي بقت تفحص Blob الناتج بدل حفظ تنزيل متصفح؛ Chromium في البيئة يلغي كل التنزيلات.
 - اختبار اللغة الإنجليزية بقى ينتظر ظهور كل ترجمات الأقسام قبل الفحص.
@@ -147,3 +147,11 @@
 - تعذّر تشغيل D1 عبر Wrangler محليًا على Windows (`fetch failed`)، لذلك رُفع التغيير في مسودة PR #46 لتشغيل CI.
 - **نتيجة GitHub Actions رقم 103:** `npm test` 169 ناجحًا و15 تخطّيًا، `npm run e2e` 43/43، اختبارات Worker وD1/R2 عددها 26/26 بعد التغيير، واختبار مزامنة United على Windows ناجح.
 - فحص السباق المحلي شغّل `insert()` و`checkPosSale()` الفعليتين فوق SQLite، وأجبر الطلبين على اجتياز الفحص الأولي قبل الإدخال؛ حُفظ مرتجع واحد فقط.
+
+### 2026-10-30: تحديث مكتبة Excel
+- انتقلت نسخة الويب وحزمة Windows إلى SheetJS `0.20.3` من CDN الرسمي، بعد التأكد من توافق واجهات `read`, `sheet_to_json`, `json_to_sheet`, و`write` المستخدمة.
+- حدّثت رابط المتصفح والتخزين المؤقت وحزمة Windows، وأضافت اختبارات round-trip لقراءة ملف XLSX وتصديره. ثبّت npm الحزمة من أرشيف CDN مع `--ignore-scripts`، وحفظ بصمة SHA-512 في ملفي القفل.
+- عولجت تنبيهات `npm audit` أيضًا: Electron `45.2.0` و`electron-builder 26.18.0` للمثبت الأساسي، وWrangler `4.156.0` لأدوات Cloudflare. التدقيق في الجذر و`desktop/` و`worker/` يعرض صفر ثغرات معروفة.
+- النسخة القديمة المخصصة لـWindows 7/8 و32-bit ما زالت تستخدم Electron `22.3.27` المنتهي الدعم للحفاظ على التوافق؛ لم يتغير تصميمها.
+- **التحقق المحلي:** `npm test`: 170 ناجحًا و15 تخطّيًا من 185؛ `npm run e2e`: 43/43؛ `worker/npm run build`: ناجح. `desktop/npm run app`: ناجح، لكن `desktop/node smoke.mjs` تعذر تشغيله محليًا لأن Windows AppContainer في بيئة العمل لا يملك صلاحية قراءة ملفات Electron داخل مجلد المشروع. يتطلب تأكيد اختبار Windows في GitHub Actions.
+- إصدارات SheetJS المصححة غير منشورة في سجل npm؛ ثُبت أرشيف CDN الرسمي مع بصمة SHA-512، ويلزم متابعة نشرات CDN الرسمية.

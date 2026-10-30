@@ -35,7 +35,7 @@ before(async () => {
   await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
   // The Excel library comes from the local copy; fonts are skipped.
   const xlsx = await readFile(join(ROOT, 'node_modules/xlsx/dist/xlsx.full.min.js'), 'utf8');
-  await ctx.route(/cdnjs\.cloudflare\.com\/ajax\/libs\/xlsx\//, (r) => r.fulfill({ contentType: 'text/javascript', body: xlsx }));
+  await ctx.route('https://cdn.sheetjs.com/**', (r) => r.fulfill({ contentType: 'text/javascript', body: xlsx }));
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
