@@ -57,6 +57,7 @@
         <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>
         <div><span>خصم على الفاتورة</span><span class="discin"><input id="extraDisc" class="n" type="number" min="0" step="0.5" value="0" aria-label="خصم على الفاتورة"><button class="btn unit" type="button" id="extraUnit" aria-label="الخصم بالجنيه أو نسبة" title="دوس عشان تبدّل بين جنيه ونسبة">ج</button></span></div>
         <div><span>الخصم كله</span><span class="n" id="tDisc">0.00</span></div>
+        <div id="delRow" hidden><span>التوصيل</span><span class="n" id="tDel">0.00</span></div>
         <div class="tot big"><span id="tLabel">المطلوب</span><span class="n" id="tTotal">0.00</span></div>
         <div id="creditRow" hidden><span id="creditLabel">على حساب العميل</span><span class="n" id="tCredit">0.00</span></div>
         <div id="nowRow" hidden><span>يدفع دلوقتي</span><span class="n" id="tNow">0.00</span></div>
@@ -66,6 +67,9 @@
         <div class="pos-search" id="custSearch"><input id="custQ" type="search" autocomplete="off" placeholder="عميل آجل أو تأمين (اختياري)…" aria-label="العميل"><div id="custResults" class="results" hidden></div></div>
         <label id="claimWrap" hidden>رقم الموافقة / الروشتة (اختياري)<input id="claimNo" maxlength="60" autocomplete="off"></label>
       </div>
+      <details class="delbox" id="delBox"><summary>توصيل للبيت</summary>
+        <div class="stack"><label>رسوم التوصيل<input id="delFee" class="n" type="number" min="0" step="0.5" inputmode="decimal" placeholder="0"></label>
+        <label>العنوان والتليفون<input id="delTo" maxlength="200" autocomplete="off" placeholder="مثلاً: 5 ش النصر، الدور 3 — 01xxxxxxxxx"></label></div></details>
       <div class="pay row" id="payMethods"></div>
       <label id="paidWrap">المدفوع<input id="paid" class="n big-in" type="number" min="0" step="0.5" inputmode="decimal"></label>
       <div class="ledger"><div class="tot"><span>الباقي للعميل</span><span class="n" id="tChange">—</span></div></div>
@@ -77,6 +81,11 @@
           <label>عرض ورق الطابعة<select id="paper"><option value="80">80 مم</option><option value="58">58 مم</option></select></label>
           <label class="checkline"><input id="autoPrint" type="checkbox" checked> اطبع الفاتورة بعد الدفع على طول</label>
           <label class="checkline" id="silentWrap" hidden><input id="silentPrint" type="checkbox"> اطبع على الطابعة الافتراضية من غير ما يسأل</label>
+          <label>عنوان الصيدلية (على الفاتورة)<input id="rcAddr" maxlength="120" placeholder="مثلاً: 12 شارع الجمهورية، المنصورة"></label>
+          <label>تليفون / واتساب الصيدلية<input id="rcPhone" maxlength="20" inputmode="tel" placeholder="01xxxxxxxxx"></label>
+          <label>لوجو الصيدلية (صورة)<input id="rcLogo" type="file" accept="image/*"></label>
+          <div class="row" id="rcLogoRow" hidden><img id="rcLogoImg" alt="اللوجو" style="max-height:48px"><button class="btn" type="button" id="rcLogoDel">شيل اللوجو</button></div>
+          <label class="checkline"><input id="rcQr" type="checkbox"> كود QR على الفاتورة يفتح واتساب الصيدلية</label>
           <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
           <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
           <label class="checkline"><input id="requirePin" type="checkbox"> كل كاشير يدخل برقمه السري (PIN) قبل ما يبيع، وتتقفل له وردية</label>
@@ -98,6 +107,7 @@
   <h3 id="unknownTitle">الباركود ده مش متسجل</h3>
   <div id="linkPart">
     <p class="note">الباركود <b class="n" id="unknownCode"></b> لسه مش مربوط بصنف. لو الصنف موجود بباركود تاني، دوّر عليه واختاره، والبرنامج هيفتكره بعد كده.</p>
+    <p class="note muted" id="unknownWhy"></p>
     <input id="linkQ" type="search" autocomplete="off" placeholder="اسم الصنف…" aria-label="دوّر على الصنف">
     <div id="linkResults" class="results static"></div>
     <hr>

@@ -137,3 +137,11 @@ $w.Close()
   ]);
   assert.ok(existsSync(script));
 });
+
+test('the English name read from United is kept next to the Arabic one', async () => {
+  const text = '@m\t.\tG\tx\ty\r\n@@Item_Catalog\titm_id\titm_name_ar\titm_name_en\titm_active\titm_def_sell_price\r\n@t\tn\ts\ts\tb\tn\r\n5\tبانادول\tPanadol\t1\t30\r\n6\tكتافلام\t\\N\t1\t20\r\n';
+  const sync = new GeniusLiveSync({ converterSource: SOURCE, site: 'https://s', now: () => TODAY, readGenius: async () => text, post: async () => ({ status: 200, text: '1' }) });
+  const { data } = await sync.run({ server: '.', database: 'G', token: 't' });
+  assert.equal(data.items.find((i) => i.code === '5').en, 'Panadol');
+  assert.equal('en' in data.items.find((i) => i.code === '6'), false);
+});

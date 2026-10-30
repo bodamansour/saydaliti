@@ -2,11 +2,12 @@
 // receipts are saved on this device first and uploaded when the connection is back.
 import { watchErrors } from './errors.js';
 import { fromExport, startOfDay } from './core.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
+import { qrSvg, whatsappLink } from './labels.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -86,7 +87,7 @@ async function loadStock() {
     return rows;
   };
   const [catalog, purchases, moves] = await Promise.all([
-    get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+    (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
     get('purchases', 'id, branch_id, received_on, lines, created_at'),
     get('stock_moves', 'id, branch_id, code, qty, kind, expiry, happened_at, created_at'),
   ]);
@@ -160,7 +161,7 @@ async function loadBarcodes() {
 }
 
 const SALE_COLS = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
-const SALE_EXTRA = ['customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', 'customer_id, credit, claim_no, return_of, note']; // newest database first
+const SALE_EXTRA = ['customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', 'customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', 'customer_id, credit, claim_no, return_of, note']; // newest database first
 async function loadSales() {
   const cached = await kvGet(K.sales(), []);
   // With no upload, the stock is made only of what was entered here, so every receipt counts.
@@ -204,18 +205,39 @@ function addItem(it) {
   }
   const line = CART.find((l) => l.code === it.code);
   if (line) line.qty += 1;
-  else CART.push({ code: it.code, name: it.name, price: +it.price || 0, qty: 1, discount: 0 });
-  const left = stockOf(it.code) - (CART.find((l) => l.code === it.code)?.qty ?? 0);
-  if (MODE === 'sale' && left < 0) msg(`«${it.name}»: الرصيد المسجل مش كفاية (آخر رصيد ${Math.max(0, left + (CART.find((l) => l.code === it.code)?.qty ?? 0))}). كمّل لو العلبة قدامك.`, true);
+  else CART.push({ code: it.code, name: it.name, price: +it.price || 0, box: +it.price || 0, qty: 1, discount: 0 });
+  const inCart = CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0);
+  const left = stockOf(it.code) - inCart;
+  const alts = MODE === 'sale' && left < -0.0005 ? alternativesOf(it, ITEMS, stockOf).filter((a) => a.qty > 0) : [];
+  if (alts.length) { msg(`«${it.name}» رصيده خلص. بدائله اللي عندك (نفس المادة الفعالة) تحت: اختار واحد، أو كمّل لو العلبة قدامك.`, true); renderCart(); showResults(alts.map((a) => a.item), $('results'), 'pick', `بدائل «${it.name}»`); ALT_OF = it.code; return; }
+  if (MODE === 'sale' && left < -0.0005) msg(`«${it.name}»: الرصيد المسجل مش كفاية (آخر رصيد ${fmt(Math.max(0, left + inCart))} علبة). كمّل لو العلبة قدامك.`, true);
   else if (w?.level === 'soon') msg(`«${it.name}» أقرب تشغيلة منه بتنتهي بعد ${w.days} يوم.`);
   else if (!w || w.level !== 'expired') msg('');
   renderCart();
 }
 
+// Box, strip or pill, for an item that says how many strips/pills are in its box. A return
+// against a receipt keeps the unit the receipt sold it in.
+function unitPick(l, i) {
+  if (l.max) return +l.per > 1 ? `<span class="cat">${unitLabel(l)}</span>` : '';
+  const units = unitsOf(ITEMS.find((x) => x.code === l.code));
+  if (units.length < 2) return '';
+  const cur = +l.per > 1 ? (l.unit || 'strip') : 'box';
+  return `<select class="unitsel" data-unit="${i}" aria-label="بيع بـ">${units.map((u) => `<option value="${u.key}" ${u.key === cur ? 'selected' : ''}>${u.label}${u.per > 1 ? ` (${u.per} في العلبة)` : ''}</option>`).join('')}</select>`;
+}
+function setUnit(l, key) {
+  const u = unitsOf(ITEMS.find((x) => x.code === l.code)).find((x) => x.key === key) || { key: 'box', per: 1 };
+  const box = l.box ?? (+l.per > 1 ? l.price * l.per : l.price);
+  l.box = box;
+  if (u.per > 1) { l.per = u.per; l.unit = u.key; } else { delete l.per; delete l.unit; }
+  l.price = u.per > 1 ? unitPrice(box, u.per) : box;
+  l.qty = 1; l.discount = 0;
+}
+
 function renderCart() {
   const t = totals();
   $('cart').innerHTML = CART.map((l, i) => `<tr>
-    <td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span></td>
+    <td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span>${unitPick(l, i)}</td>
     <td class="n">${fmt(l.price)}</td>
     <td><div class="qty"><button class="btn" data-dec="${i}" aria-label="أقل">−</button><input class="n" type="number" min="1" ${l.max ? `max="${l.max}"` : ''} step="1" value="${l.qty}" data-qty="${i}" aria-label="الكمية"><button class="btn" data-inc="${i}" aria-label="أكتر">+</button></div></td>
     <td><input class="n disc" type="number" min="0" ${dev.linePct && !l.max ? 'max="100" step="1"' : 'step="0.5"'} value="${lineDiscValue(l)}" placeholder="0" data-disc="${i}" aria-label="${dev.linePct ? 'خصم على الصنف (نسبة %)' : 'خصم على الصنف (جنيه)'}" ${l.max ? 'readonly title="نفس الخصم اللي اتعمل في فاتورة البيع"' : ''}>${dev.linePct && l.discount && !l.max ? `<span class="cat n">${fmt(l.discount)}</span>` : ''}</td>
@@ -224,6 +246,8 @@ function renderCart() {
   $('cartEmpty').hidden = CART.length > 0;
   $('tSub').textContent = fmt(t.subtotal);
   $('tDisc').textContent = fmt(t.discount);
+  $('delRow').hidden = !t.fee; $('tDel').textContent = fmt(t.fee);
+  $('delBox').hidden = MODE === 'return';
   $('tTotal').textContent = fmt(t.total);
   $('tLabel').textContent = MODE === 'return' ? 'هيترجع للعميل' : 'المطلوب';
   const sp = splitBill(t.total, CUST, PAYMENT);
@@ -244,7 +268,9 @@ const extraAmount = () => {
   const v = +$('extraDisc').value || 0;
   return dev.billPct ? pctOff(cartTotals(CART, 0).total, v) : v;
 };
-const totals = () => cartTotals(CART, extraAmount());
+// A delivery fee is added on top of the items (not on a return).
+const deliveryFee = () => (MODE === 'sale' ? Math.max(0, Math.round((+$('delFee').value || 0) * 100) / 100) : 0);
+const totals = () => { const t = cartTotals(CART, extraAmount()); const fee = deliveryFee(); return { ...t, fee, total: Math.round((t.total + fee) * 100) / 100 }; };
 // An item's discount as typed: pounds, or a percent of its price × quantity (kept as l.pct).
 const lineDiscValue = (l) => {
   if (dev.linePct && !l.max) {
@@ -264,7 +290,7 @@ function renderUnits() {
 }
 
 function newBill() {
-  CART = []; $('extraDisc').value = 0; $('paid').value = ''; PAYMENT = 'cash'; setCustomer(null); setMode('sale');
+  CART = []; $('extraDisc').value = 0; $('paid').value = ''; $('delFee').value = ''; $('delTo').value = ''; $('delBox').open = false; PAYMENT = 'cash'; setCustomer(null); setMode('sale');
   $('retNo').value = ''; $('retReason').value = ''; $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
   renderPay(); renderCart(); focusSearch();
 }
@@ -324,11 +350,13 @@ async function addCustomer(e) {
 }
 
 // ---------- Search / scan ----------
-function showResults(list, box = $('results'), attr = 'pick') {
+let ALT_OF = null; // the item whose alternatives are showing: picking one takes it off the bill
+function showResults(list, box = $('results'), attr = 'pick', title = '') {
+  if (box === $('results')) ALT_OF = null;
   box.hidden = !list.length;
-  box.innerHTML = list.map((it, i) => {
+  box.innerHTML = (title && list.length ? `<div class="res-title">${esc(title)}</div>` : '') + list.map((it, i) => {
     const left = stockOf(it.code);
-    return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
+    return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}${it.en ? ` <span class="muted" dir="ltr">${esc(it.en)}</span>` : ''}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
   }).join('');
 }
 function onSearch(enter) {
@@ -349,6 +377,11 @@ function openLink(code, name = '') {
   $('linkPart').hidden = !code;
   $('unknownTitle').textContent = code ? 'الباركود ده مش متسجل' : `مفيش صنف اسمه «${name}»`;
   $('unknownCode').textContent = code || '';
+  // Says why nothing was found: no barcodes at all here (no upload from United yet, or an old copy).
+  const fromUnited = BASE?.barcodes?.length || 0;
+  $('unknownWhy').textContent = !code ? '' : fromUnited
+    ? `البرنامج عنده ${fromUnited.toLocaleString('ar-EG')} باركود من المتحدة، والرقم ده مش منهم.`
+    : 'مفيش باركودات من المتحدة على الجهاز ده لسه: ارفع ملف المتحدة من اللوحة، أو حدّث البرنامج لو نسخته قديمة.';
   $('linkQ').value = '';
   $('niName').value = name; $('niPrice').value = ''; $('niMsg').textContent = '';
   showResults([], $('linkResults'), 'link');
@@ -531,7 +564,7 @@ async function findReceipt() {
   if (!lines.length) { $('retInfo').textContent = `كل اللي في فاتورة ${no} اترجع قبل كده.`; return; }
   RET = { sale };
   $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
-  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0 }));
+  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0, ...(l.per ? { per: l.per, unit: l.unit } : {}) }));
   for (const l of CART) l.discount = lineOff(l);
   $('extraDisc').value = 0; $('extraDisc').disabled = true;
   const cust = sale.customer_id && CUSTOMERS.find((c) => c.id === sale.customer_id);
@@ -565,12 +598,14 @@ async function checkout() {
   const sale = {
     id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
     number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
-    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0 })),
+    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
     // A return says which receipt it came from, or why there was none (database update 012).
     ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()}` }) : {}),
+    // A home delivery (database update 0004): the fee is inside the total.
+    ...(t.fee || ($('delTo').value.trim() && MODE === 'sale') ? { delivery_fee: t.fee, ...($('delTo').value.trim() ? { delivery_to: $('delTo').value.trim() } : {}) } : {}),
     // Who sold it, and in which shift (database update 013).
     ...(CASHIER ? { employee_id: CASHIER.id, employee_name: CASHIER.name, ...(SHIFTS[CASHIER.id] ? { shift_id: SHIFTS[CASHIER.id].id } : {}) } : {}),
   };
@@ -590,16 +625,18 @@ function receiptHtml(sale) {
   const when = new Date(sale.sold_at).toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   const branch = BRANCHES.length > 1 ? BRANCHES.find((b) => b.id === sale.branch_id)?.name : '';
   const ret = sale.kind === 'return';
-  return `<div class="rc-head"><b>${esc(SESS.pharmacy.name)}</b>${branch ? `<div>${esc(branch)}</div>` : ''}
+  return `<div class="rc-head">${dev.logo ? `<img class="rc-logo" src="${esc(dev.logo)}" alt="">` : ''}<b>${esc(SESS.pharmacy.name)}</b>${branch ? `<div>${esc(branch)}</div>` : ''}
+    ${dev.addr ? `<div>${esc(dev.addr)}</div>` : ''}${dev.phone ? `<div class="n">${esc(dev.phone)}</div>` : ''}
     <div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(sale.number)}</span></div>${sale.return_no ? `<div>من فاتورة <span class="n">${esc(sale.return_no)}</span></div>` : ''}<div>${esc(when)}</div></div>
-    <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
-    <div class="rc-tot">${sale.discount ? `<div><span>الخصم</span><span class="n">${fmt(sale.discount)}</span></div>` : ''}
+    <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
+    <div class="rc-tot">${sale.discount ? `<div><span>الخصم</span><span class="n">${fmt(sale.discount)}</span></div>` : ''}${sale.delivery_fee ? `<div><span>التوصيل</span><span class="n">${fmt(sale.delivery_fee)}</span></div>` : ''}
     <div class="big"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(sale.total))}</span></div>
     ${sale.customer_id ? `<div><span>العميل</span><span>${esc(CUSTOMERS.find((c) => c.id === sale.customer_id)?.name ?? '')}</span></div>${sale.claim_no ? `<div><span>رقم الموافقة</span><span class="n">${esc(sale.claim_no)}</span></div>` : ''}` : ''}
     ${sale.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(sale.credit))}</span></div>` : ''}
     ${!ret && sale.payment === 'cash' && sale.paid ? `<div><span>المدفوع</span><span class="n">${fmt(sale.paid)}</span></div><div><span>الباقي</span><span class="n">${fmt(sale.paid - (sale.total - (sale.credit || 0)))}</span></div>` : ''}
+    ${sale.delivery_to ? `<div><span>توصيل لـ</span><span>${esc(sale.delivery_to)}</span></div>` : ''}
     <div><span>الدفع</span><span>${esc(PAYMENTS.find(([k]) => k === sale.payment)?.[1] ?? '')}</span></div>${sale.employee_name ? `<div><span>الكاشير</span><span>${esc(sale.employee_name)}</span></div>` : ''}</div>
-    <div class="rc-foot">${dev.footer ? `<div>${esc(dev.footer)}</div>` : ''}<div>ألف سلامة عليك</div></div>`;
+    <div class="rc-foot">${dev.footer ? `<div>${esc(dev.footer)}</div>` : ''}${dev.qr && whatsappLink(dev.phone) ? `<div class="rc-qr">${qrSvg(whatsappLink(dev.phone), 88)}<div>كلمنا واتساب</div></div>` : ''}<div>ألف سلامة عليك</div></div>`;
 }
 function printHtml(html) {
   const r = $('receipt');
@@ -631,7 +668,7 @@ function renderDay() {
   $('dayList').innerHTML = list.slice(0, 200).map((s) => `<tr class="${s.pending ? 'pend' : ''}"><td class="n">${esc(s.number)}</td>
     <td class="n">${new Date(s.sold_at).toLocaleString('ar-EG', q ? { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
     <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
-    <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
+    <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
     <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || (q ? '<tr><td colspan="6" class="muted">مفيش فاتورة بالبحث ده على الجهاز ده. الفواتير القديمة كلها في اللوحة ← «الفواتير والمبيعات».</td></tr>' : '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>');
 }
 function printDay() {
@@ -695,13 +732,14 @@ async function boot() {
   $('posTitle').textContent = `${SESS.pharmacy.name} · الكاشير`;
   $('posWho').textContent = `${SESS.user.email ?? ''} · ${ROLE_LABEL[SESS.role]}`;
   $('toDashboard').hidden = SESS.role === 'device';
-  $('logout').hidden = !!SESS.local; // the desktop version has no accounts
+  if (SESS.local) localModeButton($('logout')); else $('logout').hidden = false; // the desktop version has no accounts
   BRANCHES = SESS.branchesReady && SESS.branches.length ? SESS.branches.map(({ id, name }) => ({ id, name })) : [{ id: null, name: 'الفرع الرئيسي' }];
   BRANCH = dev.branch && BRANCHES.some((b) => b.id === dev.branch) ? dev.branch : BRANCHES[0].id;
   $('posBranchWrap').hidden = BRANCHES.length < 2;
   $('posBranch').innerHTML = BRANCHES.map((b) => `<option value="${esc(b.id ?? '')}" ${b.id === BRANCH ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
   $('silentWrap').hidden = !window.saydalitiDesktop?.printSilent; $('silentPrint').checked = !!dev.silent; $('kioskNote').hidden = !!window.saydalitiDesktop;
   $('paper').value = dev.paper; $('autoPrint').checked = !!dev.autoPrint; $('footer').value = dev.footer; $('deviceTag').value = dev.tag;
+  $('rcAddr').value = dev.addr || ''; $('rcPhone').value = dev.phone || ''; $('rcQr').checked = !!dev.qr; showLogo();
   // The pharmacy device asks for a PIN by default; the owner's own computer only if turned on.
   dev.requirePin ??= SESS.role === 'device'; $('requirePin').checked = !!dev.requirePin;
   renderPay(); renderCart();
@@ -723,7 +761,10 @@ async function reload() {
 // ---------- Events ----------
 $('q').addEventListener('input', () => onSearch(false));
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onSearch(true); } });
-$('results').addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (!b) return; addItem(ITEMS.find((i) => i.code === b.dataset.pick)); $('q').value = ''; showResults([]); focusSearch(); });
+$('results').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pick]'); if (!b) return;
+  if (ALT_OF) { const j = CART.findIndex((l) => l.code === ALT_OF); if (j >= 0 && --CART[j].qty <= 0) CART.splice(j, 1); ALT_OF = null; msg(''); }
+  addItem(ITEMS.find((i) => i.code === b.dataset.pick)); $('q').value = ''; showResults([]); focusSearch(); });
 $('linkQ').addEventListener('input', () => showResults(lookup($('linkQ').value, ITEMS).matches ?? [], $('linkResults'), 'link'));
 $('linkResults').addEventListener('click', (e) => { const b = e.target.closest('[data-link]'); if (b) linkBarcode(b.dataset.link); });
 $('unknownCancel').addEventListener('click', () => { $('unknownDlg').close(); focusSearch(); });
@@ -749,6 +790,7 @@ $('cart').addEventListener('click', (e) => {
   renderCart(); focusSearch();
 });
 $('cart').addEventListener('change', (e) => {
+  if (e.target.dataset.unit !== undefined) { const l = CART[+e.target.dataset.unit]; setUnit(l, e.target.value); linePctOff(l); renderCart(); focusSearch(); return; }
   const i = +(e.target.dataset.qty ?? e.target.dataset.disc);
   if (e.target.dataset.qty !== undefined) CART[i].qty = Math.min(CART[i].max || Infinity, Math.max(1, Math.round(+e.target.value || 1)));
   if (e.target.dataset.disc !== undefined && !CART[i].max) {
@@ -843,6 +885,22 @@ $('paper').addEventListener('change', (e) => { dev.paper = e.target.value; saveD
 $('autoPrint').addEventListener('change', (e) => { dev.autoPrint = e.target.checked; saveDev(); });
 $('silentPrint').addEventListener('change', (e) => { dev.silent = e.target.checked; saveDev(); });
 $('footer').addEventListener('input', (e) => { dev.footer = e.target.value; saveDev(); });
+$('delFee').addEventListener('input', () => renderCart());
+$('rcAddr').addEventListener('input', (e) => { dev.addr = e.target.value; saveDev(); });
+$('rcPhone').addEventListener('input', (e) => { dev.phone = e.target.value.trim(); saveDev(); });
+$('rcQr').addEventListener('change', (e) => { dev.qr = e.target.checked; saveDev(); if (dev.qr && !whatsappLink(dev.phone)) msg('اكتب رقم موبايل الصيدلية (01xxxxxxxxx) عشان الـ QR يشتغل.', true); });
+function showLogo() { $('rcLogoRow').hidden = !dev.logo; if (dev.logo) $('rcLogoImg').src = dev.logo; }
+// The logo is made small (receipt width) and kept on this device with the other printer settings.
+$('rcLogo').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  const img = await createImageBitmap(f);
+  const w = Math.min(240, img.width), h = Math.round((img.height * w) / img.width);
+  const c = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h);
+  dev.logo = c.toDataURL('image/png'); saveDev(); showLogo();
+});
+$('rcLogoDel').addEventListener('click', () => { dev.logo = ''; saveDev(); showLogo(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
   if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open) return;

@@ -251,6 +251,7 @@ function startWithWindows(on) {
 // Only the program's own pages (and the pharmacy's website) may use the sync.
 const trusted = (e) => { const u = e.senderFrame?.url || ''; return u.startsWith('app://') || u.startsWith(SITE_ORIGIN + '/'); };
 const text = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+ipcMain.handle('mode:choose', (e) => { if (trusted(e)) win?.loadURL(START); return null; });
 ipcMain.handle('genius:status', (e) => (trusted(e) ? syncState() : null));
 ipcMain.handle('genius:find', async (e, o = {}) => {
   if (!trusted(e)) return null;

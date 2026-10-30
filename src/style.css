@@ -327,6 +327,8 @@ dialog:not([open]) { display: none; }
   .rc-tot div { display: flex; justify-content: space-between; }
   .rc-tot .big { font-size: 16px; font-weight: 700; }
   .rc-foot { text-align: center; border-top: 1px dashed #000; margin-top: 2mm; padding-top: 2mm; }
+  .rc-logo { display: block; max-width: 60%; max-height: 22mm; margin: 0 auto 1mm; }
+  .rc-qr { margin: 1mm auto; } .rc-qr svg { display: block; margin: 0 auto; width: 22mm; height: 22mm; }
 }
 
 /* ---------- Page layouts (attendance, admin, public pages) ---------- */
@@ -452,3 +454,9 @@ tr.sale-lines .ledger { max-width: 560px; }
 .hours .hr { display: grid; grid-template-columns: 52px 1fr 70px 70px; gap: 8px; align-items: center; font-size: .88rem; }
 .hours .bar { height: 10px; background: var(--sunk); border-radius: 5px; overflow: hidden; }
 .hours .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+/* Box / strip / pill on a cashier line */
+.unitsel { display: block; margin-top: 4px; padding: 2px 6px; font-size: .85em; max-width: 100%; border: 1px solid var(--line, #d0d7e2); border-radius: 8px; background: var(--card, #fff); color: inherit; }
+.res-title { padding: 6px 10px; font-weight: 700; font-size: .9em; color: var(--muted, #667); border-bottom: 1px solid var(--line, #e3e8ef); }
+.delbox { border: 1px dashed var(--line, #d0d7e2); border-radius: 10px; padding: 6px 10px; }
+.delbox summary { cursor: pointer; font-weight: 600; }
+.delbox .stack { margin-top: 6px; }
