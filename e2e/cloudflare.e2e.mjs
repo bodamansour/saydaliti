@@ -106,6 +106,20 @@ test('the cashier sells, with and without a connection; stock goes down', { skip
   assert.ok(await until(owner, async () => /رصيد 13/.test(await text(owner, '#results'))));
 });
 
+test('the cashier sells by the strip', { skip }, async () => {
+  await owner.goto(`${BASE}/cashier.html`);
+  await owner.waitForSelector('#pos:not([hidden])');
+  await owner.evaluate(() => { window.print = () => {}; });
+  assert.ok(await until(owner, async () => /صنف/.test(await text(owner, '#posMsg'))));
+  await owner.fill('#q', 'panadol');
+  assert.ok(await until(owner, async () => /Panadol/.test(await text(owner, '#results'))));
+  await owner.press('#q', 'Enter');
+  await owner.selectOption('[data-unit="0"]', 'strip');
+  assert.ok(await until(owner, async () => /25\.5/.test(await text(owner, '#tTotal'))), 'half the box price');
+  await owner.keyboard.press('F2');
+  assert.ok(await until(owner, async () => /الفاتورة اتسجلت/.test(await text(owner, '#posMsg'))));
+});
+
 test('a partner joins with a code and sees the numbers, not the customers', { skip }, async () => {
   await owner.goto(BASE);
   await owner.waitForSelector('#app:not([hidden])');
