@@ -90,7 +90,7 @@ assert.ok(g.on.enabled && g.on.lastUpload && !g.on.lastError && g.on.items === 1
 assert.equal(g.on.token, undefined, 'the code is not handed back to the page');
 assert.equal(uploads.length, 1, 'uploaded once: the second read had nothing new');
 assert.equal(uploads[0].p_token, 'tok');
-assert.deepEqual(uploads[0].p_data.batches, [{ code: '1', qty: 6, expiry: '2027-06-01', cost: 40 }]);
+assert.deepEqual(uploads[0].p_data.batches, [{ code: '1', qty: 6, expiry: '2027-06-01', cost: 40, price: 50 }]); // each batch keeps its selling price
 assert.equal(g.off.enabled, false);
 await app.close();
 // Next time it opens online straight away.

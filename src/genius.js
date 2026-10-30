@@ -267,7 +267,9 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     const exp = r.itm_expiry_date && String(r.itm_expiry_date).slice(0, 4) >= '2000' ? day(r.itm_expiry_date) : null;
     // Each stock row keeps its own buying price, so the boxes are costed at what they cost.
     const pp = ok(r.pharm_price, 1e5) && r.pharm_price > 0 ? r2(r.pharm_price) : null;
-    batches.push({ code, qty: r2(r.itm_qty), expiry: exp, ...(pp ? { cost: pp } : {}) });
+    // ...and its own selling price: after a price change, old boxes keep the old printed price.
+    const sp = ok(r.sell_price, 1e5) && r.sell_price > 0 ? r2(r.sell_price) : null;
+    batches.push({ code, qty: r2(r.itm_qty), expiry: exp, ...(pp ? { cost: pp } : {}), ...(sp ? { price: sp } : {}) });
     if (pp) bcost.set(code, [r.pharm_price, r.sell_price]);
   }
   for (const [code, [pp, sp]] of bcost) {

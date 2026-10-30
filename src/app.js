@@ -14,7 +14,7 @@ import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
 import { labelHtml } from './labels.js';
-import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf } from './pos.js';
+import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -1258,7 +1258,7 @@ function itemsRows() {
   const list = itemMatches(ITEMS_Q);
   const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}${i.en ? ` <span class="muted" dir="ltr">${esc(i.en)}</span>` : ''}<span class="cat">${i.generic ? `<span dir="ltr">${esc(i.generic)}</span> · ` : ''}${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
     <td class="n">${i.qty < 0 ? `<span class="pill crit">${fmt(i.qty)}</span>` : i.qty === 0 ? '<span class="muted">خلصان</span>' : `<b>${fmt(i.qty)}</b>`}</td>
-    <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}</td><td>${expText(i.expiry)}</td>
+    <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}${pricesOf(i).filter((p) => Math.abs(p.price - i.price) >= 0.005).map((p) => `<span class="cat">قديم ${fmt(p.price, 2)} × ${fmt(p.qty)}</span>`).join('')}</td><td>${expText(i.expiry)}</td>
     ${isOwner() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);
   const more = list.length > 150 ? `<tr><td colspan="6" class="muted">ظاهر أول 150 من ${fmt(list.length)}. اكتب أكتر عشان تلاقي الصنف.</td></tr>` : '';
   return rows.join('') + more || `<tr><td colspan="6" class="empty">${ITEMS_Q ? 'مفيش صنف بالاسم ده.' : 'لسه مفيش أصناف.'}</td></tr>`;
