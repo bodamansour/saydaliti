@@ -2,7 +2,7 @@
 // receipts are saved on this device first and uploaded when the connection is back.
 import { watchErrors } from './errors.js';
 import { fromExport, startOfDay } from './core.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } from './session.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
@@ -328,7 +328,7 @@ function showResults(list, box = $('results'), attr = 'pick') {
   box.hidden = !list.length;
   box.innerHTML = list.map((it, i) => {
     const left = stockOf(it.code);
-    return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
+    return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}${it.en ? ` <span class="muted" dir="ltr">${esc(it.en)}</span>` : ''}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
   }).join('');
 }
 function onSearch(enter) {
@@ -349,6 +349,11 @@ function openLink(code, name = '') {
   $('linkPart').hidden = !code;
   $('unknownTitle').textContent = code ? 'الباركود ده مش متسجل' : `مفيش صنف اسمه «${name}»`;
   $('unknownCode').textContent = code || '';
+  // Says why nothing was found: no barcodes at all here (no upload from United yet, or an old copy).
+  const fromUnited = BASE?.barcodes?.length || 0;
+  $('unknownWhy').textContent = !code ? '' : fromUnited
+    ? `البرنامج عنده ${fromUnited.toLocaleString('ar-EG')} باركود من المتحدة، والرقم ده مش منهم.`
+    : 'مفيش باركودات من المتحدة على الجهاز ده لسه: ارفع ملف المتحدة من اللوحة، أو حدّث البرنامج لو نسخته قديمة.';
   $('linkQ').value = '';
   $('niName').value = name; $('niPrice').value = ''; $('niMsg').textContent = '';
   showResults([], $('linkResults'), 'link');
@@ -695,7 +700,7 @@ async function boot() {
   $('posTitle').textContent = `${SESS.pharmacy.name} · الكاشير`;
   $('posWho').textContent = `${SESS.user.email ?? ''} · ${ROLE_LABEL[SESS.role]}`;
   $('toDashboard').hidden = SESS.role === 'device';
-  $('logout').hidden = !!SESS.local; // the desktop version has no accounts
+  if (SESS.local) localModeButton($('logout')); else $('logout').hidden = false; // the desktop version has no accounts
   BRANCHES = SESS.branchesReady && SESS.branches.length ? SESS.branches.map(({ id, name }) => ({ id, name })) : [{ id: null, name: 'الفرع الرئيسي' }];
   BRANCH = dev.branch && BRANCHES.some((b) => b.id === dev.branch) ? dev.branch : BRANCHES[0].id;
   $('posBranchWrap').hidden = BRANCHES.length < 2;

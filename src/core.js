@@ -177,6 +177,7 @@ export function fromExport(json) {
     return {
       code,
       name: String(i.name ?? code).trim(),
+      ...(i.en ? { en: String(i.en).trim() } : {}),
       category: String(i.category ?? '').trim() || 'غير محدد',
       owner: String(i.owner ?? '').trim() || UNASSIGNED,
       cost: +i.cost || 0,

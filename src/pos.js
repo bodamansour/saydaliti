@@ -31,12 +31,19 @@ export function findBarcode(barcodes, query) {
   if (hit != null || !/^\d{6,}$/.test(q)) return hit ?? null;
   let ix = BC_INDEX.get(barcodes);
   if (!ix || ix.size !== barcodes.size) {
-    const m = new Map();
-    for (const [b, c] of barcodes) { const k = bcKey(scanDigits(b)); if (!m.has(k)) m.set(k, c); }
-    ix = { size: barcodes.size, m };
+    // m: every barcode; cut: the same without its last digit (the check digit), for a scanner set not
+    // to send it, or a program that saved the barcode without it.
+    const m = new Map(), cut = new Map();
+    for (const [b, c] of barcodes) {
+      const k = bcKey(scanDigits(b));
+      if (!m.has(k)) m.set(k, c);
+      if (k.length >= 7 && !cut.has(k.slice(0, -1))) cut.set(k.slice(0, -1), c);
+    }
+    ix = { size: barcodes.size, m, cut };
     BC_INDEX.set(barcodes, ix);
   }
-  return ix.m.get(bcKey(q)) ?? null;
+  const k = bcKey(q);
+  return ix.m.get(k) ?? ix.cut.get(k) ?? (k.length >= 8 ? ix.m.get(k.slice(0, -1)) : null) ?? null;
 }
 
 export function lookup(query, items, barcodes = new Map()) {
@@ -49,9 +56,9 @@ export function lookup(query, items, barcodes = new Map()) {
   const words = n.split(' ');
   const scored = [];
   for (const it of items) {
-    const name = normalize(it.name);
+    const name = normalize(it.en ? `${it.name} | ${it.en}` : it.name);
     if (!words.every((w) => name.includes(w))) continue;
-    scored.push([name.startsWith(n) ? 0 : name.includes(n) ? 1 : 2, it]);
+    scored.push([name.startsWith(n) || name.includes(`| ${n}`) ? 0 : name.includes(n) ? 1 : 2, it]);
   }
   scored.sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name, 'ar'));
   return { matches: scored.slice(0, 20).map(([, it]) => it), unknownCode: /^\d{6,}$/.test(q) && !code };

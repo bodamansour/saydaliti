@@ -2,7 +2,7 @@ import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings } from './session.js';
+import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
@@ -1205,7 +1205,7 @@ let ITEM_INDEX = { data: null, sorted: [], norm: new Map() };
 function itemIndex() {
   if (ITEM_INDEX.data !== DATA) {
     const sorted = [...DATA.items].sort((a, b) => (b.qty > 0) - (a.qty > 0) || AR.compare(a.name, b.name));
-    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize(i.name)])) };
+    ITEM_INDEX = { data: DATA, sorted, norm: new Map(sorted.map((i) => [i, normalize(i.en ? `${i.name} | ${i.en}` : i.name)])) };
   }
   return ITEM_INDEX;
 }
@@ -1219,7 +1219,7 @@ function itemMatches(q) {
 }
 function itemsRows() {
   const list = itemMatches(ITEMS_Q);
-  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}<span class="cat">${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
+  const rows = list.slice(0, 150).map((i) => `<tr><td class="name">${esc(i.name)}${i.en ? ` <span class="muted" dir="ltr">${esc(i.en)}</span>` : ''}<span class="cat">${esc(i.category)} · <span class="n">${esc(i.code)}</span></span></td>
     <td class="n">${i.qty < 0 ? `<span class="pill crit">${fmt(i.qty)}</span>` : i.qty === 0 ? '<span class="muted">خلصان</span>' : `<b>${fmt(i.qty)}</b>`}</td>
     <td class="n">${fmt(i.cost, 2)}</td><td class="n">${fmt(i.price, 2)}</td><td>${expText(i.expiry)}</td>
     ${isOwner() ? `<td><button class="btn" type="button" data-edititem="${esc(i.code)}">عدّل</button></td>` : ''}</tr>`);
@@ -1996,7 +1996,8 @@ $('cloudImportFile').addEventListener('change', async (e) => {
 // ---------- Offline desktop version: no accounts, backups to a file ----------
 const desktop = () => window.saydalitiDesktop; // provided by the Windows app
 function setupLocal() {
-  for (const id of ['logout', 'inviteBox', 'connectorBox']) { const el = $(id); if (el) el.hidden = true; }
+  for (const id of ['inviteBox', 'connectorBox']) { const el = $(id); if (el) el.hidden = true; }
+  localModeButton($('logout'));
   $('localBox').hidden = false;
   updateNet();
   $('backupWhere').textContent = desktop() ? 'البرنامج بيعمل نسخة احتياطية لوحده كل يوم في فولدر «Saydaliti» جوه «Documents». احتفظ بنسخة كمان على فلاشة أو على الموبايل.' : 'نزّل نسخة احتياطية كل فترة واحتفظ بيها على فلاشة.';

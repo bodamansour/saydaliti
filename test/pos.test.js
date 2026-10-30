@@ -110,3 +110,19 @@ test('a barcode scanned with an Arabic keyboard, or with or without its leading 
   assert.equal(scanDigits('بانادول'), 'بانادول');
   assert.ok(lookup('بانادول', items, barcodes).matches.length);
 });
+
+test('a barcode is found when its check digit is missing on one side', async () => {
+  const { lookup } = await import('../src/pos.js');
+  const items = [{ code: '7', name: 'كونجستال' }, { code: '8', name: 'أوجمنتين' }];
+  const barcodes = new Map([['6221032120058', '7'], ['622103299001', '8']]);
+  assert.equal(lookup('622103212005', items, barcodes).item?.code, '7', 'scanner does not send the check digit');
+  assert.equal(lookup('6221032990017', items, barcodes).item?.code, '8', 'saved without the check digit');
+});
+
+test('an item is found by its English name too', async () => {
+  const { lookup } = await import('../src/pos.js');
+  const items = [{ code: '1', name: 'بانادول اكسترا', en: 'Panadol Extra' }, { code: '2', name: 'كتافلام' }];
+  assert.equal(lookup('panadol', items).matches[0]?.code, '1');
+  assert.equal(lookup('PANADOL ext', items).matches[0]?.code, '1');
+  assert.equal(lookup('بانادول', items).matches[0]?.code, '1');
+});

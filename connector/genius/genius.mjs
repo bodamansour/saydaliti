@@ -242,6 +242,8 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
     units.set(code, [u2, u3]);
     items.set(code, {
       code, name: String(r.itm_name_ar || r['itm_name]en'] || r.itm_name_en || code).trim(),
+      // The English name too (United keeps both), so the item is found by either.
+      ...((en) => (en && en !== String(r.itm_name_ar || '').trim() ? { en } : {}))(String(r.itm_name_en || r['itm_name]en'] || '').trim()),
       category: r.itm_ismedicine === 1 || r.itm_ismedicine === true ? 'أدوية' : 'غير دوائي',
       cost: ok(r.itm_def_pharm_price, 1e5) ? r.itm_def_pharm_price : 0,
       price: ok(r.itm_def_sell_price, 1e5) ? r.itm_def_sell_price : 0,
