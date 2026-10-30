@@ -100,6 +100,11 @@ test('returns: only against the receipt, never more than was sold', { skip }, as
   assert.equal((await device.insert('pos_sales', { id: sale, pharmacy_id: P, branch_id: B, number: 'S1', sold_at: new Date().toISOString(), kind: 'sale', lines: [{ code: 'A1', qty: 2, price: 50 }], total: 100 })).error, null);
   assert.equal((await device.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B, number: 'R1', sold_at: new Date().toISOString(), kind: 'return', return_of: sale, lines: [{ code: 'A1', qty: 1, price: 50 }], total: -50 })).error, null);
   assert.match((await device.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B, number: 'R2', sold_at: new Date().toISOString(), kind: 'return', return_of: sale, lines: [{ code: 'A1', qty: 2, price: 50 }], total: -100 })).error.message, /return more than sold/);
+  const concurrentSale = uuid();
+  assert.equal((await device.insert('pos_sales', { id: concurrentSale, pharmacy_id: P, branch_id: B, number: 'S3', sold_at: new Date().toISOString(), kind: 'sale', lines: [{ code: 'A1', qty: 1, price: 50 }], total: 50 })).error, null);
+  const concurrentReturns = await Promise.all([1, 2].map((n) => device.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B, number: `CR${n}`, sold_at: new Date().toISOString(), kind: 'return', return_of: concurrentSale, lines: [{ code: 'A1', qty: 1, price: 50 }], total: -50 })));
+  assert.equal(concurrentReturns.filter((r) => !r.error).length, 1);
+  assert.match(concurrentReturns.find((r) => r.error)?.error.message, /return more than sold/);
   const again = uuid();
   const row = { id: again, pharmacy_id: P, branch_id: B, number: 'S2', sold_at: new Date().toISOString(), lines: [{ code: 'A1', qty: 1, price: 50 }], total: 50 };
   await device.insert('pos_sales', row);

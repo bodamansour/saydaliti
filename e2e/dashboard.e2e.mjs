@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { captureDownload } from './download.js';
 
 // Settings, backups, export and linking live in their own view («الإعدادات والأدوات»).
 const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
@@ -20,7 +21,7 @@ const errors = [];
 
 before(async () => {
   server = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '');
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '').replaceAll('\\', '/');
     const file = join(ROOT, path === '' ? 'index.html' : path);
     if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
     try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' }).end(body); } catch { res.writeHead(404).end(); }
@@ -580,17 +581,17 @@ test('editing an item: quantity and expiry per batch; editing a purchase invoice
 test('export: Excel with every table, CSV, and the Saydaliti file', async () => {
   await openTools(page);
   await page.click('#exportBox summary');
-  const [x] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=xlsx]')]);
-  assert.match(x.suggestedFilename(), /^saydaliti-.*\.xlsx$/);
-  const xbytes = await readFile(await x.path());
+  const x = await captureDownload(page, '[data-export=xlsx]');
+  assert.match(x.filename, /^saydaliti-.*\.xlsx$/);
+  const xbytes = Buffer.from(x.bytes);
   assert.equal(xbytes.subarray(0, 2).toString(), 'PK', 'a real Excel file');
   await page.selectOption('#exportWhich', 'الأصناف');
-  const [c] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=csv]')]);
-  const csv = (await readFile(await c.path(), 'utf8')).replace(/^﻿/, '');
+  const c = await captureDownload(page, '[data-export=csv]');
+  const csv = c.text.replace(/^\uFEFF/, '');
   assert.match(csv.split('\r\n')[0], /^الكود,الصنف,النوع,الباركود,سعر الشراء,سعر البيع,الرصيد/);
   assert.match(csv, /شاش طبي/);
-  const [j] = await Promise.all([page.waitForEvent('download'), page.click('[data-export=json]')]);
-  const json = JSON.parse(await readFile(await j.path(), 'utf8'));
+  const j = await captureDownload(page, '[data-export=json]');
+  const json = JSON.parse(j.text);
   assert.ok(json.items.some((i) => i.name === 'شاش طبي'));
 });
 
@@ -778,8 +779,10 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.waitForSelector('html[dir=ltr]');
   await page.waitForSelector('#app:not([hidden])');
   assert.equal(await page.getAttribute('html', 'lang'), 'en');
-  assert.ok(await until(async () => (await page.locator('#sections .sec').allInnerTexts()).includes('Summary'), 10000));
-  assert.ok((await page.locator('#sections .sec').allInnerTexts()).includes('Stock'));
+  assert.ok(await until(async () => {
+    const labels = await page.locator('#sections .sec').allInnerTexts();
+    return labels.includes('Summary') && labels.includes('Stock');
+  }, 10000));
   await shot('english-dashboard');
   await page.goto(`${base}cashier.html`);
   await page.waitForSelector('#pos:not([hidden])');
