@@ -15,11 +15,35 @@ export function normalize(s) {
 }
 
 // Scanner input or typed text → { item } for an exact barcode/code, else { matches } by name.
+// A scanned or typed code as plain digits: Arabic/Persian digits (an Arabic keyboard) become 0-9, and
+// what a scanner may add around it (spaces, a prefix letter, a dash) is dropped.
+export function scanDigits(s) {
+  const t = String(s ?? '').trim().replace(/[٠-٩]/g, (c) => c.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, (c) => c.charCodeAt(0) - 0x6f0);
+  const d = t.replace(/\D/g, '');
+  return d.length >= 6 && d.length >= t.length - 3 ? d : t;
+}
+// The same barcode written with or without leading zeros (UPC-A on the box, EAN-13 in the program).
+const bcKey = (s) => String(s).replace(/^0+/, '');
+const BC_INDEX = new WeakMap();
+export function findBarcode(barcodes, query) {
+  const q = scanDigits(query);
+  const hit = barcodes.get(q) ?? barcodes.get(String(query ?? '').trim());
+  if (hit != null || !/^\d{6,}$/.test(q)) return hit ?? null;
+  let ix = BC_INDEX.get(barcodes);
+  if (!ix || ix.size !== barcodes.size) {
+    const m = new Map();
+    for (const [b, c] of barcodes) { const k = bcKey(scanDigits(b)); if (!m.has(k)) m.set(k, c); }
+    ix = { size: barcodes.size, m };
+    BC_INDEX.set(barcodes, ix);
+  }
+  return ix.m.get(bcKey(q)) ?? null;
+}
+
 export function lookup(query, items, barcodes = new Map()) {
-  const q = String(query ?? '').trim();
+  const q = scanDigits(query);
   if (!q) return { matches: [] };
   const byCode = new Map(items.map((i) => [String(i.code), i]));
-  const code = barcodes.get(q) ?? (byCode.has(q) ? q : null);
+  const code = findBarcode(barcodes, q) ?? (byCode.has(q) ? q : null);
   if (code && byCode.has(code)) return { item: byCode.get(code) };
   const n = normalize(q);
   const words = n.split(' ');
