@@ -13,7 +13,7 @@ import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck,
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
-import { daySummary, PAYMENTS, normalize, lookup } from './pos.js';
+import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -1169,7 +1169,13 @@ const inBranch = (b) => (r) => (r.branch_id ?? mainBranchId()) === (b?.id ?? nul
 const branchOfView = () => (BRANCH === 'all' ? mainBranchId() : BRANCH_ID());
 // Barcode → item code: barcodes saved on items here, and the ones the cashier learned.
 // Barcodes: from the pharmacy program's upload, then the ones taught at the cashier and set on items here (these win).
-const barcodeMap = () => new Map([...(DATA.barcodes || []), ...LEARNED.map((r) => [r.barcode, r.code]), ...CATALOG.filter((c) => c.barcode).map((c) => [c.barcode, c.code])]);
+// Made again only when one of its sources changes (it can hold tens of thousands of barcodes).
+let BC_MAP = { key: [], map: new Map() };
+const barcodeMap = () => {
+  const key = [DATA, LEARNED, CATALOG];
+  if (key.some((k, i) => k !== BC_MAP.key[i])) BC_MAP = { key, map: new Map([...(DATA.barcodes || []), ...LEARNED.map((r) => [r.barcode, r.code]), ...CATALOG.filter((c) => c.barcode).map((c) => [c.barcode, c.code])]) };
+  return BC_MAP.map;
+};
 const dayText = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year: 'numeric' }) : '—');
 
@@ -1207,9 +1213,9 @@ function itemMatches(q) {
   const n = normalize(q);
   const { sorted, norm } = itemIndex();
   if (!n) return sorted;
-  const t = q.trim(), words = n.split(' ');
-  const bc = barcodeMap();
-  return sorted.filter((i) => String(i.code) === t || bc.get(t) === i.code || words.every((w) => norm.get(i).includes(w)) || String(i.code).startsWith(t));
+  const t = scanDigits(q), words = n.split(' ');
+  const hit = findBarcode(barcodeMap(), t);
+  return sorted.filter((i) => String(i.code) === t || hit === i.code || words.every((w) => norm.get(i).includes(w)) || String(i.code).startsWith(t));
 }
 function itemsRows() {
   const list = itemMatches(ITEMS_Q);

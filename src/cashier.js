@@ -6,7 +6,7 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL } f
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -335,7 +335,7 @@ function onSearch(enter) {
   const q = $('q').value;
   const r = lookup(q, ITEMS, BARCODES);
   if (r.item) { if (enter) { addItem(r.item); $('q').value = ''; showResults([]); } else showResults([r.item]); return; }
-  if (enter && r.unknownCode) { openLink(q.trim()); $('q').value = ''; showResults([]); return; }
+  if (enter && r.unknownCode) { openLink(scanDigits(q)); $('q').value = ''; showResults([]); return; }
   if (enter && r.matches.length === 1) { addItem(r.matches[0]); $('q').value = ''; showResults([]); return; }
   if (enter && r.matches.length > 1) { addItem(r.matches[0]); $('q').value = ''; showResults([]); return; }
   showResults(q.trim() ? r.matches : []);
