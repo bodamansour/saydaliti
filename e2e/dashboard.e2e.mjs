@@ -632,8 +632,22 @@ test('the summary: overview numbers, health score, alerts, the assistant answers
   assert.ok(await until(async () => (await db('tasks'))[0].status === 'done'));
 });
 
+test('closing the day: the cash that should be there, the count, kept once', async () => {
+  await page.selectOption('#branchSel', 'b1');
+  await page.click('[data-sec=money]');
+  await page.click('#tabs [data-tab=pos]');
+  assert.ok(await until(async () => await page.locator('#closeDayForm').count() === 1), 'the close form');
+  assert.match(await text('#panel'), /الكاش المفروض يبقى موجود/);
+  await page.fill('#cdCash', '100');
+  await page.click('#closeDayForm button[type=submit]');
+  assert.ok(await until(async () => (await db('day_closes')).length === 1));
+  assert.ok(await until(async () => /اليوم ده اتقفل/.test(await text('#panel'))));
+  assert.equal(await page.locator('#closeDayForm').count(), 0, 'closed once');
+});
+
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.selectOption('#branchSel', 'all');
   const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
     const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);

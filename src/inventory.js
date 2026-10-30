@@ -61,14 +61,16 @@ function takeOut(it, qty, expiry, parts = null, price = null) {
 }
 
 // price: the selling price of these boxes, when known (kept apart from boxes at another price).
-function putBack(it, qty, expiry = null, cost = it.cost, price = null) {
+function putBack(it, qty, expiry = null, cost = it.cost, price = null, lot = null) {
   const list = batchesFor(it);
   let n = qty;
   if (it.short) { const pay = Math.min(it.short, n); it.short -= pay; n -= pay; }
   if (!n) return;
   const samePrice = (b) => !price || Math.abs((b.price ?? it.price) - price) < 0.005;
-  const same = list.find((b) => samePrice(b) && (b.expiry && expiry ? Math.abs(b.expiry.getTime() - expiry.getTime()) < 12 * 3600000 : !b.expiry && !expiry));
-  if (!same) { list.push({ qty: n, expiry, cost, ...(price ? { price } : {}) }); return; }
+  const sameLot = (b) => !lot || !b.lot || b.lot === lot;
+  const same = list.find((b) => samePrice(b) && sameLot(b) && (b.expiry && expiry ? Math.abs(b.expiry.getTime() - expiry.getTime()) < 12 * 3600000 : !b.expiry && !expiry));
+  if (!same) { list.push({ qty: n, expiry, cost, ...(price ? { price } : {}), ...(lot ? { lot } : {}) }); return; }
+  if (lot && !same.lot) same.lot = lot;
   // Same expiry bought at another price: one batch at the average cost.
   const was = Math.max(0, same.qty);
   same.cost = was + n ? round2(((same.cost ?? it.cost) * was + cost * n) / (was + n)) : cost;
@@ -130,6 +132,8 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       if (row.generic) it.generic = String(row.generic).trim();
       if (row.maker) it.maker = String(row.maker).trim();
       if (row.min_qty != null) { if (+row.min_qty > 0) it.min = +row.min_qty; else delete it.min; }
+      if (row.tax_pct != null) { if (+row.tax_pct > 0) it.tax = +row.tax_pct; else delete it.tax; }
+      if (row.image_at !== undefined) { if (row.image_at) it.image = row.image_at; else delete it.image; }
     } else if (kind === 'buy' && row.kind === 'return') {
       // Goods sent back to the supplier: out of the batch with that expiry (else the earliest).
       for (const l of row.lines || []) {
@@ -145,7 +149,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         const qty = +l.qty || 0, bonus = +l.bonus || 0;
         if (qty + bonus <= 0) continue;
         const box = round2(((+l.cost || 0) * qty) / (qty + bonus)); // free units lower the cost of each box
-        putBack(it, qty + bonus, fromIsoDay(l.expiry), +l.cost > 0 ? box : it.cost, +l.price > 0 ? +l.price : null);
+        putBack(it, qty + bonus, fromIsoDay(l.expiry), +l.cost > 0 ? box : it.cost, +l.price > 0 ? +l.price : null, l.lot ? String(l.lot).trim().slice(0, 40) : null);
         if (+l.cost > 0) it.cost = box;
         if (+l.price > 0) reprice(it, +l.price);
         out.purchases.push({ date, code, qty: qty + bonus, cost: box });
@@ -298,7 +302,7 @@ export function itemHistory(code, { baseSales = [], basePurchases = [], purchase
   for (const p of basePurchases) if (String(p.code) === c && p.qty) out.push({ at: iso(p.date), kind: 'program-buy', qty: p.qty, note: 'طلبيات برنامج الصيدلية' });
   for (const p of purchases) for (const l of p.lines || []) if (String(l.code) === c) {
     const ret = p.kind === 'return';
-    out.push({ at: String(p.received_on || p.created_at), kind: ret ? 'supplier-return' : 'buy', qty: ret ? -(+l.qty || 0) : (+l.qty || 0) + (+l.bonus || 0), note: `${ret ? 'مرتجع لـ' : 'طلبية من'} ${p.supplier_name || 'مورد'}${p.invoice_no ? ` · فاتورة ${p.invoice_no}` : ''}`, ref: p.id });
+    out.push({ at: String(p.received_on || p.created_at), kind: ret ? 'supplier-return' : 'buy', qty: ret ? -(+l.qty || 0) : (+l.qty || 0) + (+l.bonus || 0), note: `${ret ? 'مرتجع لـ' : 'طلبية من'} ${p.supplier_name || 'مورد'}${p.invoice_no ? ` · فاتورة ${p.invoice_no}` : ''}${l.lot ? ` · تشغيلة ${l.lot}` : ''}`, ref: p.id });
   }
   for (const m of moves) if (String(m.code) === c && +m.qty) out.push({ at: String(m.happened_at), kind: `move-${m.kind}`, qty: +m.qty, note: [moveLabel(m.kind), m.person, m.note].filter(Boolean).join(' · '), ref: m.id });
   for (const s of sales) for (const l of s.lines || []) if (String(l.code) === c) {
