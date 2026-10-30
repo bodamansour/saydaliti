@@ -95,3 +95,18 @@ test('a discount as a percent: of the price × quantity, rounded to the piastre,
   const after = cartTotals(lines, 0).total;
   assert.equal(cartTotals(lines, pctOff(after, 10)).total, 162);
 });
+
+test('a barcode scanned with an Arabic keyboard, or with or without its leading zero, finds the item', async () => {
+  const { lookup, scanDigits } = await import('../src/pos.js');
+  const items = [{ code: '501', name: 'بانادول', price: 30 }];
+  const barcodes = new Map([['6221032120058', '501'], ['012345678905', '501']]);
+  assert.equal(lookup('٦٢٢١٠٣٢١٢٠٠٥٨', items, barcodes).item?.code, '501');
+  assert.equal(lookup('۶۲۲۱۰۳۲۱۲۰۰۵۸', items, barcodes).item?.code, '501');
+  assert.equal(lookup(' 6221032120058\r', items, barcodes).item?.code, '501');
+  assert.equal(lookup('0012345678905', items, barcodes).item?.code, '501', 'EAN-13 of a UPC-A');
+  assert.equal(lookup('06221032120058', items, barcodes).item?.code, '501');
+  assert.equal(lookup('٦٢٢٩٩٩٩٩٩٩٩٩٩', items, barcodes).unknownCode, true);
+  assert.equal(scanDigits('٦٢٢٩٩٩٩٩٩٩٩٩٩'), '6229999999999');
+  assert.equal(scanDigits('بانادول'), 'بانادول');
+  assert.ok(lookup('بانادول', items, barcodes).matches.length);
+});
