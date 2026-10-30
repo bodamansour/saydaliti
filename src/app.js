@@ -528,6 +528,7 @@ async function saveShared(patch) {
   sync();
 }
 
+let LAST_ORDERS = []; // the supplier orders on screen (for «لما توصل: افتحها كطلبية»)
 function renderReorder(A, s) {
   const sup = SUPPLIERS();
   const chosen = CHOSEN();
@@ -548,6 +549,7 @@ function renderReorder(A, s) {
   let orders = '';
   if (A.reorder.length) {
     const groups = ordersBySupplier(A.reorder, sup, chosen);
+    LAST_ORDERS = groups;
     const bname = multi() && BRANCH !== 'all' ? branchName(BRANCH) : '';
     orders = `<h3>الطلبيات${sup.length ? ' حسب المورد' : ''}</h3><div class="orders">${groups.map((g, i) => {
       const msg = orderMessage(g, { pharmacyName: SESS.pharmacy?.name || 'الصيدلية', branchName: bname });
@@ -557,7 +559,7 @@ function renderReorder(A, s) {
           // A long order is kept folded: drawing thousands of lines is slow on an older PC. Copy and WhatsApp still send all of it.
           ? `<details class="orderfold"><summary>شوف الرسالة كلها (${fmt(g.lines.length)} سطر)</summary><textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea></details>`
           : `<textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea>`}
-        <div class="row"><button class="btn primary" type="button" data-wa="${i}" data-phone="${esc(g.supplier?.phone || '')}">ابعتها على واتساب</button><button class="btn" type="button" data-copyorder="${i}">انسخ</button><span class="note" id="orderNote${i}"></span></div></div>`;
+        <div class="row"><button class="btn primary" type="button" data-wa="${i}" data-phone="${esc(g.supplier?.phone || '')}">ابعتها على واتساب</button><button class="btn" type="button" data-copyorder="${i}">انسخ</button>${isOwner() && INV_READY ? `<button class="btn" type="button" data-todraft="${i}" title="مسودة في «طلبية وصلت»: لما البضاعة توصل راجع الكميات والأسعار وسجّلها">لما توصل: افتحها كطلبية</button>` : ''}<span class="note" id="orderNote${i}"></span></div></div>`;
     }).join('')}</div>`;
   }
   const hint = !sup.length ? `<p class="note">${isOwner() ? 'ضيف الموردين وخصم كل واحد تحت، والبرنامج هيختارلك أرخص مورد لكل صنف ويقسم الطلبية عليهم.' : 'صاحب الصيدلية لسه مضافش موردين.'}</p>` : '';
@@ -1417,6 +1419,7 @@ function renderReceive() {
       <label>اتاستلمت يوم<input id="rcvDate" type="date" max="${isoDay(TODAY)}" value="${esc(RCV.date)}"></label>
       ${multi() ? `<label>الفرع اللي استلم<select id="rcvBranch">${BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === RCV.branch ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>` : ''}
     </div>
+    ${RCV.kind !== 'return' ? `<div class="row"><label class="btn" for="rcvPhoto">اقرا فاتورة المورد من صورة أو PDF<input id="rcvPhoto" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" hidden></label><span class="note">${AI_ON ? 'البرنامج بيقرا الأصناف والكميات والأسعار، وانت تراجعها قبل ما تسجّل.' : 'محتاجة إعداد الذكاء الاصطناعي على السيرفر.'}</span></div>` : ''}
     <div class="pos-search"><input id="rcvQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه… (Enter)" aria-label="ضيف صنف للطلبية"><div id="rcvResults" class="results" role="listbox" hidden></div></div>
     <div class="tablebox cart"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء للعلبة</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th><th></th></tr></thead>
       <tbody id="rcvLines">${receiveLinesHtml()}</tbody></table>${RCV.lines.length ? '' : '<p class="empty">امسح أول صنف في الطلبية.</p>'}</div>
@@ -1488,6 +1491,32 @@ async function saveReceive(e) {
   const n = lines.length;
   RCV = blankReceive(); saveDraft();
   RCV_NOTE = ret ? `اتسجل المرتجع (${n} صنف بـ ${fmt(total, 2)} ج): خرج من الرصيد واتخصم من حساب «${supName}».` : editing ? `اتعدلت الفاتورة (${n} صنف بـ ${fmt(total, 2)} ج).` : `اتسجلت الطلبية (${n} صنف بـ ${fmt(total, 2)} ج)، والرصيد زاد.${paid < total ? ` الباقي للمورد ${fmt(total - paid, 2)} ج.` : ''}${isOnline() ? '' : ' هتترفع أول ما النت يرجع.'}`;
+  render();
+}
+
+// A supplier's invoice read from a photo (server: /api/ai/invoice): the lines are matched to items by
+// name and put in the form; nothing is saved until the owner checks it and presses «سجّل».
+async function readInvoicePhoto(file) {
+  const say = (t) => { RCV_NOTE = t; const m = $('rcvMsg'); if (m) m.textContent = t; };
+  if (!SESS.client?.aiInvoice || !AI_ON) return say('قراية الفواتير محتاجة إعداد الذكاء الاصطناعي على السيرفر.');
+  if (file.size > 5 * 1024 * 1024) return say('الملف أكبر من 5 ميجا. صوّر الفاتورة بجودة أقل.');
+  say('بقرا الفاتورة…');
+  const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = bad; r.readAsDataURL(file); });
+  const res = await SESS.client.aiInvoice({ pharmacy: SESS.pharmacy.id, media_type: file.type, data });
+  if (res.error) return say(`ما قدرتش أقرا الفاتورة: ${arabicError(res.error).message}`);
+  const inv = res.data;
+  const missed = [];
+  const lines = [];
+  for (const l of inv.lines) {
+    const r = lookup(l.name, DATA.items);
+    const it = r.item || r.matches[0];
+    if (!it) { missed.push(l.name); continue; }
+    lines.push({ code: it.code, name: it.name, qty: l.qty ?? 1, bonus: l.bonus ?? 0, cost: l.cost ?? (it.cost || ''), price: l.price ?? (it.price || ''), expiry: l.expiry || '', read: l.name });
+  }
+  const sup = inv.supplier ? SUPPLIERS().find((x) => normalize(x.name).includes(normalize(inv.supplier)) || normalize(inv.supplier).includes(normalize(x.name))) : null;
+  RCV = { ...RCV, supplier: sup?.id || RCV.supplier, invoice: inv.invoice_no || RCV.invoice, date: inv.date && inv.date <= isoDay(TODAY) ? inv.date : RCV.date, lines: [...RCV.lines, ...lines] };
+  saveDraft();
+  RCV_NOTE = `اتقرا ${lines.length} صنف${missed.length ? `، و${missed.length} ملقتهمش (ضيفهم بإيدك): ${missed.slice(0, 8).join('، ')}` : ''}. راجع كل سطر قبل ما تسجّل.${inv.total ? ` إجمالي الفاتورة المكتوب ${fmt(inv.total, 2)} ج.` : ''}`;
   render();
 }
 
@@ -1712,6 +1741,15 @@ $('panel').addEventListener('click', async (e) => {
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
   // The summary: go to a tab, mark alerts read, turn alerts and recommendations into tasks.
   if (t('gotab')) { TAB = t('gotab'); render(); scrollTo({ top: 0 }); return; }
+  // A supplier's order from «اطلب إيه» → a draft in «طلبية وصلت», recorded only when the owner saves it.
+  if (t('todraft') !== undefined) {
+    const g = LAST_ORDERS[+t('todraft')];
+    if (g && (!RCV.lines.length || confirm('فيه طلبية بتكتبها في «طلبية وصلت». تبدّلها بالمسودة دي؟'))) {
+      RCV = { ...blankReceive(), supplier: g.supplier?.id || '', lines: g.lines.map((l) => { const it = DATA.items.find((x) => x.code === l.code); return { code: l.code, name: l.name, qty: l.qty, bonus: 0, cost: it?.cost || '', price: it?.price || '', expiry: '' }; }) };
+      saveDraft(); RCV_NOTE = 'دي مسودة من «اطلب إيه». راجع الكميات والأسعار والصلاحية لما البضاعة توصل، وبعدين سجّلها.'; TAB = 'receive'; render(); scrollTo({ top: 0 });
+    }
+    return;
+  }
   if (t('ask')) { ask(t('ask')); return; }
   if (e.target.id === 'chatClear') { CHAT = []; render(true); return; }
   if (e.target.id === 'alertsRead') { for (const a of currentAlerts(ANALYSIS.full)) ALERTS_READ.add(a.key); store.set(READ_KEY, [...ALERTS_READ].slice(-500)); render(); return; }
@@ -1763,6 +1801,7 @@ $('panel').addEventListener('input', (e) => {
   if (f) { RCV[f] = t.value; if (f === 'paid') receiveTotals(); saveDraft(); }
 });
 $('panel').addEventListener('change', (e) => {
+  if (e.target.id === 'rcvPhoto') { const f = e.target.files[0]; e.target.value = ''; if (f) readInvoicePhoto(f); return; }
   if (e.target.id === 'rcvReturn') { RCV.kind = e.target.checked ? 'return' : 'buy'; saveDraft(); render(); return; }
   if (e.target.id === 'rcvSup') { RCV.supplier = e.target.value; saveDraft(); $('rcvSupNameWrap').hidden = RCV.supplier !== '__new'; if (!$('rcvSupNameWrap').hidden) $('rcvSupName').focus(); }
   if (e.target.id === 'rcvBranch') { RCV.branch = e.target.value; saveDraft(); }
@@ -2648,6 +2687,7 @@ async function boot() {
   render();
   await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription(), SESS.role !== 'device' ? loadTasks() : null]);
   OUTBOX_COUNT = { pending: (await pending()).length, stuck: (await stuck()).length };
+  if (AI_ON === null && SESS.client?.ai && isOnline()) SESS.client.ai('status').then((r) => { AI_ON = !!r.data?.enabled; }).catch(() => {});
   renderBranches(); setView(); render();
   sync();
 }

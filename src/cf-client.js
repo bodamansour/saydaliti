@@ -58,6 +58,7 @@ export function createCloudflareClient() {
     from: builder,
     // «اسأل صيدليتي» with an AI model (only when the server has one configured).
     ai(payload) { return payload === 'status' ? call('/api/ai/status', null, 'GET') : call('/api/ai', payload); },
+    aiInvoice(payload) { return call('/api/ai/invoice', payload); },
     rpc(name, params = {}) {
       // An upload (several MB) goes as its own body, so the server stores it without reading it all.
       if (name === 'save_snapshot') {

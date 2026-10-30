@@ -68,3 +68,14 @@ test('answers carry the real numbers, the period and the source; roles are enfor
   assert.match(answerLocally('رصيد بانادول', C()).text, /الرصيد ٢ علبة/);
   assert.equal(answerLocally('الجو عامل ايه', C()).unknown, true);
 });
+
+test('reading an invoice photo: owner only, and only clean values come back', async () => {
+  const { aiInvoice } = await import('../worker/src/ai.js');
+  const r = (b) => ({ json: async () => b });
+  await assert.rejects(aiInvoice(fakeEnv(), ctx('partner'), r({ pharmacy: 'p1', media_type: 'image/png', data: 'x' })), /not allowed/);
+  await assert.rejects(aiInvoice(fakeEnv(), ctx('owner'), r({ pharmacy: 'p1', media_type: 'text/html', data: 'x' })), /bad request/);
+  const reply = '{"supplier":"مخزن الأمل","invoice_no":"55","date":"2026-10-29","lines":[{"name":"بانادول","qty":10,"bonus":2,"cost":40.5,"expiry":"2027-06"},{"name":"","qty":1},{"name":"كونكور","qty":"كتير","cost":-3}],"total":405}';
+  const out = await aiInvoice(fakeEnv(), ctx('owner'), r({ pharmacy: 'p1', media_type: 'image/jpeg', data: 'abc' }), { fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: `هنا: ${reply}` }] }) }) });
+  assert.equal(out.supplier, 'مخزن الأمل');
+  assert.deepEqual(out.lines, [{ name: 'بانادول', qty: 10, bonus: 2, cost: 40.5, price: null, expiry: '2027-06' }, { name: 'كونكور', qty: null, bonus: null, cost: null, price: null, expiry: null }]);
+});
