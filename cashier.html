@@ -46,7 +46,8 @@
     </div>
 
     <aside class="pos-side card">
-      <div class="mode row"><button class="btn sel" id="modeSale" aria-pressed="true">بيع</button><button class="btn" id="modeReturn" aria-pressed="false">مرتجع</button></div>
+      <div class="mode row"><button class="btn sel" id="modeSale" aria-pressed="true">بيع</button><button class="btn" id="modeReturn" aria-pressed="false">مرتجع</button>
+        <button class="btn" id="holdBtn" type="button" title="علّق الفاتورة دي وابدأ واحدة جديدة (F4)">علّق (F4)</button><button class="btn" id="heldBtn" type="button" hidden>المعلّقة <span class="n" id="heldCount">0</span></button></div>
       <div class="stack" id="retBox" hidden>
         <div class="row"><input id="retNo" autocomplete="off" placeholder="رقم فاتورة البيع" aria-label="رقم فاتورة البيع" style="flex:1"><button class="btn" type="button" id="retFind">هات الفاتورة</button></div>
         <p class="note" id="retInfo" role="status"></p>
@@ -88,6 +89,8 @@
           <label class="checkline"><input id="rcQr" type="checkbox"> كود QR على الفاتورة يفتح واتساب الصيدلية</label>
           <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
           <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
+          <label class="checkline"><input id="blockExpired" type="checkbox" checked> امنع بيع صنف كل رصيده منتهي (يعدّي بس بسبب مكتوب، والسبب بيتسجل في الفاتورة)</label>
+          <label class="checkline"><input id="blockNegative" type="checkbox"> امنع بيع صنف رصيده المسجل خلص</label>
           <label class="checkline"><input id="requirePin" type="checkbox"> كل كاشير يدخل برقمه السري (PIN) قبل ما يبيع، وتتقفل له وردية</label>
           <p class="note" id="kioskNote">عشان الطباعة تطلع من غير نافذة كل مرة، شغّل كروم بالاختيار <code>--kiosk-printing</code> وخلّي الطابعة الحرارية هي الافتراضية.</p>
         </div>
@@ -102,6 +105,13 @@
     <div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th><th>النوع</th><th>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody id="dayList"></tbody></table></div>
   </section>
 </div>
+
+<dialog id="heldDlg" class="card">
+  <h3>الفواتير المعلّقة</h3>
+  <p class="note">دوس على فاتورة عشان ترجّعها. الفاتورة المفتوحة دلوقتي (لو فيها أصناف) بتتعلّق مكانها.</p>
+  <div id="heldList" class="results static"></div>
+  <div class="row"><button class="btn" type="button" id="heldClose">إغلاق</button></div>
+</dialog>
 
 <dialog id="unknownDlg" class="card">
   <h3 id="unknownTitle">الباركود ده مش متسجل</h3>

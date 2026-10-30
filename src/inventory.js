@@ -42,33 +42,44 @@ function settle(it) {
 // Takes stock off the shelf: from the batch with the given expiry first (a correction of one
 // batch), then from the earliest expiry. Returns what the boxes taken out cost; `parts`, when given,
 // collects which batches they came from ({ qty, expiry, cost }), so a return can put them back there.
-function takeOut(it, qty, expiry, parts = null) {
+// price: the selling price of the boxes sold (an item with old- and new-price boxes): those first.
+function takeOut(it, qty, expiry, parts = null, price = null) {
   const list = sortBatches(batchesFor(it));
   let left = qty, cost = 0;
   // Same day: dates from a file and dates typed here can differ by the time zone (a few hours).
   const sameDay = (x, y) => (x && y ? Math.abs(x.getTime() - y.getTime()) < 12 * 3600000 : !x && !y);
-  const first = expiry === undefined ? [] : list.filter((b) => sameDay(b.expiry, expiry));
+  const first = expiry !== undefined ? list.filter((b) => sameDay(b.expiry, expiry))
+    : price ? list.filter((b) => Math.abs((b.price ?? it.price) - price) < 0.005) : [];
   for (const b of [...first, ...list.filter((x) => !first.includes(x))]) {
     const n = Math.min(b.qty, left);
     b.qty -= n; left -= n; cost += n * (b.cost ?? it.cost);
-    if (n > 0 && parts) parts.push({ qty: n, expiry: b.expiry, cost: b.cost ?? it.cost });
+    if (n > 0 && parts) parts.push({ qty: n, expiry: b.expiry, cost: b.cost ?? it.cost, ...(b.price ? { price: b.price } : {}) });
     if (!left) break;
   }
   if (left > 0) { it.short = (it.short || 0) + left; cost += left * it.cost; } // no stock recorded: today's price
   return cost;
 }
 
-function putBack(it, qty, expiry = null, cost = it.cost) {
+// price: the selling price of these boxes, when known (kept apart from boxes at another price).
+function putBack(it, qty, expiry = null, cost = it.cost, price = null) {
   const list = batchesFor(it);
   let n = qty;
   if (it.short) { const pay = Math.min(it.short, n); it.short -= pay; n -= pay; }
   if (!n) return;
-  const same = list.find((b) => (b.expiry && expiry ? Math.abs(b.expiry.getTime() - expiry.getTime()) < 12 * 3600000 : !b.expiry && !expiry));
-  if (!same) { list.push({ qty: n, expiry, cost }); return; }
+  const samePrice = (b) => !price || Math.abs((b.price ?? it.price) - price) < 0.005;
+  const same = list.find((b) => samePrice(b) && (b.expiry && expiry ? Math.abs(b.expiry.getTime() - expiry.getTime()) < 12 * 3600000 : !b.expiry && !expiry));
+  if (!same) { list.push({ qty: n, expiry, cost, ...(price ? { price } : {}) }); return; }
   // Same expiry bought at another price: one batch at the average cost.
   const was = Math.max(0, same.qty);
   same.cost = was + n ? round2(((same.cost ?? it.cost) * was + cost * n) / (was + n)) : cost;
   same.qty += n;
+}
+
+// A new selling price: the boxes already on the shelf keep the price printed on them.
+function reprice(it, price) {
+  if (!(price > 0) || Math.abs(price - (it.price || 0)) < 0.005) return;
+  if (it.price > 0) for (const b of batchesFor(it)) if (b.qty > 0 && b.price == null) b.price = it.price;
+  it.price = price;
 }
 
 // What the boxes on the shelf cost, batch by batch.
@@ -111,7 +122,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       if (fresh || t > since) {
         if (row.name) it.name = row.name;
         if (row.category) it.category = row.category;
-        if (+row.price > 0) it.price = +row.price;
+        if (+row.price > 0) reprice(it, +row.price);
         if (+row.cost > 0) it.cost = +row.cost;
       }
       // Set here, these win over the upload whenever they were set (1 = not sold by the strip/pill).
@@ -125,9 +136,9 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         const qty = +l.qty || 0, bonus = +l.bonus || 0;
         if (qty + bonus <= 0) continue;
         const box = round2(((+l.cost || 0) * qty) / (qty + bonus)); // free units lower the cost of each box
-        putBack(it, qty + bonus, fromIsoDay(l.expiry), +l.cost > 0 ? box : it.cost);
+        putBack(it, qty + bonus, fromIsoDay(l.expiry), +l.cost > 0 ? box : it.cost, +l.price > 0 ? +l.price : null);
         if (+l.cost > 0) it.cost = box;
-        if (+l.price > 0) it.price = +l.price;
+        if (+l.price > 0) reprice(it, +l.price);
         out.purchases.push({ date, code, qty: qty + bonus, cost: box });
       }
     } else if (kind === 'move') {
@@ -156,7 +167,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
         let unitCost;
         if (sign > 0) {
           const parts = [];
-          unitCost = round4(takeOut(it, qty, undefined, parts) / qty);
+          unitCost = round4(takeOut(it, qty, undefined, parts, +l.bp > 0 ? +l.bp : null) / qty);
           const k = `${row.id}|${code}`;
           taken.set(k, [...(taken.get(k) || []), ...parts]);
         } else {
@@ -164,7 +175,7 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
           for (const p of (row.return_of && taken.get(`${row.return_of}|${code}`)) || []) {
             const n = Math.min(p.qty, left);
             if (n <= 0) continue;
-            putBack(it, n, p.expiry, p.cost);
+            putBack(it, n, p.expiry, p.cost, p.price ?? null);
             p.qty -= n; left -= n; cost += n * p.cost;
           }
           if (left > 0) { putBack(it, left); cost += left * it.cost; }

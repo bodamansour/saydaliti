@@ -169,7 +169,7 @@ export function fromExport(json) {
   for (const b of json.batches || []) {
     const code = String(b.code).trim();
     if (!byCode.has(code)) byCode.set(code, []);
-    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry), ...(+b.cost > 0 ? { cost: +b.cost } : {}) });
+    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry), ...(+b.cost > 0 ? { cost: +b.cost } : {}), ...(+b.price > 0 ? { price: +b.price } : {}) });
   }
   const items = (json.items || []).filter((i) => i.code != null).map((i) => {
     const code = String(i.code).trim();
@@ -223,7 +223,7 @@ export function toExport(data) {
     if (i.qty && !i.batches?.length) row.qty = i.qty;
     if (i.expiry && !i.batches?.length) row.expiry = iso(i.expiry);
     items.push(row);
-    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry), ...(b.cost != null && b.cost !== i.cost ? { cost: b.cost } : {}) });
+    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry), ...(b.cost != null && b.cost !== i.cost ? { cost: b.cost } : {}), ...(b.price != null && b.price !== i.price ? { price: b.price } : {}) });
   }
   const sales = data.sales.map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty,
     amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}), ...(x.cost != null ? { cost: x.cost } : {}) }));
