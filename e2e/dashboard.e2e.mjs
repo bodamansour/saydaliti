@@ -505,13 +505,14 @@ test('customers: credit and insurance at the cashier, balances, collecting, clai
 
   await page.goto(base);
   await page.waitForSelector('#app:not([hidden])');
+  await page.waitForLoadState('networkidle'); // everything loaded: no re-render wipes the form while it is filled
   await page.click('[data-sec=customers]');
   await page.click('[data-tab=customers]');
   assert.ok(await until(async () => /140/.test(await text('#panel tbody'))));
   await page.selectOption('#cpCust', { label: 'أستاذ سامي (عليه 140.00)' });
   await page.fill('#cpAmount', '40');
   await page.click('#cpayForm button[type=submit]');
-  assert.ok(await until(async () => (await db('customer_payments')).length === 1));
+  assert.ok(await until(async () => (await db('customer_payments')).length === 1, 10000));
   await page.locator('#panel tbody tr', { hasText: 'أستاذ سامي' }).locator('[data-stmt]').click();
   assert.match(await text('#panel .card'), /كشف حساب/);
   assert.match(await text('#panel'), /100\.00/, 'balance after paying 40');
