@@ -178,6 +178,8 @@ export function fromExport(json) {
       code,
       name: String(i.name ?? code).trim(),
       ...(i.en ? { en: String(i.en).trim() } : {}),
+      ...(+i.strips > 1 ? { strips: Math.round(+i.strips) } : {}),
+      ...(+i.pills > 1 ? { pills: Math.round(+i.pills) } : {}),
       category: String(i.category ?? '').trim() || 'غير محدد',
       owner: String(i.owner ?? '').trim() || UNASSIGNED,
       cost: +i.cost || 0,

@@ -6,7 +6,7 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, lo
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -86,7 +86,7 @@ async function loadStock() {
     return rows;
   };
   const [catalog, purchases, moves] = await Promise.all([
-    get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+    (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
     get('purchases', 'id, branch_id, received_on, lines, created_at'),
     get('stock_moves', 'id, branch_id, code, qty, kind, expiry, happened_at, created_at'),
   ]);
@@ -204,18 +204,37 @@ function addItem(it) {
   }
   const line = CART.find((l) => l.code === it.code);
   if (line) line.qty += 1;
-  else CART.push({ code: it.code, name: it.name, price: +it.price || 0, qty: 1, discount: 0 });
-  const left = stockOf(it.code) - (CART.find((l) => l.code === it.code)?.qty ?? 0);
-  if (MODE === 'sale' && left < 0) msg(`«${it.name}»: الرصيد المسجل مش كفاية (آخر رصيد ${Math.max(0, left + (CART.find((l) => l.code === it.code)?.qty ?? 0))}). كمّل لو العلبة قدامك.`, true);
+  else CART.push({ code: it.code, name: it.name, price: +it.price || 0, box: +it.price || 0, qty: 1, discount: 0 });
+  const inCart = CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0);
+  const left = stockOf(it.code) - inCart;
+  if (MODE === 'sale' && left < -0.0005) msg(`«${it.name}»: الرصيد المسجل مش كفاية (آخر رصيد ${fmt(Math.max(0, left + inCart))} علبة). كمّل لو العلبة قدامك.`, true);
   else if (w?.level === 'soon') msg(`«${it.name}» أقرب تشغيلة منه بتنتهي بعد ${w.days} يوم.`);
   else if (!w || w.level !== 'expired') msg('');
   renderCart();
 }
 
+// Box, strip or pill, for an item that says how many strips/pills are in its box. A return
+// against a receipt keeps the unit the receipt sold it in.
+function unitPick(l, i) {
+  if (l.max) return +l.per > 1 ? `<span class="cat">${unitLabel(l)}</span>` : '';
+  const units = unitsOf(ITEMS.find((x) => x.code === l.code));
+  if (units.length < 2) return '';
+  const cur = +l.per > 1 ? (l.unit || 'strip') : 'box';
+  return `<select class="unitsel" data-unit="${i}" aria-label="بيع بـ">${units.map((u) => `<option value="${u.key}" ${u.key === cur ? 'selected' : ''}>${u.label}${u.per > 1 ? ` (${u.per} في العلبة)` : ''}</option>`).join('')}</select>`;
+}
+function setUnit(l, key) {
+  const u = unitsOf(ITEMS.find((x) => x.code === l.code)).find((x) => x.key === key) || { key: 'box', per: 1 };
+  const box = l.box ?? (+l.per > 1 ? l.price * l.per : l.price);
+  l.box = box;
+  if (u.per > 1) { l.per = u.per; l.unit = u.key; } else { delete l.per; delete l.unit; }
+  l.price = u.per > 1 ? unitPrice(box, u.per) : box;
+  l.qty = 1; l.discount = 0;
+}
+
 function renderCart() {
   const t = totals();
   $('cart').innerHTML = CART.map((l, i) => `<tr>
-    <td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span></td>
+    <td class="name">${esc(l.name)}<span class="cat n">${esc(l.code)}</span>${unitPick(l, i)}</td>
     <td class="n">${fmt(l.price)}</td>
     <td><div class="qty"><button class="btn" data-dec="${i}" aria-label="أقل">−</button><input class="n" type="number" min="1" ${l.max ? `max="${l.max}"` : ''} step="1" value="${l.qty}" data-qty="${i}" aria-label="الكمية"><button class="btn" data-inc="${i}" aria-label="أكتر">+</button></div></td>
     <td><input class="n disc" type="number" min="0" ${dev.linePct && !l.max ? 'max="100" step="1"' : 'step="0.5"'} value="${lineDiscValue(l)}" placeholder="0" data-disc="${i}" aria-label="${dev.linePct ? 'خصم على الصنف (نسبة %)' : 'خصم على الصنف (جنيه)'}" ${l.max ? 'readonly title="نفس الخصم اللي اتعمل في فاتورة البيع"' : ''}>${dev.linePct && l.discount && !l.max ? `<span class="cat n">${fmt(l.discount)}</span>` : ''}</td>
@@ -536,7 +555,7 @@ async function findReceipt() {
   if (!lines.length) { $('retInfo').textContent = `كل اللي في فاتورة ${no} اترجع قبل كده.`; return; }
   RET = { sale };
   $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
-  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0 }));
+  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0, ...(l.per ? { per: l.per, unit: l.unit } : {}) }));
   for (const l of CART) l.discount = lineOff(l);
   $('extraDisc').value = 0; $('extraDisc').disabled = true;
   const cust = sale.customer_id && CUSTOMERS.find((c) => c.id === sale.customer_id);
@@ -570,7 +589,7 @@ async function checkout() {
   const sale = {
     id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
     number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
-    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0 })),
+    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
@@ -597,7 +616,7 @@ function receiptHtml(sale) {
   const ret = sale.kind === 'return';
   return `<div class="rc-head"><b>${esc(SESS.pharmacy.name)}</b>${branch ? `<div>${esc(branch)}</div>` : ''}
     <div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(sale.number)}</span></div>${sale.return_no ? `<div>من فاتورة <span class="n">${esc(sale.return_no)}</span></div>` : ''}<div>${esc(when)}</div></div>
-    <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
+    <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
     <div class="rc-tot">${sale.discount ? `<div><span>الخصم</span><span class="n">${fmt(sale.discount)}</span></div>` : ''}
     <div class="big"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(sale.total))}</span></div>
     ${sale.customer_id ? `<div><span>العميل</span><span>${esc(CUSTOMERS.find((c) => c.id === sale.customer_id)?.name ?? '')}</span></div>${sale.claim_no ? `<div><span>رقم الموافقة</span><span class="n">${esc(sale.claim_no)}</span></div>` : ''}` : ''}
@@ -636,7 +655,7 @@ function renderDay() {
   $('dayList').innerHTML = list.slice(0, 200).map((s) => `<tr class="${s.pending ? 'pend' : ''}"><td class="n">${esc(s.number)}</td>
     <td class="n">${new Date(s.sold_at).toLocaleString('ar-EG', q ? { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
     <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
-    <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
+    <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
     <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || (q ? '<tr><td colspan="6" class="muted">مفيش فاتورة بالبحث ده على الجهاز ده. الفواتير القديمة كلها في اللوحة ← «الفواتير والمبيعات».</td></tr>' : '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>');
 }
 function printDay() {
@@ -754,6 +773,7 @@ $('cart').addEventListener('click', (e) => {
   renderCart(); focusSearch();
 });
 $('cart').addEventListener('change', (e) => {
+  if (e.target.dataset.unit !== undefined) { const l = CART[+e.target.dataset.unit]; setUnit(l, e.target.value); linePctOff(l); renderCart(); focusSearch(); return; }
   const i = +(e.target.dataset.qty ?? e.target.dataset.disc);
   if (e.target.dataset.qty !== undefined) CART[i].qty = Math.min(CART[i].max || Infinity, Math.max(1, Math.round(+e.target.value || 1)));
   if (e.target.dataset.disc !== undefined && !CART[i].max) {

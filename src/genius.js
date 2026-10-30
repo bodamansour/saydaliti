@@ -248,6 +248,8 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
       cost: ok(r.itm_def_pharm_price, 1e5) ? r.itm_def_pharm_price : 0,
       price: ok(r.itm_def_sell_price, 1e5) ? r.itm_def_sell_price : 0,
       owner: null, qty: null, expiry: null, active: String(r.itm_active ?? '1') !== '0',
+      // How many strips and pills in a box, so the cashier can sell by the strip or the pill.
+      ...(u2 > 1 ? { strips: u2 } : {}), ...(u3 > 1 && u3 !== u2 ? { pills: u3 } : {}),
     });
   }
 

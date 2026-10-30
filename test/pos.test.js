@@ -126,3 +126,17 @@ test('an item is found by its English name too', async () => {
   assert.equal(lookup('PANADOL ext', items).matches[0]?.code, '1');
   assert.equal(lookup('بانادول', items).matches[0]?.code, '1');
 });
+
+test('selling by the strip: stock, returns and receipts count boxes', async () => {
+  const { boxQty, unitsOf, unitPrice, stockLeft, returnableLines, cartTotals } = await import('../src/pos.js');
+  const item = { code: '9', name: 'كونكور', price: 45, qty: 2, strips: 3, pills: 30 };
+  assert.deepEqual(unitsOf(item).map((u) => [u.key, u.per]), [['box', 1], ['strip', 3], ['pill', 30]]);
+  assert.equal(unitPrice(45, 3), 15);
+  const line = { code: '9', name: 'كونكور', price: 15, qty: 2, per: 3, unit: 'strip', discount: 0 };
+  assert.equal(boxQty(line), 2 / 3);
+  assert.equal(cartTotals([line]).total, 30);
+  const sale = { id: 's1', kind: 'sale', sold_at: '2026-10-30T10:00:00Z', lines: [line], discount: 0 };
+  assert.ok(Math.abs(stockLeft(item, [sale], null) - 4 / 3) < 1e-9);
+  const ret = returnableLines(sale, [{ kind: 'return', return_of: 's1', lines: [{ code: '9', qty: 1, per: 3, price: 15 }] }]);
+  assert.deepEqual(ret.map((r) => [r.left, r.per, r.price]), [[1, 3, 15]]);
+});

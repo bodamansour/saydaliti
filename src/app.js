@@ -13,7 +13,7 @@ import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck,
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
-import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits } from './pos.js';
+import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
 import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
@@ -667,7 +667,7 @@ const posCost = () => { const m = new Map(DATA.items.map((i) => [String(i.code),
 const posWhen = (x) => new Date(x.sold_at).toLocaleString('ar-EG', POS_PERIOD === 'day' ? { hour: 'numeric', minute: '2-digit' } : { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 function posLines(x) {
   return `<tr class="sale-lines"><td colspan="${multi() ? 9 : 8}"><div class="ledger">
-    ${(x.lines || []).map((l) => `<div><span>${esc(l.name)} <span class="muted n">${fmt(l.qty)} × ${fmt(l.price, 2)}${l.discount ? ` − ${fmt(l.discount, 2)}` : ''}</span></span><span class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</span></div>`).join('')}
+    ${(x.lines || []).map((l) => `<div><span>${esc(l.name)} <span class="muted n">${fmt(l.qty)}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price, 2)}${l.discount ? ` − ${fmt(l.discount, 2)}` : ''}</span></span><span class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</span></div>`).join('')}
     ${+x.discount > (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0) + 0.004 ? `<div><span>خصم على الفاتورة</span><span class="n">−${fmt(+x.discount - (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0), 2)}</span></div>` : ''}
     <div class="tot"><span>${x.kind === 'return' ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
     ${x.customer_id ? `<div><span>العميل</span><span>${esc(custName(x.customer_id))}${x.claim_no ? ` · موافقة <span class="n">${esc(x.claim_no)}</span>` : ''}</span></div>` : ''}
@@ -706,7 +706,7 @@ function renderPosSales() {
   const rows = list.slice(0, POS_Q || SHOW_ALL.has(TAB) ? 2000 : 200).map((x) => `<tr class="sale-row${POS_OPEN.has(x.id) ? ' open' : ''}" data-sale="${esc(x.id)}" tabindex="0"><td class="n">${esc(x.number)}</td>
       <td class="n">${esc(posWhen(x))}</td>
       ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : 'بيع'}</td>
-      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + l.qty, 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
+      <td class="n">${fmt((x.lines || []).reduce((a, l) => a + boxQty(l), 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
   const invoices = `<h3>الفواتير (${fmt(list.length)}${POS_Q ? ` من ${fmt(all.length)}` : ''})</h3>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>علب</th><th>الإجمالي</th><th>الدفع</th><th>العميل</th><th>الكاشير</th></tr></thead><tbody>${rows.join('')}</tbody></table>${list.length > rows.length ? `<div class="more"><span class="muted">ظاهر أول ${fmt(rows.length)} من ${fmt(list.length)}. دوّر برقم الفاتورة أو الصنف عشان توصلها أسرع.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`
     : `<div class="card emptybox"><p>${POS_Q ? 'مفيش فاتورة بالبحث ده.' : 'مفيش فواتير في الفترة دي.'}</p></div>`);
@@ -739,7 +739,7 @@ function printSale(id) {
     @page{margin:0} body{font:12px/1.45 system-ui,sans-serif;width:72mm;margin:0;padding:2mm 3mm;color:#000} .c{text-align:center;border-bottom:1px dashed #000;padding-bottom:2mm;margin-bottom:2mm}
     table{width:100%;border-collapse:collapse} td{padding:0 0 1px} .n{direction:ltr;text-align:left} .t{border-top:1px dashed #000;margin-top:2mm;padding-top:2mm} .t div{display:flex;justify-content:space-between} .b{font-size:15px;font-weight:700}
   </style></head><body><div class="c"><b>${esc(SESS.pharmacy?.name || '')}</b><div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(x.number)}</span> (نسخة)</div><div>${esc(new Date(x.sold_at).toLocaleString('ar-EG'))}</div></div>
-    <table>${(x.lines || []).map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td class="n">${fmt(l.qty)} × ${fmt(l.price, 2)}${l.discount ? ` −${fmt(l.discount, 2)}` : ''}</td><td class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</td></tr>`).join('')}</table>
+    <table>${(x.lines || []).map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td class="n">${fmt(l.qty)}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price, 2)}${l.discount ? ` −${fmt(l.discount, 2)}` : ''}</td><td class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</td></tr>`).join('')}</table>
     <div class="t">${+x.discount ? `<div><span>الخصم</span><span class="n">${fmt(+x.discount, 2)}</span></div>` : ''}<div class="b"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
     <div><span>الدفع</span><span>${esc(payName(x.payment))}</span></div>${x.employee_name ? `<div><span>الكاشير</span><span>${esc(x.employee_name)}</span></div>` : ''}</div></body></html>`;
   printDoc(html);
@@ -1182,7 +1182,8 @@ const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year
 async function loadInventory() {
   try {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
-      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')
+        .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at') : Promise.reject(e))),
       loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on'),
       loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, person, happened_at, created_at', 'happened_at')
         .catch((e) => (e.missing ? loadTable('stock_moves', 'id, branch_id, code, qty, kind, expiry, cost, ref, note, happened_at, created_at', 'happened_at') : Promise.reject(e))),
@@ -1237,6 +1238,9 @@ function itemForm() {
       <label>النوع<select id="itCat">${[...new Set([f.category, ...CATEGORIES].filter(Boolean))].map((c) => `<option ${c === (f.category || 'دواء') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
       <label>سعر البيع للجمهور<input id="itPrice" type="number" min="0" step="0.25" inputmode="decimal" value="${esc(f.price ?? '')}" required></label>
       <label>سعر الشراء (اختياري)<input id="itCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(f.cost ?? '')}"></label>
+      <label>عدد الشرايط في العلبة (للبيع بالشريط)<input id="itStrips" type="number" min="1" max="1000" step="1" inputmode="numeric" value="${esc(f.strips ?? '')}" placeholder="مثلاً 3"></label>
+      <label>عدد الحبايات في العلبة (للبيع بالحباية)<input id="itPills" type="number" min="1" max="10000" step="1" inputmode="numeric" value="${esc(f.pills ?? '')}" placeholder="اختياري"></label>
+      <label>المادة الفعالة (عشان البدائل)<input id="itGeneric" maxlength="160" value="${esc(f.generic ?? '')}" placeholder="مثلاً: paracetamol"></label>
       ${editing || f.forReceive ? '' : `<label>الكمية اللي عندك دلوقتي (اختياري)<input id="itQty" type="number" min="0" step="1" inputmode="numeric"></label>
       <label>الصلاحية (اختياري)<input id="itExp" type="month"></label>`}
     </div>
@@ -1281,7 +1285,9 @@ async function saveItem(e) {
   const owner = barcode && barcodeMap().get(barcode);
   if (barcode && owner && owner !== f.code) return msg(`الباركود ده متسجل لـ«${DATA.items.find((i) => i.code === owner)?.name ?? owner}».`);
   if (!f.code && DATA.items.some((i) => i.name.trim() === name)) return msg('فيه صنف بنفس الاسم. دوّر عليه وعدّله بدل ما تضيفه تاني.');
-  const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null };
+  const int = (id) => ($(id).value === '' ? null : Math.max(1, Math.round(+$(id).value || 1)));
+  const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null,
+    strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null };
   const qty = +($('itQty')?.value || 0), exp = $('itExp')?.value;
   if (f.batches?.some((b) => b.qty !== '' && (!(+b.qty >= 0)))) return msg('الكمية لازم تبقى صفر أو أكتر.');
   const moves = f.batches ? stockEdits(f.orig, f.batches.filter((b) => +b.qty > 0).map((b) => ({ qty: +b.qty, expiry: b.expiry || null }))) : [];
@@ -1290,7 +1296,8 @@ async function saveItem(e) {
   if (code) {
     const row = CATALOG.find((c) => c.code === code);
     const it = DATA.items.find((i) => i.code === code);
-    const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null);
+    const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null)
+      || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic;
     if (row && changed) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
     else if (!row && changed) await localInsert('catalog_items', { code, ...fields });
     const t0 = Date.now();
@@ -1691,7 +1698,7 @@ $('panel').addEventListener('click', (e) => {
     const i = DATA.items.find((x) => x.code === t('edititem')); const c = CATALOG.find((x) => x.code === i?.code);
     if (i) {
       const batches = needBranch() ? null : editableBatches(i);
-      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
+      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
       ITEM_NOTE = ''; render(); $('itemForm')?.scrollIntoView({ block: 'center' });
     }
   }
@@ -2056,7 +2063,7 @@ function exportTables() {
     'الكمية': l.qty, 'بونص': l.bonus || 0, 'سعر الشراء': l.cost, 'سعر البيع': l.price || '', 'الصلاحية': l.expiry ? String(l.expiry).slice(0, 10) : '', 'الإجمالي': Math.round(l.qty * l.cost * 100) / 100 })));
   const pay = (k) => PAYMENTS.find(([p]) => p === k)?.[1] ?? k;
   const receipts = POS_SALES.filter(here).sort((a, b) => String(a.sold_at).localeCompare(String(b.sold_at))).map((x) => ({
-    'رقم الفاتورة': x.number, 'الوقت': String(x.sold_at).replace('T', ' ').slice(0, 16), 'النوع': x.kind === 'return' ? 'مرتجع' : 'بيع', 'مرتجع من': x.return_of ? (POS_SALES.find((y) => y.id === x.return_of)?.number ?? '') : x.note || '', 'الأصناف': (x.lines || []).map((l) => `${l.name} × ${l.qty}`).join('، '),
+    'رقم الفاتورة': x.number, 'الوقت': String(x.sold_at).replace('T', ' ').slice(0, 16), 'النوع': x.kind === 'return' ? 'مرتجع' : 'بيع', 'مرتجع من': x.return_of ? (POS_SALES.find((y) => y.id === x.return_of)?.number ?? '') : x.note || '', 'الأصناف': (x.lines || []).map((l) => `${l.name} × ${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''}`).join('، '),
     'الإجمالي': +x.total, 'الخصم': +x.discount || 0, 'الدفع': pay(x.payment), 'العميل': custName(x.customer_id) || '', 'على الحساب': +x.credit || 0, 'رقم الموافقة': x.claim_no || '' }));
   const suppliers = supplierBalances(PURCHASES, SUP_PAYMENTS).map((b) => ({ 'المورد': b.name, 'فواتير': b.invoices, 'إجمالي البضاعة': b.bought, 'اتدفع': b.paid, 'الباقي': b.due, 'آخر طلبية': b.last || '' }));
   const customers = CUST_READY ? customerBalances(CUSTOMERS, POS_SALES, CUST_PAYMENTS).map((c) => ({ 'الاسم': c.name, 'الموبايل': c.phone || '', 'النوع': c.kind === 'insurance' ? `تأمين ${+c.coverage_pct}%` : 'عميل', 'على الحساب': c.onAccount, 'دفع': c.paid, 'الباقي عليه': c.owed })) : [];
