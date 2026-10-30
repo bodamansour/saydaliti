@@ -1,6 +1,6 @@
 // Receipts of a day (or any period): finding one fast, what was sold, and the day's report.
 // Pure functions, no DOM: shared by the dashboard, the cashier and the tests.
-import { normalize, daySummary, toPt, toEgp } from './pos.js';
+import { normalize, daySummary, toPt, toEgp, boxQty } from './pos.js';
 
 // A receipt matches when its number, one of its items, its customer or its cashier contains the text.
 export function matchSale(sale, q, customerName = '') {
@@ -30,7 +30,7 @@ export function itemsSold(sales, costOf = () => null) {
     for (const { line, pt } of lineValues(s)) {
       const code = String(line.code);
       const o = m.get(code) || { code, name: line.name || code, qty: 0, valuePt: 0, receipts: 0 };
-      o.qty += sign * +line.qty;
+      o.qty += sign * boxQty(line);
       o.valuePt += sign * pt;
       o.receipts += 1;
       m.set(code, o);

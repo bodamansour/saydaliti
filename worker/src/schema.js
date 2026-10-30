@@ -106,10 +106,12 @@ export const TABLES = {
     opened_at: ['ts', { nn: true }], opening_cash: ['num', { nn: true, def: 0, min: 0 }], closed_at: ['ts'], expected_cash: ['num'], counted_cash: ['num', { min: 0 }],
     totals: ['json'], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id', 'opened_at']] },
-  catalog_items: { pk: 'id', read: ROLES_ALL, insert: SELLERS, update: OWNER, updCols: ['name', 'category', 'price', 'cost', 'barcode', 'updated_at'], del: OWNER, audit: true, cols: {
+  catalog_items: { pk: 'id', read: ROLES_ALL, insert: SELLERS, update: OWNER, updCols: ['name', 'category', 'price', 'cost', 'barcode', 'strips', 'pills', 'generic', 'updated_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], code: ['text', { nn: true, max: 60 }], name: ['text', { max: 160 }], category: ['text', { max: 60 }],
     price: ['num', { min: 0, maxv: 9999999 }], cost: ['num', { min: 0, maxv: 9999999 }], barcode: ['text', { max: 64 }], created_by: ['id'],
-    created_at: ['ts', { nn: true, def: 'now' }], updated_at: ['ts'] },
+    created_at: ['ts', { nn: true, def: 'now' }], updated_at: ['ts'],
+    // Strips and pills in a box (selling by the strip or pill), and the active ingredient (alternatives).
+    strips: ['int', { min: 1, maxv: 1000, added: 3 }], pills: ['int', { min: 1, maxv: 10000, added: 3 }], generic: ['text', { max: 160, trim: true, added: 3 }] },
   unique: [['pharmacy_id', 'code']] },
   purchases: { pk: 'id', read: ROLES_ALL, insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],

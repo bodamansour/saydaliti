@@ -15,6 +15,21 @@ export function normalize(s) {
 }
 
 // Scanner input or typed text → { item } for an exact barcode/code, else { matches } by name.
+// ---------- Selling by strip or by pill ----------
+// An item is priced and stocked by the box. It can also be sold by the strip or the pill when it says
+// how many are in a box (strips, pills). A sale line keeps the unit it was sold in: qty strips at the
+// strip's price, with per = strips in a box; everything that counts stock uses boxQty().
+export const boxQty = (l) => (+l.per > 1 ? +l.qty / +l.per : +l.qty || 0);
+export function unitsOf(item) {
+  const out = [{ key: 'box', per: 1, label: 'علبة' }];
+  if (+item?.strips > 1) out.push({ key: 'strip', per: +item.strips, label: 'شريط' });
+  if (+item?.pills > 1 && +item.pills !== +item.strips) out.push({ key: 'pill', per: +item.pills, label: 'حباية' });
+  return out;
+}
+export const unitLabel = (l) => (+l.per > 1 ? (l.unit === 'pill' ? 'حباية' : 'شريط') : 'علبة');
+// The price of one strip or pill: the box's price shared, rounded to the piaster.
+export const unitPrice = (boxPrice, per) => Math.round(((+boxPrice || 0) / (+per || 1)) * 100) / 100;
+
 // A scanned or typed code as plain digits: Arabic/Persian digits (an Arabic keyboard) become 0-9, and
 // what a scanner may add around it (spaces, a prefix letter, a dash) is dropped.
 export function scanDigits(s) {
@@ -103,7 +118,7 @@ export function stockLeft(item, sales, uploadedAt) {
   for (const s of sales) {
     if (since && new Date(s.sold_at) <= since) continue;
     const sign = s.kind === 'return' ? -1 : 1;
-    for (const l of s.lines) if (String(l.code) === String(item.code)) sold += sign * l.qty;
+    for (const l of s.lines) if (String(l.code) === String(item.code)) sold += sign * boxQty(l);
   }
   return (+item.qty || 0) - sold;
 }
@@ -143,10 +158,11 @@ export const PAYMENTS = [['cash', 'كاش'], ['card', 'فيزا'], ['wallet', '�
 // returns of this receipt already took back), at the price actually paid per box (the line discount
 // and its share of a discount on the whole receipt taken off).
 export function returnableLines(sale, returns = []) {
+  // Counted in boxes (a line may be in strips), then given back in the unit the receipt sold it in.
   const back = new Map();
   for (const r of returns) {
     if (r.kind !== 'return' || r.return_of !== sale.id) continue;
-    for (const l of r.lines || []) back.set(String(l.code), (back.get(String(l.code)) || 0) + (+l.qty || 0));
+    for (const l of r.lines || []) back.set(String(l.code), (back.get(String(l.code)) || 0) + boxQty(l));
   }
   const lines = (sale.lines || []).filter((l) => +l.qty > 0);
   const gross = lines.reduce((a, l) => a + (+l.price || 0) * +l.qty - (+l.discount || 0), 0);
@@ -156,12 +172,17 @@ export function returnableLines(sale, returns = []) {
     const code = String(l.code);
     const net = (+l.price || 0) * +l.qty - (+l.discount || 0);
     const paid = net - (gross > 0 ? (extra * net) / gross : 0);
-    const r = by.get(code) || { code, name: l.name || code, price: +l.price || 0, sold: 0, paid: 0 };
-    r.sold += +l.qty; r.paid += paid;
+    const per = +l.per > 1 ? +l.per : 1;
+    const r = by.get(code) || { code, name: l.name || code, boxPrice: 0, sold: 0, paid: 0, pers: new Set(), unit: l.unit };
+    r.sold += boxQty(l); r.paid += paid; r.boxPrice = Math.max(r.boxPrice, (+l.price || 0) * per); r.pers.add(per);
     by.set(code, r);
   }
   return [...by.values()].map((r) => {
-    const left = Math.max(0, Math.round((r.sold - (back.get(r.code) || 0)) * 1000) / 1000);
-    return { code: r.code, name: r.name, price: r.price, sold: r.sold, left, unitOff: Math.max(0, Math.round((r.price - r.paid / r.sold) * 10000) / 10000) };
-  }).filter((r) => r.left > 0);
+    const leftBoxes = Math.max(0, r.sold - (back.get(r.code) || 0));
+    const per = r.pers.size === 1 ? [...r.pers][0] : 1;
+    const boxOff = Math.max(0, r.boxPrice - r.paid / r.sold);
+    const out = { code: r.code, name: r.name, price: Math.round((r.boxPrice / per) * 10000) / 10000, sold: Math.round(r.sold * per * 1000) / 1000, left: Math.round(leftBoxes * per * 1000) / 1000, unitOff: Math.max(0, Math.round((boxOff / per) * 10000) / 10000) };
+    if (per > 1) Object.assign(out, { per, unit: r.unit || 'strip' });
+    return out;
+  }).filter((r) => r.left > 0.0005);
 }
