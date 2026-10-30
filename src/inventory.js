@@ -128,6 +128,8 @@ export function liveData(base, baseAt, { catalog = [], purchases = [], sales = [
       // Set here, these win over the upload whenever they were set (1 = not sold by the strip/pill).
       for (const k of ['strips', 'pills']) if (row[k] != null) { if (+row[k] > 1) it[k] = +row[k]; else delete it[k]; }
       if (row.generic) it.generic = String(row.generic).trim();
+      if (row.maker) it.maker = String(row.maker).trim();
+      if (row.min_qty != null) { if (+row.min_qty > 0) it.min = +row.min_qty; else delete it.min; }
     } else if (kind === 'buy' && row.kind === 'return') {
       // Goods sent back to the supplier: out of the batch with that expiry (else the earliest).
       for (const l of row.lines || []) {
@@ -282,4 +284,27 @@ export function stockEdits(before, after) {
   for (const b of before) add(day(b.expiry), -(+b.qty || 0));
   for (const b of after) add(day(b.expiry), +b.qty || 0);
   return [...total].filter(([, q]) => q).map(([expiry, qty]) => ({ qty, expiry })).sort((a, b) => a.qty - b.qty);
+}
+
+// ---------- One item's history ----------
+// Everything that moved one item, newest first: sales and deliveries from the pharmacy program
+// (per day, before the upload), and since then deliveries, returns to suppliers, counts, damage,
+// transfers and cashier sales/returns entered here. qty: + in, − out (boxes).
+export function itemHistory(code, { baseSales = [], basePurchases = [], purchases = [], moves = [], sales = [] } = {}) {
+  const c = String(code);
+  const out = [];
+  const iso = (d) => (d instanceof Date ? d.toISOString() : String(d || ''));
+  for (const s of baseSales) if (String(s.code) === c && s.qty) out.push({ at: iso(s.date), kind: 'program-sale', qty: -s.qty, note: 'مبيعات برنامج الصيدلية' });
+  for (const p of basePurchases) if (String(p.code) === c && p.qty) out.push({ at: iso(p.date), kind: 'program-buy', qty: p.qty, note: 'طلبيات برنامج الصيدلية' });
+  for (const p of purchases) for (const l of p.lines || []) if (String(l.code) === c) {
+    const ret = p.kind === 'return';
+    out.push({ at: String(p.received_on || p.created_at), kind: ret ? 'supplier-return' : 'buy', qty: ret ? -(+l.qty || 0) : (+l.qty || 0) + (+l.bonus || 0), note: `${ret ? 'مرتجع لـ' : 'طلبية من'} ${p.supplier_name || 'مورد'}${p.invoice_no ? ` · فاتورة ${p.invoice_no}` : ''}`, ref: p.id });
+  }
+  for (const m of moves) if (String(m.code) === c && +m.qty) out.push({ at: String(m.happened_at), kind: `move-${m.kind}`, qty: +m.qty, note: [moveLabel(m.kind), m.person, m.note].filter(Boolean).join(' · '), ref: m.id });
+  for (const s of sales) for (const l of s.lines || []) if (String(l.code) === c) {
+    const per = +l.per > 1 ? +l.per : 1;
+    const q = Math.round((+l.qty / per) * 10000) / 10000;
+    out.push({ at: String(s.sold_at), kind: s.kind === 'return' ? 'pos-return' : 'pos-sale', qty: s.kind === 'return' ? q : -q, note: `${s.kind === 'return' ? 'مرتجع' : 'بيع'} فاتورة ${s.number || ''}${s.employee_name ? ` · ${s.employee_name}` : ''}`, ref: s.id });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at));
 }

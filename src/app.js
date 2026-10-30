@@ -17,7 +17,7 @@ import { labelHtml } from './labels.js';
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
-import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
+import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue, itemHistory } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 // A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
@@ -535,7 +535,7 @@ function renderReorder(A, s) {
     return `<td>${egp(full * (1 - p.pct / 100))} <span class="muted strike n">${fmt(full)}</span></td>`;
   };
   const head = ['الصنف', 'في الرف', 'بيتسحب في الشهر', 'هيخلص بعد', 'اطلب', ...(sup.length ? ['المورد'] : []), 'التكلفة'];
-  const body = A.reorder.map((r) => `<tr>${nameCell(r, SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '')}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td>${supCell(r)}${costCell(r)}</tr>`);
+  const body = A.reorder.map((r) => `<tr>${nameCell(r, (SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '') + (r.belowMin ? ` <span class="pill warn">تحت الحد الأدنى (${fmt(r.min)})</span>` : ''))}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td>${supCell(r)}${costCell(r)}</tr>`);
   let orders = '';
   if (A.reorder.length) {
     const groups = ordersBySupplier(A.reorder, sup, chosen);
@@ -1218,7 +1218,8 @@ const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year
 async function loadInventory() {
   try {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
-      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')
+      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')
+        .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at') : Promise.reject(e)))
         .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at') : Promise.reject(e))),
       loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, kind, created_at', 'received_on')
         .catch((e) => (e.missing ? loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on') : Promise.reject(e))),
@@ -1278,6 +1279,8 @@ function itemForm() {
       <label>عدد الشرايط في العلبة (للبيع بالشريط)<input id="itStrips" type="number" min="1" max="1000" step="1" inputmode="numeric" value="${esc(f.strips ?? '')}" placeholder="مثلاً 3"></label>
       <label>عدد الحبايات في العلبة (للبيع بالحباية)<input id="itPills" type="number" min="1" max="10000" step="1" inputmode="numeric" value="${esc(f.pills ?? '')}" placeholder="اختياري"></label>
       <label>المادة الفعالة (عشان البدائل)<input id="itGeneric" maxlength="160" value="${esc(f.generic ?? '')}" placeholder="مثلاً: paracetamol"></label>
+      <label>الشركة المصنّعة<input id="itMaker" maxlength="120" value="${esc(f.maker ?? '')}"></label>
+      <label>الحد الأدنى في الرف (علب)<input id="itMin" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.min ?? '')}" placeholder="تحته يبقى «ناقص»"></label>
       ${editing || f.forReceive ? '' : `<label>الكمية اللي عندك دلوقتي (اختياري)<input id="itQty" type="number" min="0" step="1" inputmode="numeric"></label>
       <label>الصلاحية (اختياري)<input id="itExp" type="month"></label>`}
     </div>
@@ -1288,8 +1291,18 @@ function itemForm() {
       : '<p class="note">عشان تعدّل الرصيد والصلاحية، اختار الفرع من فوق.</p>') : ''}
     <div class="row"><button class="btn primary" type="submit">${editing ? 'احفظ' : f.forReceive ? 'ضيفه وكمّل الطلبية' : 'ضيف الصنف'}</button><button class="btn" type="button" id="itemCancel">إلغاء</button><span class="note" id="itemMsg" role="status"></span></div>
     ${editing ? `<div class="row"><b>ملصقات باركود:</b><input id="lbCount" class="disc n" type="number" min="1" max="200" step="1" value="1" aria-label="عدد الملصقات"><button class="btn" type="button" id="printLabels">اطبع ملصقات</button>
-      <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>` : ''}
+      <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>
+      <details class="help"><summary>حركة الصنف</summary>${historyTable(f.code)}</details>` : ''}
   </form>`;
+}
+// Everything that moved one item in the branch on screen (last 200 entries).
+function historyTable(code) {
+  const b = BRANCH === 'all' ? BRANCHES[0] : BRANCHES.find((x) => key(x.id) === BRANCH);
+  const snap = SNAP.get(key(b?.id ?? null))?.data;
+  const here = inBranch(b);
+  const rows = itemHistory(code, { baseSales: snap?.sales || [], basePurchases: snap?.purchases || [], purchases: PURCHASES.filter(here), moves: MOVES.filter(here), sales: POS_SALES.filter(here) }).slice(0, 200);
+  if (!rows.length) return '<p class="empty">مفيش حركة متسجلة للصنف ده.</p>';
+  return `<div class="tablebox"><table><thead><tr><th>اليوم</th><th>الحركة</th><th>الكمية</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="n">${esc(String(r.at).slice(0, 16).replace('T', ' '))}</td><td>${esc(r.note)}</td><td class="n"><b class="${r.qty < 0 ? 'neg' : ''}">${r.qty > 0 ? '+' : ''}${fmt(r.qty)}</b></td></tr>`).join('')}</tbody></table></div>`;
 }
 function batchRows() {
   return ITEM_FORM.batches.map((b, i) => `<tr><td><input class="disc n" type="number" min="0" step="1" data-bq="${i}" value="${esc(b.qty)}" aria-label="الكمية"></td>
@@ -1326,7 +1339,8 @@ async function saveItem(e) {
   if (!f.code && DATA.items.some((i) => i.name.trim() === name)) return msg('فيه صنف بنفس الاسم. دوّر عليه وعدّله بدل ما تضيفه تاني.');
   const int = (id) => ($(id).value === '' ? null : Math.max(1, Math.round(+$(id).value || 1)));
   const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null,
-    strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null };
+    strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null,
+    maker: $('itMaker').value.trim() || null, min_qty: $('itMin').value === '' ? null : Math.max(0, +$('itMin').value || 0) };
   const qty = +($('itQty')?.value || 0), exp = $('itExp')?.value;
   if (f.batches?.some((b) => b.qty !== '' && (!(+b.qty >= 0)))) return msg('الكمية لازم تبقى صفر أو أكتر.');
   const moves = f.batches ? stockEdits(f.orig, f.batches.filter((b) => +b.qty > 0).map((b) => ({ qty: +b.qty, expiry: b.expiry || null }))) : [];
@@ -1336,7 +1350,8 @@ async function saveItem(e) {
     const row = CATALOG.find((c) => c.code === code);
     const it = DATA.items.find((i) => i.code === code);
     const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null)
-      || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic;
+      || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic
+      || (it.maker || null) !== fields.maker || (it.min || null) !== (fields.min_qty > 0 ? fields.min_qty : null);
     if (row && changed) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
     else if (!row && changed) await localInsert('catalog_items', { code, ...fields });
     const t0 = Date.now();
@@ -1740,7 +1755,7 @@ $('panel').addEventListener('click', (e) => {
     const i = DATA.items.find((x) => x.code === t('edititem')); const c = CATALOG.find((x) => x.code === i?.code);
     if (i) {
       const batches = needBranch() ? null : editableBatches(i);
-      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
+      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', maker: i.maker || '', min: i.min || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
       ITEM_NOTE = ''; render(); $('itemForm')?.scrollIntoView({ block: 'center' });
     }
   }
