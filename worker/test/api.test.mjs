@@ -150,6 +150,22 @@ test('plans: limits on branches and accounts are kept by the server; AI is off w
   assert.equal((await owner.call('/api/ai', { pharmacy: P, messages: [], tools: [] })).status, 501);
 });
 
+test('item photos and closing a day', { skip }, async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+  const url = `${BASE}/api/item-image?pharmacy=${P}&code=A1`;
+  const put = (u, body, type = 'image/png') => fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${u.token()}`, 'Content-Type': type }, body });
+  assert.equal((await put(partner, png)).status, 403, 'partners do not change photos');
+  assert.equal((await put(owner, png, 'text/html')).status, 400);
+  assert.equal((await put(owner, png)).status, 200);
+  const got = await fetch(url, { headers: { Authorization: `Bearer ${device.token()}` } });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('Content-Type'), 'image/png');
+  assert.ok([401, 403].includes((await fetch(url)).status), 'not without signing in');
+  assert.equal((await owner.insert('day_closes', { id: uuid(), pharmacy_id: P, branch_id: B, day: '2026-10-30', totals: { sales: 100 }, expected_cash: 80, counted_cash: 75 })).error, null);
+  assert.equal((await device.insert('day_closes', { id: uuid(), pharmacy_id: P, day: '2026-10-30', totals: {} })).status, 403);
+  assert.equal((await partner.select('day_closes', 'counted_cash', [['pharmacy_id', 'eq', P]])).data[0].counted_cash, 75);
+});
+
 test('cashier PIN, shifts, and the log of changes', { skip }, async () => {
   assert.equal((await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'سارة', p_pin: '1234' })).error, null);
   assert.match((await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'تانية', p_pin: '1234' })).error.message, /PIN already used/);

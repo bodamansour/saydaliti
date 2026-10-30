@@ -218,3 +218,16 @@ export function returnableLines(sale, returns = []) {
     return out;
   }).filter((r) => r.left > 0.0005);
 }
+
+// ---------- VAT ----------
+// Prices include VAT. The VAT inside a bill: each line's net (after its discount and its share of the
+// bill discount) × tax/(100+tax). Lines with no tax (most medicines) add nothing.
+export function vatOf(lines, billDiscount = 0) {
+  const ls = (lines || []).filter((l) => +l.qty);
+  const nets = ls.map((l) => toPt(l.price) * +l.qty - toPt(l.discount));
+  const gross = nets.reduce((a, x) => a + x, 0);
+  const extra = Math.max(0, toPt(billDiscount) - ls.reduce((a, l) => a + toPt(l.discount), 0));
+  let v = 0;
+  ls.forEach((l, i) => { const t = +l.tax || 0; if (t > 0) { const net = nets[i] - (gross > 0 ? (extra * nets[i]) / gross : 0); v += (net * t) / (100 + t); } });
+  return toEgp(Math.round(v));
+}

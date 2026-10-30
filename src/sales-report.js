@@ -1,6 +1,6 @@
 // Receipts of a day (or any period): finding one fast, what was sold, and the day's report.
 // Pure functions, no DOM: shared by the dashboard, the cashier and the tests.
-import { normalize, daySummary, toPt, toEgp, boxQty } from './pos.js';
+import { normalize, daySummary, toPt, toEgp, boxQty, vatOf } from './pos.js';
 
 // A receipt matches when its number, one of its items, its customer or its cashier contains the text.
 export function matchSale(sale, q, customerName = '') {
@@ -76,7 +76,8 @@ export function salesReport(sales, costOf) {
   const known = items.filter((i) => i.cost !== null);
   const profit = known.length ? Math.round(known.reduce((a, i) => a + i.profit, 0) * 100) / 100 : null;
   const deliveries = sales.filter((s) => s.kind !== 'return' && (+s.delivery_fee || s.delivery_to));
-  return { summary: daySummary(sales), items, hours: byHour(sales), employees: byEmployee(sales), profit, costMissing: items.length - known.length,
+  const vat = Math.round(sales.reduce((a, x) => a + (x.kind === 'return' ? -1 : 1) * vatOf(x.lines, x.discount), 0) * 100) / 100;
+  return { summary: daySummary(sales), items, hours: byHour(sales), employees: byEmployee(sales), vat, profit, costMissing: items.length - known.length,
     delivery: { count: deliveries.length, fees: Math.round(deliveries.reduce((a, s) => a + (+s.delivery_fee || 0), 0) * 100) / 100 } };
 }
 

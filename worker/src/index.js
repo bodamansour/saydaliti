@@ -64,6 +64,29 @@ async function api(req, env, url) {
     throw new ApiError('not found', '404', 404);
   }
   if (path === '/api/ai/status') return json({ data: { enabled: !!env.ANTHROPIC_API_KEY }, error: null });
+  // An item's photo (R2: images/<pharmacy>/<code>): anyone in the pharmacy reads it; the owner and the
+  // stock manager put a small picture (made small on the device, at most 300 KB).
+  if (path === '/api/item-image') {
+    const ctx = await contextOf(env, req);
+    const p = url.searchParams.get('pharmacy') || '', code = url.searchParams.get('code') || '';
+    if (!/^[\w-]{1,80}$/.test(p) || !code || code.length > 60) throw new ApiError('bad request', '400', 400);
+    const k = `images/${p}/${encodeURIComponent(code)}`;
+    if (req.method === 'GET') {
+      requireRole(ctx, p, ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock']);
+      const obj = await env.FILES.get(k);
+      if (!obj) throw new ApiError('not found', '404', 404);
+      return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=86400' } });
+    }
+    requireRole(ctx, p, ['owner', 'stock']);
+    if (req.method === 'DELETE') { await env.FILES.delete(k); return json({ data: null, error: null }); }
+    if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
+    const type = req.headers.get('Content-Type') || '';
+    if (!['image/jpeg', 'image/webp', 'image/png'].includes(type)) throw new ApiError('bad image', '400', 400);
+    const buf = await req.arrayBuffer();
+    if (buf.byteLength > 300 * 1024) throw new ApiError('image too large', '413', 413);
+    await env.FILES.put(k, buf, { httpMetadata: { contentType: type } });
+    return json({ data: null, error: null });
+  }
   if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
   if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req), error: null });
   if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req), error: null });

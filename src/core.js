@@ -172,7 +172,7 @@ export function fromExport(json) {
   for (const b of json.batches || []) {
     const code = String(b.code).trim();
     if (!byCode.has(code)) byCode.set(code, []);
-    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry), ...(+b.cost > 0 ? { cost: +b.cost } : {}), ...(+b.price > 0 ? { price: +b.price } : {}) });
+    byCode.get(code).push({ qty: +b.qty || 0, expiry: d(b.expiry), ...(+b.cost > 0 ? { cost: +b.cost } : {}), ...(+b.price > 0 ? { price: +b.price } : {}), ...(b.lot ? { lot: String(b.lot) } : {}) });
   }
   const items = (json.items || []).filter((i) => i.code != null).map((i) => {
     const code = String(i.code).trim();
@@ -186,6 +186,7 @@ export function fromExport(json) {
       ...(i.generic ? { generic: String(i.generic).trim() } : {}),
       ...(i.maker ? { maker: String(i.maker).trim() } : {}),
       ...(+i.min > 0 ? { min: +i.min } : {}),
+      ...(+i.tax > 0 ? { tax: +i.tax } : {}),
       category: String(i.category ?? '').trim() || 'غير محدد',
       owner: String(i.owner ?? '').trim() || UNASSIGNED,
       cost: +i.cost || 0,
@@ -227,10 +228,11 @@ export function toExport(data) {
     if (i.generic) row.generic = t(i.generic);
     if (i.maker) row.maker = t(i.maker);
     if (+i.min > 0) row.min = +i.min;
+    if (+i.tax > 0) row.tax = +i.tax;
     if (i.qty && !i.batches?.length) row.qty = i.qty;
     if (i.expiry && !i.batches?.length) row.expiry = iso(i.expiry);
     items.push(row);
-    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry), ...(b.cost != null && b.cost !== i.cost ? { cost: b.cost } : {}), ...(b.price != null && b.price !== i.price ? { price: b.price } : {}) });
+    for (const b of i.batches || []) batches.push({ code: t(i.code), qty: b.qty, expiry: iso(b.expiry), ...(b.cost != null && b.cost !== i.cost ? { cost: b.cost } : {}), ...(b.price != null && b.price !== i.price ? { price: b.price } : {}), ...(b.lot ? { lot: b.lot } : {}) });
   }
   const sales = data.sales.map((x) => ({ code: t(x.code), date: iso(x.date), qty: x.qty,
     amount: x.price != null ? x.price * x.qty : null, ...(x.discount ? { discount: x.discount } : {}), ...(x.cost != null ? { cost: x.cost } : {}) }));
