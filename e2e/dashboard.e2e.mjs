@@ -770,6 +770,27 @@ test('public pages open', async () => {
   }
 });
 
+test('English interface: the button switches the dashboard and cashier to English, and back', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.waitForLoadState('networkidle');
+  await page.click('[data-langbtn]');
+  await page.waitForSelector('html[dir=ltr]');
+  await page.waitForSelector('#app:not([hidden])');
+  assert.equal(await page.getAttribute('html', 'lang'), 'en');
+  assert.ok(await until(async () => (await page.locator('#sections .sec').allInnerTexts()).includes('Summary'), 10000));
+  assert.ok((await page.locator('#sections .sec').allInnerTexts()).includes('Stock'));
+  await shot('english-dashboard');
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  assert.equal(await page.getAttribute('html', 'dir'), 'ltr');
+  assert.match(await page.getAttribute('#q', 'placeholder'), /Scan/);
+  await shot('english-cashier');
+  await page.click('[data-langbtn]');
+  await page.waitForSelector('html[dir=rtl]');
+  assert.equal(await page.evaluate(() => localStorage.getItem('saydaliti-lang')), 'ar');
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });
