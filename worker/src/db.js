@@ -1,309 +1,231 @@
-// The data API: the app sends a query ({ table, op, cols, filters, order, range, limit, rows, patch })
-// and this checks it against the rules in schema.js before running it on D1 â€” the same checks the
-// Supabase database did with row-level security. Anything not allowed is refused, never trimmed.
-import { TABLES } from './schema.js';
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíëM:N‹Z–‹­¦ëeŠw¬Ô¼¼Q¡”‘…Ñ„A$èÑ¡”…ÁÀÍ•¹‘Ì„ÅÕ•Éä€¡ìÑ…‰±”°½À°½±Ì°™¥±Ñ•ÉÌ°½É‘•È°É…¹”°±¥µ¥Ð°É½ÝÌ°Á…Ñ ô¤4(¼¼…¹Ñ¡¥Ì¡•­Ì¥Ð……¥¹ÍÐÑ¡”ÉÕ±•Ì¥¸Í¡•µ„¹©Ì‰•™½É”ÉÕ¹¹¥¹œ¥Ð½¸ÄƒŠPÑ¡”Í…µ”¡•­ÌÑ¡”4(¼¼MÕÁ…‰…Í”‘…Ñ…‰…Í”‘¥Ý¥Ñ É½Üµ±•Ù•°Í•ÕÉ¥Ñä¸¹åÑ¡¥¹œ¹½Ð…±±½Ý•¥ÌÉ•™ÕÍ•°¹•Ù•ÈÑÉ¥µµ•¸4)¥µÁ½ÉÐìQ	1Lô™É½´€œ¸½Í¡•µ„¹©Ìœì4(4)•áÁ½ÉÐ±…ÍÌÁ¥ÉÉ½È•áÑ•¹‘ÌÉÉ½Èì4(€½¹ÍÑÉÕÑ½È¡µ•ÍÍ…”°½‘”€ô€@ÀÀÀÄœ°ÍÑ…ÑÕÌ€ô€ÐÀÀ¤ìÍÕÁ•È¡µ•ÍÍ…”¤ìÑ¡¥Ì¹½‘”€ô½‘”ìÑ¡¥Ì¹ÍÑ…ÑÕÌ€ôÍÑ…ÑÕÌìô4)ô4)•áÁ½ÉÐ½¹ÍÐ¹½Ý%Í¼€ô€ ¤€ôø¹•Ü…Ñ” ¤¹Ñ½%M=MÑÉ¥¹œ ¤ì4)•áÁ½ÉÐ½¹ÍÐÑ½‘…å%Í¼€ô€ ¤€ôø¹½Ý%Í¼ ¤¹Í±¥” À°€ÄÀ¤ì4)•áÁ½ÉÐ½¹ÍÐÕÕ¥€ô€ ¤€ôøÉåÁÑ¼¹É…¹‘½µUU% ¤ì4)½¹ÍÐ%9P€ô€½ym„µé}um„µèÀ´å}t¨¼ì4)½¹ÍÐUU%}I€ô€½ylÀ´å„µ™uìáôµlÀ´å„µ™uìÑôµlÀ´å„µ™uìÑôµlÀ´å„µ™uìÑôµlÀ´å„µ™uìÄÉô½¤ì4(4)•áÁ½ÉÐ™Õ¹Ñ¥½¸Ñ…‰±•=˜¡¹…µ”°ì…±±½Ý%¹Ñ•É¹…°€ô™…±Í”ô€ôíô¤ì4(€½¹ÍÐÐ€ôQ	1Mm¹…µ•tì4(€¥˜€ …Ðñð€¡Ð¹¥¹Ñ•É¹…°€˜˜€……±±½Ý%¹Ñ•É¹…°¤¤Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È¡É•±…Ñ¥½¸€‰ÁÕ‰±¥Œ¸‘í¹…µ•ôˆ‘½•Ì¹½Ð•á¥ÍÑ€°€œÐÉ@ÀÄœ°€ÐÀÐ¤ì4(€É•ÑÕÉ¸Ðì4)ô4)½¹ÍÐ½±MÁ•Œ€ô€¡Ð°Ñ…‰±”°½°¤€ôøì4(€¥˜€ …%9P¹Ñ•ÍÐ¡MÑÉ¥¹œ¡½°¤¤ñð€…Ð¹½±Ím½±t¤Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È¡½±Õµ¸€‘íÑ…‰±•ô¸‘í½±ô‘½•Ì¹½Ð•á¥ÍÑ€°€œÐÈÜÀÌœ¤ì4(€É•ÑÕÉ¸Ð¹½±Ím½±tì4)ôì4(4(¼¼€´´´´´´´´´´Y…±Õ•Ì¥¸…¹½ÕÐ½˜ME1¥Ñ”€´´´´´´´´´´4)•áÁ½ÉÐ™Õ¹Ñ¥½¸Ñ½ˆ¡ÑåÁ”°Ø¤ì4(€¥˜€¡Ø€ôôôÕ¹‘•™¥¹•¤É•ÑÕÉ¸Õ¹‘•™¥¹•ì4(€¥˜€¡Ø€ôôô¹Õ±°¤É•ÑÕÉ¸¹Õ±°ì4(€¥˜€¡ÑåÁ”€ôôô€‰½½°œ¤É•ÑÕÉ¸Ø€ü€Ä€è€Àì4(€¥˜€¡ÑåÁ”€ôôô€©Í½¸œ¤É•ÑÕÉ¸)M=8¹ÍÑÉ¥¹¥™ä¡Ø¤ì4(€¥˜€¡ÑåÁ”€ôôô€¥¹ÐœñðÑåÁ”€ôôô€Í•É¥…°œ¤É•ÑÕÉ¸5…Ñ ¹ÑÉÕ¹Œ ­Ø¤ì4(€¥˜€¡ÑåÁ”€ôôô€¹Õ´œ¤É•ÑÕÉ¸€­Øì4(€É•ÑÕÉ¸MÑÉ¥¹œ¡Ø¤ì4)ô4)•áÁ½ÉÐ™Õ¹Ñ¥½¸™É½µˆ¡Ð°É½Ü¤ì4(€½¹ÍÐ½ÕÐ€ôíôì4(€™½È€¡½¹ÍÐm¬°Ùt½˜=‰©•Ð¹•¹ÑÉ¥•Ì¡É½Ü¤¤ì4(€€€½¹ÍÐÑåÁ”€ôÐ¹½±Ím­tü¹lÁtì4(€€€¥˜€¡Ø€ôôô¹Õ±°ñðØ€ôôôÕ¹‘•™¥¹•¤½ÕÑm­t€ô¹Õ±°ì4(€€€•±Í”¥˜€¡ÑåÁ”€ôôô€‰½½°œ¤½ÕÑm­t€ô€„…Øì4(€€€•±Í”¥˜€¡ÑåÁ”€ôôô€©Í½¸œ¤ìÑÉäì½ÕÑm­t€ô)M=8¹Á…ÉÍ”¡Ø¤ìô…Ñ ì½ÕÑm­t€ô¹Õ±°ìôô4(€€€•±Í”½ÕÑm­t€ôØì4(€ô4(€É•ÑÕÉ¸½ÕÐì4)ô4(4(¼¼¡•­Ì½¹”Ù…±Õ”……¥¹ÍÐ¥ÑÌ½±Õµ¸€¡±¥­”Ñ¡”!,½¹ÍÑÉ…¥¹ÑÌ¥¸A½ÍÑÉ•Ì¤¸4)™Õ¹Ñ¥½¸¡•­Y…±Õ”¡Ñ…‰±”°½°°mÑåÁ”°¼€ôíõt°Ø¤ì4(€½¹ÍÐ‰…€ô€¡Ý¡ä¤€ôøìÑ¡É½Ü¹•ÜÁ¥ÉÉ½È¡¹•ÜÉ½Ü™½ÈÉ•±…Ñ¥½¸€ˆ‘íÑ…‰±•ôˆÙ¥½±…Ñ•Ì¡•¬½¹ÍÑÉ…¥¹Ð€ ‘í½±ôè€‘íÝ¡åô¥€°€œÈÌÔÄÐœ¤ìôì4(€¥˜€¡Ø€ôôô¹Õ±°ñðØ€ôôôÕ¹‘•™¥¹•¤ì¥˜€¡¼¹¹¸€˜˜¼¹‘•˜€ôôôÕ¹‘•™¥¹•€˜˜ÑåÁ”€„ôô€Í•É¥…°œ¤‰… É•ÅÕ¥É•œ¤ìÉ•ÑÕÉ¸ìô4(€¥˜€¡ÑåÁ”€ôôô€¥œ€˜˜€…UU%}I¹Ñ•ÍÐ¡MÑÉ¥¹œ¡Ø¤¤¤‰… ¹½Ð…¸¥œ¤ì4(€¥˜€ ¡ÑåÁ”€ôôô€¹Õ´œñðÑåÁ”€ôôô€¥¹Ðœ¤€˜˜€…9Õµ‰•È¹¥Í¥¹¥Ñ” ­Ø¤¤‰… ¹½Ð„¹Õµ‰•Èœ¤ì4(€¥˜€¡ÑåÁ”€ôôô€¹Õ´œñðÑåÁ”€ôôô€¥¹Ðœ¤ì4(€€€¥˜€¡¼¹µ¥¸€„ôôÕ¹‘•™¥¹•€˜˜€­Ø€ð¼¹µ¥¸¤‰… Ñ½¼Íµ…±°œ¤ì4(€€€¥˜€¡¼¹µ…áØ€„ôôÕ¹‘•™¥¹•€˜˜€­Ø€ø¼¹µ…áØ¤‰… Ñ½¼±…É”œ¤ì4(€€€¥˜€¡¼¹¹½¹é•É¼€˜˜€­Ø€ôôô€À¤‰… é•É¼œ¤ì4(€ô4(€¥˜€¡ÑåÁ”€ôôô€Ñ•áÐœ¤ì4(€€€½¹ÍÐÌ€ôMÑÉ¥¹œ¡Ø¤ì4(€€€¥˜€¡¼¹µ…à€˜˜Ì¹±•¹Ñ €ø¼¹µ…à¤‰… Ñ½¼±½¹œœ¤ì4(€€€¥˜€¡¼¹ÑÉ¥´€˜˜€…Ì¹ÑÉ¥´ ¤¤‰… •µÁÑäœ¤ì4(€€€¥˜€¡¼¹¥¸€˜˜€…¼¹¥¸¹¥¹±Õ‘•Ì¡Ì¤¤‰… ¹½Ð…±±½Ý•œ¤ì4(€€€¥˜€¡¼¹É”€˜˜€…¹•ÜI•áÀ¡¼¹É”¤¹Ñ•ÍÐ¡Ì¤¤‰… ÝÉ½¹œ™½Éµ…Ðœ¤ì4(€ô4(€¥˜€¡ÑåÁ”€ôôô€‘…Ñ”œ€˜˜€„½yq‘ìÑôµq‘ìÉôµq‘ìÉô¼¹Ñ•ÍÐ¡MÑÉ¥¹œ¡Ø¤¤¤‰… ¹½Ð„‘…Ñ”œ¤ì4(€¥˜€¡ÑåÁ”€ôôô€ÑÌœ€˜˜9Õµ‰•È¹¥Í9…8¡…Ñ”¹Á…ÉÍ”¡Ø¤¤¤‰… ¹½Ð„Ñ¥µ”œ¤ì4(€¥˜€¡ÑåÁ”€ôôô€‰½½°œ€˜˜¼¹µÕÍÐ€˜˜€…Ø¤‰… µÕÍÐ‰”ÑÉÕ”œ¤ì4(€¥˜€¡ÑåÁ”€ôôô€©Í½¸œ€˜˜¼¹…ÉÉ…ä€˜˜€ …ÉÉ…ä¹¥ÍÉÉ…ä¡Ø¤ñðØ¹±•¹Ñ €ð¼¹…ÉÉ…ålÁtñðØ¹±•¹Ñ €ø¼¹…ÉÉ…ålÅt¤¤‰… ±¥ÍÐÍ¥é”œ¤ì4)ô4)™Õ¹Ñ¥½¸Ý¥Ñ¡•™…Õ±ÑÌ¡Ð°É½Ü¤ì4(€½¹ÍÐ½ÕÐ€ôì€¸¸¹É½Üôì4(€™½È€¡½¹ÍÐm½°°mÑåÁ”°¼€ôíõut½˜=‰©•Ð¹•¹ÑÉ¥•Ì¡Ð¹½±Ì¤¤ì4(€€€¥˜€¡½ÕÑm½±t€„ôôÕ¹‘•™¥¹•€˜˜½ÕÑm½±t€„ôô¹Õ±°¤½¹Ñ¥¹Õ”ì4(€€€¥˜€¡ÑåÁ”€ôôô€Í•É¥…°œ¤ì‘•±•Ñ”½ÕÑm½±tì½¹Ñ¥¹Õ”ìô4(€€€¥˜€¡¼¹‘•˜€ôôôÕ¹‘•™¥¹•¤½¹Ñ¥¹Õ”ì4(€€€¥˜€¡½ÕÑm½±t€ôôô¹Õ±°€˜˜€…¼¹¹¸¤½¹Ñ¥¹Õ”ì4(€€€½ÕÑm½±t€ô¼¹‘•˜€ôôô€¹½Üœ€ü¹½Ý%Í¼ ¤€è¼¹‘•˜€ôôô€Ñ½‘…äœ€üÑ½‘…å%Í¼ ¤€è¼¹‘•˜€ôôô€ÕÕ¥œ€üÕÕ¥ ¤€è¼¹‘•˜ì4(€ô4(€É•ÑÕÉ¸½ÕÐì4)ô4(4)™Õ¹Ñ¥½¸Õ…É‘•‘I•ÑÕÉ¹%¹Í•ÉÐ¡•¹Ø°É½Ü°½±Ì°¥¹½É•ÕÁ±¥…Ñ•Ì¤ì4(€½¹ÍÐ½‘”€ô€¡±¥¹”¤€ôøMP¡©Í½¹}•áÑÉ…Ð ‘í±¥¹•ô¹Ù…±Õ”°€œ¹½‘”œ¤LQaP¥€ì4(€½¹ÍÐÅÑä€ô€¡±¥¹”¤€ôø=1M¡MP¡©Í½¹}•áÑÉ…Ð ‘í±¥¹•ô¹Ù…±Õ”°€œ¹ÅÑäœ¤LI0¤°€À¤€¼M]!8MP¡©Í½¹}•áÑÉ…Ð ‘í±¥¹•ô¹Ù…±Õ”°€œ¹Á•Èœ¤LI0¤€ø€ÄQ!8MP¡©Í½¹}•áÑÉ…Ð ‘í±¥¹•ô¹Ù…±Õ”°€œ¹Á•Èœ¤LI0¤1M€Ä9€ì4(€½¹ÍÐÍÅ°€ô]%Q Í½ÕÉ•}Í…±”L€ 4(€€€€€M1P±¥¹•ÌI=4Á½Í}Í…±•Ì]!I¥€ô€ü9Á¡…Éµ…å}¥€ô€ü9­¥¹€ô€Í…±”œ4(€€€€¤°Í½±L€ 4(€€€€€M1P€‘í½‘” ±¥¹”œ¥ôL½‘”°MU4 ‘íÅÑä ±¥¹”œ¥ô¤LÅÑäI=4Í½ÕÉ•}Í…±”Í…±”°©Í½¹}•… ¡Í…±”¹±¥¹•Ì¤±¥¹”I=U@	d½‘”4(€€€€¤°É•ÑÕÉ¹•L€ 4(€€€€€M1P€‘í½‘” ±¥¹”œ¥ôL½‘”°MU4 ‘íÅÑä ±¥¹”œ¥ô¤LÅÑäI=4Á½Í}Í…±•ÌÀ°©Í½¹}•… ¡À¹±¥¹•Ì¤±¥¹”4(€€€€€]!IÀ¹­¥¹€ô€É•ÑÕÉ¸œ9À¹É•ÑÕÉ¹}½˜€ô€ü9À¹Á¡…Éµ…å}¥€ô€ü9À¹¥€ðø€üI=U@	d½‘”4(€€€€¤°É•ÅÕ•ÍÑ•L€ 4(€€€€€M1P€‘í½‘” ±¥¹”œ¥ôL½‘”°MU4 ‘íÅÑä ±¥¹”œ¥ô¤LÅÑäI=4©Í½¹}•…  ü¤±¥¹”I=U@	d½‘”4(€€€€¤4(€€€%9MIP%9Q<Á½Í}Í…±•Ì€ ‘í½±Ì¹©½¥¸ œ°€œ¥ô¤4(€€€M1P€‘í½±Ì¹µ…À ¡Œ¤€ôøŒ€ôôô€¥œ€ü€M]!8a%MQL€¡M1P€ÄI=4Í½ÕÉ•}Í…±”¤99=Pa%MQL€¡M1P€ÄI=4É•ÅÕ•ÍÑ•È1P)=%8Í½±Ì=8Ì¹½‘”%LÈ¹½‘”1P)=%8É•ÑÕÉ¹•ˆ=8ˆ¹½‘”%LÈ¹½‘”]!IÈ¹ÅÑä€ø=1M¡Ì¹ÅÑä°€À¤€´=1M¡ˆ¹ÅÑä°€À¤€¬€À¸ÀÀÀÄ¤Q!8€ü1M9U109œ€è€œüœ¤¹©½¥¸ œ°€œ¥ô4(€€€€‘í¥¹½É•ÕÁ±¥…Ñ•Ì€ü€=8=91%P¡¥¤<9=Q!%9œ€è€œõ€ì4(€½¹ÍÐÙ…±Õ•Ì€ô½±Ì¹µ…À ¡Œ¤€ôøŒ€ôôô€¥œ€üÉ½Ü¹¥€èÑ½ˆ¡Q	1L¹Á½Í}Í…±•Ì¹½±ÍmulÁt°É½Ýmt¤¤ì4(€É•ÑÕÉ¸•¹Ø¹¹ÁÉ•Á…É”¡ÍÅ°¤¹‰¥¹¡É½Ü¹É•ÑÕÉ¹}½˜°É½Ü¹Á¡…Éµ…å}¥°É½Ü¹É•ÑÕÉ¹}½˜°É½Ü¹Á¡…Éµ…å}¥°É½Ü¹¥°)M=8¹ÍÑÉ¥¹¥™ä¡É½Ü¹±¥¹•Ì¤°€¸¸¹Ù…±Õ•Ì¤ì4)ô4(4(¼¼€´´´´´´´´´´]¡¼µ…ä‘¼Ý¡…Ð€´´´´´´´´´´4(¼¼ÑàèìÕÍ•Èèì¥ôð¹Õ±°°É½±•Ìè5…À¡Á¡…Éµ…å%ƒŠHÉ½±”¤°…‘µ¥¸ô4)½¹ÍÐÁ¡…Éµ…¥•Í]¥Ñ €ô€¡Ñà°É½±•Ì¤€ôøl¸¸¹Ñà¹É½±•Ít¹™¥±Ñ•È ¡l°Ét¤€ôøÉ½±•Ì¹¥¹±Õ‘•Ì¡È¤¤¹µ…À ¡mÁt¤€ôøÀ¤ì4)•áÁ½ÉÐ™Õ¹Ñ¥½¸É•ÅÕ¥É•I½±”¡Ñà°Á¡…Éµ…å%°É½±•Ì¤ì4(€¥˜€ …Ñà¹ÕÍ•È¤Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È ¹½ÐÍ¥¹•¥¸œ°€œÐÈÔÀÄœ°€ÐÀÄ¤ì4(€¥˜€ …É½±•Ì¹¥¹±Õ‘•Ì¡Ñà¹É½±•Ì¹•Ð¡MÑÉ¥¹œ¡Á¡…Éµ…å%¤¤¤¤Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È ¹½Ð…±±½Ý•œ°€œÐÈÔÀÄœ°€ÐÀÌ¤ì4)ô4(4)™Õ¹Ñ¥½¸É•…‘M½Á”¡Ñà°Ñ…‰±”°Ð¤ì4(€¥˜€¡Ð¹É•…€ôôô€ÁÕ‰±¥Œœ¤É•ÑÕÉ¸ìÍÅ°è€œœ°…ÉÌèmtôì4(€¥˜€ …Ñà¹ÕÍ•È¤Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È ¹½ÐÍ¥¹•¥¸œ°€œÐÈÔÀÄœ°€ÐÀÄ¤ì4(€¥˜€¡Ð¹É•…€ôôô€Í•±˜œ¤É•ÑÕÉ¸ìÍÅ°è€ÕÍ•É}¥€ô€üœ°…ÉÌèmÑà¹ÕÍ•È¹¥‘tôì4(€½¹ÍÐ¥‘Ì€ôÁ¡…Éµ…¥•Í]¥Ñ ¡Ñà°Ð¹É•…ñðmt¤ì4(€¥˜€ …¥‘Ì¹±•¹Ñ ¤É•ÑÕÉ¸ìÍÅ°è€œÀœ°…ÉÌèmtôì4(€É•ÑÕÉ¸ìÍÅ°è€‘íÐ¹Ñ•¹…¹Ðñð€Á¡…Éµ…å}¥ô%8€ ‘í¥‘Ì¹µ…À  ¤€ôø€œüœ¤¹©½¥¸ œ°€œ¥ô¥€°…ÉÌè¥‘Ìôì4)ô4(4)™Õ¹Ñ¥½¸Ý¡•É•=˜¡Ð°Ñ…‰±”°™¥±Ñ•ÉÌ€ômt¤ì4(€½¹ÍÐÁ…ÉÑÌ€ômt°…ÉÌ€ômtì4(€™½È€¡½¹ÍÐ˜½˜™¥±Ñ•ÉÌ¤ì4(€€€½¹ÍÐm½°°½À°Ù…±t€ô˜ì4(€€€½¹ÍÐmÑåÁ•t€ô½±MÁ•Œ¡Ð°Ñ…‰±”°½°¤ì4(€€€¥˜€¡½À€ôôô€•Äœ¤ì¥˜€¡Ù…°€ôôô¹Õ±°¤Á…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô%L9U11€¤ì•±Í”ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô€ô€ý€¤ì…ÉÌ¹ÁÕÍ ¡Ñ½ˆ¡ÑåÁ”°Ù…°¤¤ìôô4(€€€•±Í”¥˜€¡½À€ôôô€¹•Äœ¤ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô€ðø€ý€¤ì…ÉÌ¹ÁÕÍ ¡Ñ½ˆ¡ÑåÁ”°Ù…°¤¤ìô4(€€€•±Í”¥˜€¡½À€ôôô€Ñ”œ¤ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô€øô€ý€¤ì…ÉÌ¹ÁÕÍ ¡Ñ½ˆ¡ÑåÁ”°Ù…°¤¤ìô4(€€€•±Í”¥˜€¡½À€ôôô€Ðœ¤ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô€ø€ý€¤ì…ÉÌ¹ÁÕÍ ¡Ñ½ˆ¡ÑåÁ”°Ù…°¤¤ìô4(€€€•±Í”¥˜€¡½À€ôôô€±Ñ”œ¤ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô€ðô€ý€¤ì…ÉÌ¹ÁÕÍ ¡Ñ½ˆ¡ÑåÁ”°Ù…°¤¤ìô4(€€€•±Í”¥˜€¡½À€ôôô€±Ðœ¤ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô€ð€ý€¤ì…ÉÌ¹ÁÕÍ ¡Ñ½ˆ¡ÑåÁ”°Ù…°¤¤ìô4(€€€•±Í”¥˜€¡½À€ôôô€¹½Ñ¹Õ±°œ¤Á…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô%L9=P9U11€¤ì4(€€€•±Í”¥˜€¡½À€ôôô€¥Í¹Õ±°œ¤Á…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô%L9U11€¤ì4(€€€•±Í”¥˜€¡½À€ôôô€¥¸œ€˜˜ÉÉ…ä¹¥ÍÉÉ…ä¡Ù…°¤€˜˜Ù…°¹±•¹Ñ ¤ìÁ…ÉÑÌ¹ÁÕÍ ¡€‘í½±ô%8€ ‘íÙ…°¹µ…À  ¤€ôø€œüœ¤¹©½¥¸ œ°€œ¥ô¥€¤ì…ÉÌ¹ÁÕÍ  ¸¸¹Ù…°¹µ…À ¡Ø¤€ôøÑ½ˆ¡ÑåÁ”°Ø¤¤¤ìô4(€€€•±Í”Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È¡Õ¹ÍÕÁÁ½ÉÑ•™¥±Ñ•È€‘í½Áõ€°€AIMPÄÀÀœ¤ì4(€ô4(€É•ÑÕÉ¸ìÁ…ÉÑÌ°…ÉÌôì4)ô4(4)™Õ¹Ñ¥½¸½±Õµ¹Í=˜¡Ð°Ñ…‰±”°½±Ì¤ì4(€½¹ÍÐÉ…Ü€ôMÑÉ¥¹œ¡½±Ìñð€œ¨œ¤¹ÍÁ±¥Ð œ°œ¤¹µ…À ¡Œ¤€ôøŒ¹ÑÉ¥´ ¤¤¹™¥±Ñ•È¡	½½±•…¸¤ì4(€½¹ÍÐ…±°€ô=‰©•Ð¹­•åÌ¡Ð¹½±Ì¤¹™¥±Ñ•È ¡Œ¤€ôø€„¡Ð¹¡¥‘‘•¸ñðmt¤¹¥¹±Õ‘•Ì¡Œ¤¤ì4(€½¹ÍÐ½ÕÐ€ômtì4(€±•Ð‰±½ˆ€ô™…±Í”ì4(€™½È€¡½¹ÍÐŒ½˜É…Ü¤ì4(€€€¥˜€¡Œ€ôôô€œ¨œ¤ì½ÕÐ¹ÁÕÍ  ¸¸¹…±°¤ì¥˜€¡Ð¹‰±½ˆ¤‰±½ˆ€ôÑÉÕ”ì½¹Ñ¥¹Õ”ìô4(€€€¥˜€¡Ð¹‰±½ˆ€˜˜Œ€ôôôÐ¹‰±½ˆ¤ì‰±½ˆ€ôÑÉÕ”ì½¹Ñ¥¹Õ”ìô4(€€€¥˜€ ¡Ð¹¡¥‘‘•¸ñðmt¤¹¥¹±Õ‘•Ì¡Œ¤¤Ñ¡É½Ü¹•ÜÁ¥ÉÉ½È¡Á•Éµ¥ÍÍ¥½¸‘•¹¥•™½È½±Õµ¸€‘íõ€°€œÐÈÔÀÄœ°€ÐÀÌ¤ì4(€€€½±MÁ•Œ¡Ð°Ñ…‰±”°Œ¤ì4(€€€½ÕÐ¹ÁÕÍ ¡Œ¤ì4(€ô4(€É•ÑÕÉ¸ì½±Ìèl¸¸¹¹•ÜM•Ð¡½ÕÐ¥t°‰±½ˆôì4)ô4(4(¼¼€´´´´´´´´´´M•±•Ð€´´´´´´´´´´4)•áÁ½ÉÐ…Íå¹Œ™Õ¹Ñ¥½¸Í•±•Ð¡Ñà°•¹Ø°Ä¤ì4(€½¹ÍÐÑ…‰±”€ôÄ¹Ñ…‰±”ì4(€¥˜€¡Ñ…‰±”€ôôô€µ•µ‰•ÉÌœ¤É•ÑÕÉ¸Í•±•Ñ5•µ‰•ÉÌ¡Ñà°•¹Ø°Ä¤ì4(€½¹ÍÐÐ€ôÑ…‰±•=˜¡Ñ…‰±”¤ì4(€½¹ÍÐì½±Ì°‰±½ˆô€ô½±Õµ¹Í=˜¡Ð°Ñ…‰±”°Ä¹½±Ì¤ì4(€½¹ÍÐÍ½Á”€ôÉ•…‘M½Á”¡Ñà°Ñ…‰±”°Ð¤ì4(€½¹ÍÐÜ€ôÝ¡•É•=˜¡Ð°Ñ…‰±”°Ä¹™¥±Ñ•ÉÌ¤ì4(€½¹ÍÐÝ¡•É”€ômÍ½Á”¹ÍÅ°°€¸¸¹Ü¹Á…ÉÑÍt¹™¥±Ñ•È¡	½½±•…¸¤ì4(€±•ÐÍÅ°€ôM1P€‘íl¸¸¹¹•ÜM•Ð¡l¸¸¹½±Ì°€¸¸¸¡‰±½ˆ€ümÐ¹Á­t€èmt¥t¥t¹©½¥¸ œ°€œ¥ôI=4€‘íÑ…‰±•ô‘íÝ¡•É”¹±•¹Ñ €ü€]!I€‘íÝ¡•É”¹©½¥¸ œ9€œ¥õ€€è€œõ€ì4(€¥˜€¡Ä¹½É‘•È¤ì½±MÁ•Œ¡Ð°Ñ…‰±”°Ä¹½É‘•È¹½°¤ìÍÅ°€¬ô€=IH	d€‘íÄ¹½É‘•È¹½±ô€‘íÄ¹½É‘•È¹…ÍŒ€ôôô™…±Í”€ü€Mœ€è€Mõ€ìô4(€½¹ÍÐ±¥´€ôÄ¹É…¹”€ü5…Ñ ¹µ…à À°Ä¹É…¹•lÅt€´Ä¹É…¹•lÁt€¬€Ä¤€èÄ¹±¥µ¥Ðì4(€½¹ÍÐ¸€ô5…Ñ ¹µ¥¸¡±¥´€üü€ÄÀÀÀ°€ÄÀÀÀ¤ì€¼¼±¥­”Ñ¡”Í•ÉÙ•ÈÌ€Ä°ÀÀÃ«h‘éì¶»§q«^w
+ÏHSRU	ÛŸIÜKœ˜[™ÙHÈÑ‘”ÑU	ÓX]›X^
+
+ÜKœ˜[™ÙVÌH
+_Xˆ	ÉßXÃBˆÛÛœÝ™\ÈH]ØZ][‹‘‹œ™\\™JÜ[
+K˜š[™
+‹‹œØÛÜK˜\™ÜË‹‹Ë˜\™ÜÊK˜[
 
-export class ApiError extends Error {
-  constructor(message, code = 'P0001', status = 400) { super(message); this.code = code; this.status = status; }
-}
-export const nowIso = () => new Date().toISOString();
-export const todayIso = () => nowIso().slice(0, 10);
-export const uuid = () => crypto.randomUUID();
-const IDENT = /^[a-z_][a-z0-9_]*$/;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+NÃBˆÛÛœÝ›ÝÜÈH™\Ëœ™\Ý[Ë›X\
 
-export function tableOf(name, { allowInternal = false } = {}) {
-  const t = TABLES[name];
-  if (!t || (t.internal && !allowInternal)) throw new ApiError(`relation "public.${name}" does not exist`, '42P01', 404);
-  return t;
-}
-const colSpec = (t, table, col) => {
-  if (!IDENT.test(String(col)) || !t.cols[col]) throw new ApiError(`column ${table}.${col} does not exist`, '42703');
-  return t.cols[col];
-};
+ŠHOˆœ›ÛQŠŠJNÃBˆYˆ
+X›ØŠH™]\›ˆÈ›ÝÜÈNÃBˆËÈH\ØYY]HÛÛY\Èœ›ÛHŒˆ\È^[™\È][ˆH[œÝÙ\ˆ\È\È
+›Ý\œÙY\™JKƒBˆÛÛœÝ˜]ÜÈH]ØZ]›ÛZ\ÙK˜[
+›ÝÜË›X\
+\Þ[˜È
+ŠHOˆ
+]ØZ][‹‘’STË™Ù]
+›Ø’Ù^JX›K–Ýœ×JJJOË^
 
-// ---------- Values in and out of SQLite ----------
-export function toDb(type, v) {
-  if (v === undefined) return undefined;
-  if (v === null) return null;
-  if (type === 'bool') return v ? 1 : 0;
-  if (type === 'json') return JSON.stringify(v);
-  if (type === 'int' || type === 'serial') return Math.trunc(+v);
-  if (type === 'num') return +v;
-  return String(v);
-}
-export function fromDb(t, row) {
-  const out = {};
-  for (const [k, v] of Object.entries(row)) {
-    const type = t.cols[k]?.[0];
-    if (v === null || v === undefined) out[k] = null;
-    else if (type === 'bool') out[k] = !!v;
-    else if (type === 'json') { try { out[k] = JSON.parse(v); } catch { out[k] = null; } }
-    else out[k] = v;
-  }
-  return out;
-}
+HÏÈ	Û[	ÊJNÃBˆ™]\›ˆÈ›ÝÜË›ØŽˆÈÛÛˆ˜›Ø‹˜]ÜÈHNÃBŸCB™^ÜÛÛœÝ›Ø’Ù^HH
+X›KY
+HOˆ	ÝX›_KÉÚYKšœÛÛ˜ÃBƒB‹ËÈH\	ÜÈÚYÛ‹Z[ˆ™XYÈY[X™\œÈÚ]H\›XXÞH[™]Èœ˜[˜Ú\È™\ÝY[‹ƒB˜\Þ[˜È[˜Ý[ÛˆÙ[XÝY[X™\œÊÝ[‹JHÃBˆYˆ
+XÝ\Ù\ŠH›ÝÈ™]È\Q\œ›ÜŠ	Û›ÝÚYÛ™Y[‰Ë	ÍLIËJNÃBˆÛÛœÝ™\ÈH]ØZ][‹‘‹œ™\\™J	ÔÑSPÕKœ›ÛKšY›˜[YKœÙ][™ÜÈ”“ÓHY[X™\œÈH“ÒSˆ\›XXÚY\ÈÓˆšYHKœ\›XXÞWÚYÒT‘HK\Ù\—ÚYHÉÊK˜š[™
+Ý\Ù\‹šY
+K˜[
 
-// Checks one value against its column (like the CHECK constraints in Postgres).
-function checkValue(table, col, [type, o = {}], v) {
-  const bad = (why) => { throw new ApiError(`new row for relation "${table}" violates check constraint (${col}: ${why})`, '23514'); };
-  if (v === null || v === undefined) { if (o.nn && o.def === undefined && type !== 'serial') bad('required'); return; }
-  if (type === 'id' && !UUID_RE.test(String(v))) bad('not an id');
-  if ((type === 'num' || type === 'int') && !Number.isFinite(+v)) bad('not a number');
-  if (type === 'num' || type === 'int') {
-    if (o.min !== undefined && +v < o.min) bad('too small');
-    if (o.maxv !== undefined && +v > o.maxv) bad('too large');
-    if (o.nonzero && +v === 0) bad('zero');
-  }
-  if (type === 'text') {
-    const s = String(v);
-    if (o.max && s.length > o.max) bad('too long');
-    if (o.trim && !s.trim()) bad('empty');
-    if (o.in && !o.in.includes(s)) bad('not allowed');
-    if (o.re && !new RegExp(o.re).test(s)) bad('wrong format');
-  }
-  if (type === 'date' && !/^\d{4}-\d{2}-\d{2}/.test(String(v))) bad('not a date');
-  if (type === 'ts' && Number.isNaN(Date.parse(v))) bad('not a time');
-  if (type === 'bool' && o.must && !v) bad('must be true');
-  if (type === 'json' && o.array && (!Array.isArray(v) || v.length < o.array[0] || v.length > o.array[1])) bad('list size');
-}
-function withDefaults(t, row) {
-  const out = { ...row };
-  for (const [col, [type, o = {}]] of Object.entries(t.cols)) {
-    if (out[col] !== undefined && out[col] !== null) continue;
-    if (type === 'serial') { delete out[col]; continue; }
-    if (o.def === undefined) continue;
-    if (out[col] === null && !o.nn) continue;
-    out[col] = o.def === 'now' ? nowIso() : o.def === 'today' ? todayIso() : o.def === 'uuid' ? uuid() : o.def;
-  }
-  return out;
-}
+NÃBˆÛÛœÝÚ]œ˜[˜Ú\ÈHØœ˜[˜Ú\ËË\Ý
+Ýš[™ÊK˜ÛÛÊJNÃBˆÛÛœÝÝ]H×NÃBˆ›Üˆ
+ÛÛœÝˆÙˆ™\Ëœ™\Ý[ÊHÃBˆÛÛœÝHÈYˆ‹šY˜[YNˆ‹›˜[YKÙ][™ÜÎˆ”ÓÓ‹œ\œÙJ‹œÙ][™ÜÈ	ÞßIÊHNÃBˆYˆ
+Ú]œ˜[˜Ú\ÊH˜œ˜[˜Ú\ÈH
+]ØZ][‹‘‹œ™\\™J	ÔÑSPÕY˜[YKÜ™X]YØ]”“ÓHœ˜[˜Ú\ÈÒT‘H\›XXÞWÚYHÈÔ‘Tˆ–HÜ™X]YØ]	ÊK˜š[™
+‹šY
+K˜[
 
-function guardedReturnInsert(env, row, cols, ignoreDuplicates) {
-  const code = (line) => `CAST(json_extract(${line}.value, '$.code') AS TEXT)`;
-  const qty = (line) => `COALESCE(CAST(json_extract(${line}.value, '$.qty') AS REAL), 0) / CASE WHEN CAST(json_extract(${line}.value, '$.per') AS REAL) > 1 THEN CAST(json_extract(${line}.value, '$.per') AS REAL) ELSE 1 END`;
-  const sql = `WITH source_sale AS (
-      SELECT lines FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'
-    ), sold AS (
-      SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM source_sale sale, json_each(sale.lines) line GROUP BY code
-    ), returned AS (
-      SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM pos_sales p, json_each(p.lines) line
-      WHERE p.kind = 'return' AND p.return_of = ? AND p.pharmacy_id = ? AND p.id <> ? GROUP BY code
-    ), requested AS (
-      SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM json_each(?) line GROUP BY code
-    )
-    INSERT INTO pos_sales (${cols.join(', ')})
-    SELECT ${cols.map((c) => c === 'id' ? 'CASE WHEN EXISTS (SELECT 1 FROM source_sale) AND NOT EXISTS (SELECT 1 FROM requested r LEFT JOIN sold s ON s.code IS r.code LEFT JOIN returned b ON b.code IS r.code WHERE r.qty > COALESCE(s.qty, 0) - COALESCE(b.qty, 0) + 0.0001) THEN ? ELSE NULL END' : '?').join(', ')}
-    ${ignoreDuplicates ? 'ON CONFLICT(id) DO NOTHING' : ''}`;
-  const values = cols.map((c) => c === 'id' ? row.id : toDb(TABLES.pos_sales.cols[c][0], row[c]));
-  return env.DB.prepare(sql).bind(row.return_of, row.pharmacy_id, row.return_of, row.pharmacy_id, row.id, JSON.stringify(row.lines), ...values);
-}
+JKœ™\Ý[ÎÃBˆÝ]œ\Ú
+È›ÛNˆ‹œ›ÛK\›XXÚY\ÎˆJNÃBˆCBˆ™]\›ˆÈ›ÝÜÎˆÝ]NÃBŸCBƒB‹ËÈKKKKKKKKKHÚ[™Ù\ÈKKKKKKKKKCB‹ËÈØ[YK\\›XXÞH[šÜÎˆH™XÙZ\	ÜÈÝ\ÝÛY\‹H™[Z[™\‰ÜÈ]Y[8 )ˆ]\Ý™H[ˆHØ[YH\›XXÞKƒB˜\Þ[˜È[˜Ý[ÛˆÚXÚÔ™YœÊ[‹›ÝÊHÃBˆ›Üˆ
+ÛÛœÝØÛÛ™Y—HÙˆØš™XÝ™[šY\Êœ™YœÈßJJHÃBˆYˆ
+›ÝÖØÛÛHOOH[›ÝÖØÛÛHOOH[™Yš[™Y
+HÛÛ[YNÃBˆÛÛœÝ]H]ØZ][‹‘‹œ™\\™JÑSPÕH”“ÓH	Ü™YŸHÒT‘HYHÈS‘\›XXÞWÚYHØ
+K˜š[™
+Ýš[™Ê›ÝÖØÛÛJKÝš[™Ê›ÝËœ\›XXÞWÚY
+JK™š\œÝ
 
-// ---------- Who may do what ----------
-// ctx: { user: { id } | null, roles: Map(pharmacyId â†’ role), admin }
-const pharmaciesWith = (ctx, roles) => [...ctx.roles].filter(([, r]) => roles.includes(r)).map(([p]) => p);
-export function requireRole(ctx, pharmacyId, roles) {
-  if (!ctx.user) throw new ApiError('not signed in', '42501', 401);
-  if (!roles.includes(ctx.roles.get(String(pharmacyId)))) throw new ApiError('not allowed', '42501', 403);
-}
+NÃBˆYˆ
+Z]
+H›ÝÈ™]È\Q\œ›ÜŠÛÛOOH	Øœ˜[˜ÚÚY	ÈÈ	Ý[šÛ›ÝÛˆœ˜[˜Ú	ÈˆÛÛOOH	Ù[\ÞYYWÚY	ÈÈ	Ý[šÛ›ÝÛˆ[\ÞYYIÈˆÛÛOOH	ÜÚYÚY	ÈÈ	Ý[šÛ›ÝÛˆÚY	Èˆ[œÙ\Üˆ\]HÛˆX›Hš[Û]\È›Ü™ZYÛˆÙ^HÛÛœÝ˜Z[
+	ØÛÛJX	ÌŒÍLÉÊNÃBˆCBŸCBƒB˜ÛÛœÝ]Y]›ÝÈH
+ÝX›KÜ™Y›Ü™KY\ŠHOˆÃBˆÛÛœÝˆHY\ˆ™Y›Ü™NÃBˆÛÛœÝÝš\H
+
+HOˆÈYˆ
+^
+H™]\›ˆ[ÈÛÛœÝÈ[—Ú\Ú‹‹œ™\ÝHHÈ™]\›ˆ™\ÝÈNÃBˆ™]\›ˆÈ\›XXÞWÚYˆ‹œ\›XXÞWÚY]ˆ›ÝÒ\ÛÊ
+K\Ù\—ÚYˆÝ\Ù\ËšYÏÈ[X›WÛ˜[YNˆX›KÜ›Ý×ÚYˆ‹šYOH[ÈÝš[™Ê‹šY
+Hˆ[BˆÛÜ›ÝÎˆ”ÓÓ‹œÝš[™ÚYžJÝš\
+™Y›Ü™JJK™]×Ü›ÝÎˆ”ÓÓ‹œÝš[™ÚYžJÝš\
+Y\ŠJHNÃBŸNÃB˜ÛÛœÝ]Y]Ý]H
+[‹JHOˆ[‹‘‹œ™\\™J	ÒS”ÑT•S•È]Y]ÛÙÈ
+\›XXÞWÚY]\Ù\—ÚYX›WÛ˜[YKÜ›Ý×ÚYÛÜ›ÝË™]×Ü›ÝÊHSQTÈ
+ËËËËËËËÊIÊCBˆ˜š[™
+Kœ\›XXÞWÚYK˜]K\Ù\—ÚYKX›WÛ˜[YKK›ÜKœ›Ý×ÚYK›ÛÜ›ÝËK›™]×Ü›ÝÊNÃBƒB‹ËÈ[œÙ\È
+Üˆ\Ù\ÈÚ]YÛ›Ü™Q\XØ]\Îˆ›ÝÜÈÚÜÙHY\È[™XYH\™H\™HY[Û™JKƒB™^Ü\Þ[˜È[˜Ý[Ûˆ[œÙ\
+Ý[‹KÛÚÜÈHßJHÃBˆÛÛœÝX›HHKX›NÃBˆÛÛœÝHX›SÙŠX›JNÃBˆYˆ
+]š[œÙ\
+H›ÝÈ™]È\Q\œ›ÜŠ	Û›Ý[ÝÙY	Ë	ÍLIËÊNÃBˆÛÛœÝ\ÝH\œ˜^Kš\Ð\œ˜^JKœ›ÝÜÊHÈKœ›ÝÜÈˆÜKœ›ÝÜ×NÃBˆYˆ
+[\Ý›[™Ý\Ý›[™ÝˆL
+H›ÝÈ™]È\Q\œ›ÜŠ	Ø˜Y›ÝÜÉÊNÃBˆÛÛœÝÝ]ÈH×NÃBˆ]ÝX\™Y™]\›ˆH˜[ÙNÃBˆ›Üˆ
+ÛÛœÝ˜]ÈÙˆ\Ý
+HÃBˆYˆ
+\˜]È\[Ùˆ˜]ÈOOH	ÛØš™XÝ	ÊH›ÝÈ™]È\Q\œ›ÜŠ	Ø˜Y›ÝÉÊNÃBˆ›Üˆ
+ÛÛœÝÈÙˆØš™XÝšÙ^\Ê˜]ÊJHÛÛÜXÊX›KÊNÃBˆÛÛœÝ›ÝÈHÚ]Y˜][Ê˜]ÊNÃBˆYˆ
+	ØÜ™X]YØžIÈ[ˆ˜ÛÛÊH›ÝË˜Ü™X]YØžHHÝ\Ù\ËšYÏÈ[ÃBˆ™\]Z\™T›ÛJÝ›ÝËœ\›XXÞWÚYš[œÙ\
+NÃBˆ›Üˆ
+ÛÛœÝØÛÛÜX×HÙˆØš™XÝ™[šY\Ê˜ÛÛÊJHÚXÚÕ˜[YJX›KÛÛÜXË›ÝÖØÛÛJNÃBˆYˆ
+KšYÛ›Ü™Q\XØ]\È	‰ˆœÈ	‰ˆ›ÝÖÝœ×HOH[	‰ˆ]ØZ][‹‘‹œ™\\™JÑSPÕH”“ÓH	ÝX›_HÒT‘H	ÝœßHHØ
+K˜š[™
+Ýš[™Ê›ÝÖÝœ×JJK™š\œÝ
 
-function readScope(ctx, table, t) {
-  if (t.read === 'public') return { sql: '', args: [] };
-  if (!ctx.user) throw new ApiError('not signed in', '42501', 401);
-  if (t.read === 'self') return { sql: 'user_id = ?', args: [ctx.user.id] };
-  const ids = pharmaciesWith(ctx, t.read || []);
-  if (!ids.length) return { sql: '0', args: [] };
-  return { sql: `${t.tenant || 'pharmacy_id'} IN (${ids.map(() => '?').join(', ')})`, args: ids };
-}
+JHÛÛ[YNÃBˆ]ØZ]ÚXÚÔ™YœÊ[‹›ÝÊNÃBˆYˆ
+ÛÚÜË˜™Y›Ü™R[œÙ\
+H]ØZ]ÛÚÜË˜™Y›Ü™R[œÙ\
+X›K›ÝÊNÃBˆÛÛœÝÛÛÈHØš™XÝšÙ^\Ê›ÝÊK™š[\Š
+ÊHOˆ›ÝÖØ×HOOH[™Yš[™Y	‰ˆ˜ÛÛÖØ×VÌHOOH	ÜÙ\šX[	ÊNÃBˆYˆ
+X›HOOH	ÜÜ×ÜØ[\ÉÈ	‰ˆ›ÝËšÚ[™OOH	Ü™]\›‰È	‰ˆ›ÝËœ™]\›—ÛÙŠHÃBˆÝX\™Y™]\›ˆHYNÃBˆÝ]Ëœ\Ú
+ÝX\™Y™]\›’[œÙ\
+[‹›ÝËÛÛËHJKšYÛ›Ü™Q\XØ]\È	‰ˆœÊJJNÃBˆH[ÙHÝ]Ëœ\Ú
+[‹‘‹œ™\\™JS”ÑT•S•È	ÝX›_H
+	ØÛÛËš›Ú[Š	Ë	Ê_JHSQTÈ
+	ØÛÛË›X\
 
-function whereOf(t, table, filters = []) {
-  const parts = [], args = [];
-  for (const f of filters) {
-    const [col, op, val] = f;
-    const [type] = colSpec(t, table, col);
-    if (op === 'eq') { if (val === null) parts.push(`${col} IS NULL`); else { parts.push(`${col} = ?`); args.push(toDb(type, val)); } }
-    else if (op === 'neq') { parts.push(`${col} <> ?`); args.push(toDb(type, val)); }
-    else if (op === 'gte') { parts.push(`${col} >= ?`); args.push(toDb(type, val)); }
-    else if (op === 'gt') { parts.push(`${col} > ?`); args.push(toDb(type, val)); }
-    else if (op === 'lte') { parts.push(`${col} <= ?`); args.push(toDb(type, val)); }
-    else if (op === 'lt') { parts.push(`${col} < ?`); args.push(toDb(type, val)); }
-    else if (op === 'notnull') parts.push(`${col} IS NOT NULL`);
-    else if (op === 'isnull') parts.push(`${col} IS NULL`);
-    else if (op === 'in' && Array.isArray(val) && val.length) { parts.push(`${col} IN (${val.map(() => '?').join(', ')})`); args.push(...val.map((v) => toDb(type, v))); }
-    else throw new ApiError(`unsupported filter ${op}`, 'PGRST100');
-  }
-  return { parts, args };
-}
 
-function columnsOf(t, table, cols) {
-  const raw = String(cols || '*').split(',').map((c) => c.trim()).filter(Boolean);
-  const all = Object.keys(t.cols).filter((c) => !(t.hidden || []).includes(c));
-  const out = [];
-  let blob = false;
-  for (const c of raw) {
-    if (c === '*') { out.push(...all); if (t.blob) blob = true; continue; }
-    if (t.blob && c === t.blob) { blob = true; continue; }
-    if ((t.hidden || []).includes(c)) throw new ApiError(`permission denied for column ${c}`, '42501', 403);
-    colSpec(t, table, c);
-    out.push(c);
-  }
-  return { cols: [...new Set(out)], blob };
-}
+HOˆ	ÏÉÊKš›Ú[Š	Ë	Ê_JIÜKšYÛ›Ü™Q\XØ]\È	‰ˆœÈÈÓˆÓÓ‘“PÕ
+	ÝœßJHÈ“ÕS‘Øˆ	ÉßX
+CBˆ˜š[™
+‹‹˜ÛÛË›X\
 
-// ---------- Select ----------
-export async function select(ctx, env, q) {
-  const table = q.table;
-  if (table === 'members') return selectMembers(ctx, env, q);
-  const t = tableOf(table);
-  const { cols, blob } = columnsOf(t, table, q.cols);
-  const scope = readScope(ctx, table, t);
-  const w = whereOf(t, table, q.filters);
-  const where = [scope.sql, ...w.parts].filter(Boolean);
-  let sql = `SELECT ${[...new Set([...cols, ...(blob ? [t.pk] : [])])].join(', ')} FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`;
-  if (q.order) { colSpec(t, table, q.order.col); sql += ` ORDER BY ${q.order.col} ${q.order.asc === false ? 'DESC' : 'ASC'}`; }
-  const lim = q.range ? Math.max(0, q.range[1] - q.range[0] + 1) : q.limit;
-  const n = Math.min(lim ?? 1000, 1000); // like the server's 1,000-row pages
-  sql += ` LIMIT ${n}${q.range ? ` OFFSET ${Math.max(0, +q.range[0] | 0)}` : ''}`;
-  const res = await env.DB.prepare(sql).bind(...scope.args, ...w.args).all();
-  const rows = res.results.map((r) => fromDb(t, r));
-  if (!blob) return { rows };
-  // The uploaded data comes from R2 as text and is put in the answer as is (not parsed here).
-  const raws = await Promise.all(rows.map(async (r) => (await env.FILES.get(blobKey(table, r[t.pk])))?.text() ?? 'null'));
-  return { rows, blob: { col: t.blob, raws } };
-}
-export const blobKey = (table, id) => `${table}/${id}.json`;
+ÊHOˆÑŠ˜ÛÛÖØ×VÌK›ÝÖØ×JJJJNÃBˆYˆ
+˜]Y]
+HÝ]Ëœ\Ú
+]Y]Ý]
+[‹]Y]›ÝÊÝX›K	Ú[œÙ\	Ë[›ÝÊJJNÃBˆCBˆYˆ
+Ý]Ë›[™Ý
+HÃBˆžHÈ]ØZ][˜]Ú
+[‹Ý]ÊNÈHØ]Ú
+JHÃBˆYˆ
+ÝX\™Y™]\›ˆ	‰ˆÓ“Õ•SÛÛœÝ˜Z[˜Z[YˆÜ×ÜØ[\×šYÚK\Ý
+Ýš[™ÊOË›Y\ÜØYÙJJJH›ÝÈ™]È\Q\œ›ÜŠ	Ü™]\›ˆ[Ü™H[ˆÛÛ	ÊNÃBˆ›ÝÈNÃBˆCBˆCBˆ™]\›ˆÈ›ÝÜÎˆ[NÃBŸCBƒB™^Ü\Þ[˜È[˜Ý[Ûˆ\]JÝ[‹JHÃBˆÛÛœÝX›HHKX›NÃBˆÛÛœÝHX›SÙŠX›JNÃBˆYˆ
+]\]JH›ÝÈ™]È\Q\œ›ÜŠ	Û›Ý[ÝÙY	Ë	ÍLIËÊNÃBˆÛÛœÝ]ÚHKœ]ÚßNÃBˆÛÛœÝÙ^\ÈHØš™XÝšÙ^\Ê]Ú
+NÃBˆYˆ
+ZÙ^\Ë›[™Ý
+H™]\›ˆÈ›ÝÜÎˆ[NÃBˆ›Üˆ
+ÛÛœÝÈÙˆÙ^\ÊHÃBˆÛÛÜXÊX›KÊNÃBˆYˆ
+]\ÛÛËš[˜ÛY\ÊÊJH›ÝÈ™]È\Q\œ›ÜŠ\›Z\ÜÚ[Ûˆ[šYY›ÜˆÛÛ[[ˆ	ÚßX	ÍLIËÊNÃBˆÚXÚÕ˜[YJX›KË˜ÛÛÖÚ×K]ÚÚ×JNÃBˆCBˆÛÛœÝYÈH\›XXÚY\ÕÚ]
+Ý\]JNÃBˆYˆ
+XÝ\Ù\ŠH›ÝÈ™]È\Q\œ›ÜŠ	Û›ÝÚYÛ™Y[‰Ë	ÍLIËJNÃBˆÛÛœÝÈHÚ\™SÙŠX›KK™š[\œÊNÃBˆYˆ
+]Ëœ\Ë›[™Ý
+H›ÝÈ™]È\Q\œ›ÜŠ	ÕTUH™\]Z\™\ÈHÒT‘HÛ]\ÙIË	ÌŒL	ÊNÃBˆYˆ
+ZYË›[™Ý
+H™]\›ˆÈ›ÝÜÎˆ[NÃBˆÛÛœÝÚ\™HHØ\›XXÞWÚYSˆ
+	ÚYË›X\
 
-// The app's sign-in reads members with the pharmacy and its branches nested in.
-async function selectMembers(ctx, env, q) {
-  if (!ctx.user) throw new ApiError('not signed in', '42501', 401);
-  const res = await env.DB.prepare('SELECT m.role, p.id, p.name, p.settings FROM members m JOIN pharmacies p ON p.id = m.pharmacy_id WHERE m.user_id = ?').bind(ctx.user.id).all();
-  const withBranches = /branches/.test(String(q.cols));
-  const out = [];
-  for (const r of res.results) {
-    const ph = { id: r.id, name: r.name, settings: JSON.parse(r.settings || '{}') };
-    if (withBranches) ph.branches = (await env.DB.prepare('SELECT id, name, created_at FROM branches WHERE pharmacy_id = ? ORDER BY created_at').bind(r.id).all()).results;
-    out.push({ role: r.role, pharmacies: ph });
-  }
-  return { rows: out };
-}
 
-// ---------- Changes ----------
-// Same-pharmacy links: a receipt's customer, a reminder's patientâ€¦ must be in the same pharmacy.
-async function checkRefs(env, t, row) {
-  for (const [col, ref] of Object.entries(t.refs || {})) {
-    if (row[col] === null || row[col] === undefined) continue;
-    const hit = await env.DB.prepare(`SELECT 1 FROM ${ref} WHERE id = ? AND pharmacy_id = ?`).bind(String(row[col]), String(row.pharmacy_id)).first();
-    if (!hit) throw new ApiError(col === 'branch_id' ? 'unknown branch' : col === 'employee_id' ? 'unknown employee' : col === 'shift_id' ? 'unknown shift' : `insert or update on table violates foreign key constraint (${col})`, '23503');
-  }
-}
+HOˆ	ÏÉÊKš›Ú[Š	Ë	Ê_JX‹‹Ëœ\Ë‹‹Š\Ú[“[ÈØ	Ý\Ú[“[HTÈ•SHˆ×JWKš›Ú[Š	ÈS‘	ÊNÃBˆÛÛœÝ™Y›Ü™HH
+]ØZ][‹‘‹œ™\\™JÑSPÕ
+ˆ”“ÓH	ÝX›_HÒT‘H	ÝÚ\™_X
+K˜š[™
+‹‹šYË‹‹Ë˜\™ÜÊK˜[
 
-const auditRow = (ctx, table, op, before, after) => {
-  const r = after || before;
-  const strip = (x) => { if (!x) return null; const { pin_hash, ...rest } = x; return rest; };
-  return { pharmacy_id: r.pharmacy_id, at: nowIso(), user_id: ctx.user?.id ?? null, table_name: table, op, row_id: r.id != null ? String(r.id) : null,
-    old_row: JSON.stringify(strip(before)), new_row: JSON.stringify(strip(after)) };
-};
-const auditStmt = (env, a) => env.DB.prepare('INSERT INTO audit_log (pharmacy_id, at, user_id, table_name, op, row_id, old_row, new_row) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-  .bind(a.pharmacy_id, a.at, a.user_id, a.table_name, a.op, a.row_id, a.old_row, a.new_row);
+JKœ™\Ý[ÎÃBˆYˆ
+X™Y›Ü™K›[™Ý
+H™]\›ˆÈ›ÝÜÎˆ[NÃBˆÛÛœÝÝ]ÈHÙ[‹‘‹œ™\\™JTUH	ÝX›_HÑU	ÚÙ^\Ë›X\
 
-// Inserts (or upserts with ignoreDuplicates: rows whose id is already there are left alone).
-export async function insert(ctx, env, q, hooks = {}) {
-  const table = q.table;
-  const t = tableOf(table);
-  if (!t.insert) throw new ApiError('not allowed', '42501', 403);
-  const list = Array.isArray(q.rows) ? q.rows : [q.rows];
-  if (!list.length || list.length > 500) throw new ApiError('bad rows');
-  const stmts = [];
-  let guardedReturn = false;
-  for (const raw of list) {
-    if (!raw || typeof raw !== 'object') throw new ApiError('bad row');
-    for (const k of Object.keys(raw)) colSpec(t, table, k);
-    const row = withDefaults(t, raw);
-    if ('created_by' in t.cols) row.created_by = ctx.user?.id ?? null;
-    requireRole(ctx, row.pharmacy_id, t.insert);
-    for (const [col, spec] of Object.entries(t.cols)) checkValue(table, col, spec, row[col]);
-    if (q.ignoreDuplicates && t.pk && row[t.pk] != null && await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
-    await checkRefs(env, t, row);
-    if (hooks.beforeInsert) await hooks.beforeInsert(table, row);
-    const cols = Object.keys(row).filter((c) => row[c] !== undefined && t.cols[c][0] !== 'serial');
-    if (table === 'pos_sales' && row.kind === 'return' && row.return_of) {
-      guardedReturn = true;
-      stmts.push(guardedReturnInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk)));
-    } else stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${q.ignoreDuplicates && t.pk ? ` ON CONFLICT(${t.pk}) DO NOTHING` : ''}`)
-      .bind(...cols.map((c) => toDb(t.cols[c][0], row[c]))));
-    if (t.audit) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
-  }
-  if (stmts.length) {
-    try { await runBatch(env, stmts); } catch (e) {
-      if (guardedReturn && /NOT NULL constraint failed: pos_sales\.id/i.test(String(e?.message))) throw new ApiError('return more than sold');
-      throw e;
-    }
-  }
-  return { rows: null };
-}
+ÊHOˆ	ÚßHHØ
+Kš›Ú[Š	Ë	Ê_HÒT‘H	ÝœßHSˆ
+	Ø™Y›Ü™K›X\
 
-export async function update(ctx, env, q) {
-  const table = q.table;
-  const t = tableOf(table);
-  if (!t.update) throw new ApiError('not allowed', '42501', 403);
-  const patch = q.patch || {};
-  const keys = Object.keys(patch);
-  if (!keys.length) return { rows: null };
-  for (const k of keys) {
-    colSpec(t, table, k);
-    if (!t.updCols.includes(k)) throw new ApiError(`permission denied for column ${k}`, '42501', 403);
-    checkValue(table, k, t.cols[k], patch[k]);
-  }
-  const ids = pharmaciesWith(ctx, t.update);
-  if (!ctx.user) throw new ApiError('not signed in', '42501', 401);
-  const w = whereOf(t, table, q.filters);
-  if (!w.parts.length) throw new ApiError('UPDATE requires a WHERE clause', '21000');
-  if (!ids.length) return { rows: null };
-  const where = [`pharmacy_id IN (${ids.map(() => '?').join(', ')})`, ...w.parts, ...(t.updWhenNull ? [`${t.updWhenNull} IS NULL`] : [])].join(' AND ');
-  const before = (await env.DB.prepare(`SELECT * FROM ${table} WHERE ${where}`).bind(...ids, ...w.args).all()).results;
-  if (!before.length) return { rows: null };
-  const stmts = [env.DB.prepare(`UPDATE ${table} SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE ${t.pk} IN (${before.map(() => '?').join(', ')})`)
-    .bind(...keys.map((k) => toDb(t.cols[k][0], patch[k])), ...before.map((r) => r[t.pk]))];
-  if (t.audit) for (const b of before) { const old = fromDb(t, b); stmts.push(auditStmt(env, auditRow(ctx, table, 'update', old, { ...old, ...patch }))); }
-  await runBatch(env, stmts);
-  return { rows: null };
-}
 
-export async function remove(ctx, env, q) {
-  const table = q.table;
-  const t = tableOf(table);
-  if (!t.del) throw new ApiError('not allowed', '42501', 403);
-  if (!ctx.user) throw new ApiError('not signed in', '42501', 401);
-  const w = whereOf(t, table, q.filters);
-  if (!w.parts.length) throw new ApiError('DELETE requires a WHERE clause', '21000');
-  const roleIds = t.del === 'owner-or-author' ? pharmaciesWith(ctx, ['owner']) : pharmaciesWith(ctx, t.del);
-  const scope = t.del === 'owner-or-author'
-    ? { sql: `(pharmacy_id IN (${roleIds.map(() => '?').join(', ') || "''"}) OR (created_by = ? AND pharmacy_id IN (${pharmaciesWith(ctx, ['owner', 'partner']).map(() => '?').join(', ') || "''"})))`, args: [...roleIds, ctx.user.id, ...pharmaciesWith(ctx, ['owner', 'partner'])] }
-    : roleIds.length ? { sql: `pharmacy_id IN (${roleIds.map(() => '?').join(', ')})`, args: roleIds } : null;
-  if (!scope) return { rows: null };
-  const where = [scope.sql, ...w.parts].join(' AND ');
-  const gone = (await env.DB.prepare(`SELECT * FROM ${table} WHERE ${where}`).bind(...scope.args, ...w.args).all()).results;
-  if (!gone.length) return { rows: null };
-  const ids = gone.map((r) => r[t.pk]);
-  const marks = ids.map(() => '?').join(', ');
-  const stmts = [];
-  for (const [child, col] of Object.entries(t.cascade || {})) {
-    const ct = TABLES[child];
-    if (ct.audit) for (const c of (await env.DB.prepare(`SELECT * FROM ${child} WHERE ${col} IN (${marks})`).bind(...ids).all()).results) stmts.push(auditStmt(env, auditRow(ctx, child, 'delete', fromDb(ct, c), null)));
-    stmts.push(env.DB.prepare(`DELETE FROM ${child} WHERE ${col} IN (${marks})`).bind(...ids));
-  }
-  for (const [child, col] of Object.entries(t.setNull || {})) stmts.push(env.DB.prepare(`UPDATE ${child} SET ${col} = NULL WHERE ${col} IN (${marks})`).bind(...ids));
-  stmts.push(env.DB.prepare(`DELETE FROM ${table} WHERE ${t.pk} IN (${marks})`).bind(...ids));
-  if (t.audit) for (const g of gone) stmts.push(auditStmt(env, auditRow(ctx, table, 'delete', fromDb(t, g), null)));
-  await runBatch(env, stmts);
-  return { rows: null };
-}
+HOˆ	ÏÉÊKš›Ú[Š	Ë	Ê_JX
+CBˆ˜š[™
+‹‹šÙ^\Ë›X\
 
-export async function runBatch(env, stmts) {
-  try { return await env.DB.batch(stmts); } catch (e) {
-    const m = String(e?.message ?? e);
-    if (/UNIQUE constraint failed/i.test(m)) throw new ApiError(`duplicate key value violates unique constraint (${m.split('failed:')[1]?.trim() || ''})`, '23505', 409);
-    if (/FOREIGN KEY|NOT NULL/i.test(m)) throw new ApiError(m, '23502');
-    throw e;
-  }
-}
+ÊHOˆÑŠ˜ÛÛÖÚ×VÌK]ÚÚ×JJK‹‹˜™Y›Ü™K›X\
+
+ŠHOˆ–Ýœ×JJWNÃBˆYˆ
+˜]Y]
+H›Üˆ
+ÛÛœÝˆÙˆ™Y›Ü™JHÈÛÛœÝÛHœ›ÛQŠŠNÈÝ]Ëœ\Ú
+]Y]Ý]
+[‹]Y]›ÝÊÝX›K	Ý\]IËÛÈ‹‹›Û‹‹œ]ÚJJJNÈCBˆ]ØZ][˜]Ú
+[‹Ý]ÊNÃBˆ™]\›ˆÈ›ÝÜÎˆ[NÃBŸCBƒB™^Ü\Þ[˜È[˜Ý[Ûˆ™[[Ý™JÝ[‹JHÃBˆÛÛœÝX›HHKX›NÃBˆÛÛœÝHX›SÙŠX›JNÃBˆYˆ
+]™[
+H›ÝÈ™]È\Q\œ›ÜŠ	Û›Ý[ÝÙY	Ë	ÍLIËÊNÃBˆYˆ
+XÝ\Ù\ŠH›ÝÈ™]È\Q\œ›ÜŠ	Û›ÝÚYÛ™Y[‰Ë	ÍLIËJNÃBˆÛÛœÝÈHÚ\™SÙŠX›KK™š[\œÊNÃBˆYˆ
+]Ëœ\Ë›[™Ý
+H›ÝÈ™]È\Q\œ›ÜŠ	ÑSUH™\]Z\™\ÈHÒT‘HÛ]\ÙIË	ÌŒL	ÊNÃBˆÛÛœÝ›ÛRYÈH™[OOH	ÛÝÛ™\‹[Ü‹X]]Ü‰ÈÈ\›XXÚY\ÕÚ]
+ÝÉÛÝÛ™\‰×JHˆ\›XXÚY\ÕÚ]
+Ý™[
+NÃBˆÛÛœÝØÛÜHH™[OOH	ÛÝÛ™\‹[Ü‹X]]Ü‰ÃBˆÈÈÜ[ˆ
+\›XXÞWÚYSˆ
+	Ü›ÛRYË›X\
+
+
+HOˆ	ÏÉÊKš›Ú[Š	Ë	ÊH‰ÉÈŸJHÔˆ
+Ü™X]YØžHHÈS‘\›XXÞWÚYSˆ
+	Ü\›XXÚY\ÕÚ]
+ÝÉÛÝÛ™\‰Ë	Ü\™\‰×JK›X\
+
+
+HOˆ	ÏÉÊKš›Ú[Š	Ë	ÊH‰ÉÈŸJJJX\™ÜÎˆË‹‹œ›ÛRYËÝ\Ù\‹šY‹‹œ\›XXÚY\ÕÚ]
+ÝÉÛÝÛ™\‰Ë	Ü\™\‰×JWHCBˆˆ›ÛRYË›[™ÝÈÈÜ[ˆ\›XXÞWÚYSˆ
+	Ü›ÛRYË›X\
+
+
+HOˆ	ÏÉÊKš›Ú[Š	Ë	Ê_JX\™ÜÎˆ›ÛRYÈHˆ[ÃBˆYˆ
+\ØÛÜJH™]\›ˆÈ›ÝÜÎˆ[NÃBˆÛÛœÝÚ\™HHÜØÛÜKœÜ[‹‹Ëœ\×Kš›Ú[Š	ÈS‘	ÊNÃBˆÛÛœÝÛÛ™HH
+]ØZ][‹‘‹œ™\\™JÑSPÕ
+ˆ”“ÓH	ÝX›_HÒT‘H	ÝÚ\™_X
+K˜š[™
+‹‹œØÛÜK˜\™ÜË‹‹Ë˜\™ÜÊK˜[
+
+JKœ™\Ý[ÎÃBˆYˆ
+YÛÛ™K›[™Ý
+H™]\›ˆÈ›ÝÜÎˆ[NÃBˆÛÛœÝYÈHÛÛ™K›X\
+
+ŠHOˆ–Ýœ×JNÃBˆÛÛœÝX\šÜÈHYË›X\
+
+
+HOˆ	ÏÉÊKš›Ú[Š	Ë	ÊNÃBˆÛÛœÝÝ]ÈH×NÃBˆ›Üˆ
+ÛÛœÝØÚ[ÛÛHÙˆØš™XÝ™[šY\Ê˜Ø\ØØYHßJJHÃBˆÛÛœÝÝHP“TÖØÚ[NÃBˆYˆ
+Ý˜]Y]
+H›Üˆ
+ÛÛœÝÈÙˆ
+]ØZ][‹‘‹œ™\\™JÑSPÕ
+ˆ”“ÓH	ØÚ[HÒT‘H	ØÛÛHSˆ
+	ÛX\šÜßJX
+K˜š[™
+‹‹šYÊK˜[
+
+JKœ™\Ý[ÊHÝ]Ëœ\Ú
+]Y]Ý]
+[‹]Y]›ÝÊÝÚ[	Ù[]IËœ›ÛQŠÝÊK[
+JJNÃBˆÝ]Ëœ\Ú
+[‹‘‹œ™\\™JSUH”“ÓH	ØÚ[HÒT‘H	ØÛÛHSˆ
+	ÛX\šÜßJX
+K˜š[™
+‹‹šYÊJNÃBˆCBˆ›Üˆ
+ÛÛœÝØÚ[ÛÛHÙˆØš™XÝ™[šY\ÊœÙ][ßJJHÝ]Ëœ\Ú
+[‹‘‹œ™\\™JTUH	ØÚ[HÑU	ØÛÛHH•SÒT‘H	ØÛÛHSˆ
+	ÛX\šÜßJX
+K˜š[™
+‹‹šYÊJNÃBˆÝ]Ëœ\Ú
+[‹‘‹œ™\\™JSUH”“ÓH	ÝX›_HÒT‘H	ÝœßHSˆ
+	ÛX\šÜßJX
+K˜š[™
+‹‹šYÊJNÃBˆYˆ
+˜]Y]
+H›Üˆ
+ÛÛœÝÈÙˆÛÛ™JHÝ]Ëœ\Ú
+]Y]Ý]
+[‹]Y]›ÝÊÝX›K	Ù[]IËœ›ÛQŠÊK[
+JJNÃBˆ]ØZ][˜]Ú
+[‹Ý]ÊNÃBˆ™]\›ˆÈ›ÝÜÎˆ[NÃBŸCBƒB™^Ü\Þ[˜È[˜Ý[Ûˆ[˜]Ú
+[‹Ý]ÊHÃBˆžHÈ™]\›ˆ]ØZ][‹‘‹˜˜]Ú
+Ý]ÊNÈHØ]Ú
+JHÃBˆÛÛœÝHHÝš[™ÊOË›Y\ÜØYÙHÏÈJNÃBˆYˆ
+ÕS’TUQHÛÛœÝ˜Z[˜Z[YÚK\Ý
+JJH›ÝÈ™]È\Q\œ›ÜŠ\XØ]HÙ^H˜[YHš[Û]\È[š\]YHÛÛœÝ˜Z[
+	ÛKœÜ]
+	Ù˜Z[Y‰ÊVÌWOËš[J
+H	ÉßJX	ÌŒÍLIËJNÃBˆYˆ
+Ñ“Ô‘RQÓˆÑV_“Õ•SÚK\Ý
+JJH›ÝÈ™]È\Q\œ›ÜŠK	ÌŒÍL‰ÊNÃBˆ›ÝÈNÃBˆCBŸCB
