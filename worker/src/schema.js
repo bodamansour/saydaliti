@@ -156,10 +156,13 @@ export const TABLES = {
   app_config: { pk: 'id', read: 'public', cols: {
     id: ['int', { nn: true, def: 1 }], trial_days: ['int', { nn: true, def: 14 }], grace_days: ['int', { nn: true, def: 7 }],
     price_month: ['num', { nn: true, def: 0 }], price_branch: ['num', { nn: true, def: 0 }], pay_note: ['text', { nn: true, def: '' }],
-    support_phone: ['text', { nn: true, def: '' }], updated_at: ['ts', { nn: true, def: 'now' }] } },
+    support_phone: ['text', { nn: true, def: '' }], updated_at: ['ts', { nn: true, def: 'now' }],
+    // The plans on sale (src/plans.js): name, prices, features and limits, changed from the admin page.
+    plans: ['json', { added: 8 }] } },
   subscriptions: { pk: 'pharmacy_id', read: ROLES_ALL, cols: {
     pharmacy_id: ['id', { nn: true }], status: ['text', { nn: true, def: 'trial', in: ['trial', 'active', 'free', 'suspended'] }],
-    trial_ends: ['date'], paid_until: ['date'], price_month: ['num'], note: ['text', { max: 600 }], updated_at: ['ts', { nn: true, def: 'now' }] } },
+    trial_ends: ['date'], paid_until: ['date'], price_month: ['num'], note: ['text', { max: 600 }], updated_at: ['ts', { nn: true, def: 'now' }],
+    plan: ['text', { max: 30, added: 8 }] } },
   // The owner's to-do list: from a recommendation, an alert, or written by hand (migration 0007).
   tasks: { pk: 'id', added: 7, read: MANAGERS, insert: OWNER, update: OWNER, updCols: ['title', 'note', 'assignee', 'due_on', 'priority', 'status', 'done_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], title: ['text', { nn: true, max: 200, trim: true }], note: ['text', { max: 1000 }],

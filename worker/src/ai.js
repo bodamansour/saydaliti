@@ -5,6 +5,7 @@
 // ANTHROPIC_API_KEY secret. Owners and partners only, a limit per user per hour, and the system
 // prompt (rules: only numbers from tools, no medical advice) is fixed here, not sent by the page.
 import { ApiError } from './db.js';
+import { planFor } from './rpc.js';
 
 const SYSTEM = `أنت «اسأل صيدليتي»، مساعد لصاحب صيدلية في مصر. بترد بالعامية المصرية (أو بالإنجليزي لو السؤال إنجليزي)، باختصار.
 قواعد لازم تمشي عليها:
@@ -26,6 +27,7 @@ export async function aiChat(env, ctx, req, { fetchImpl = fetch } = {}) {
   if (!b || typeof b.pharmacy !== 'string' || !Array.isArray(b.messages) || !Array.isArray(b.tools)) throw new ApiError('bad request', '400', 400);
   const role = ctx.roles.get(b.pharmacy);
   if (!['owner', 'partner'].includes(role)) throw new ApiError('not allowed', '42501', 403);
+  if (!(await planFor(env, b.pharmacy)).features.includes('ai')) throw new ApiError('not in plan', '402', 402);
   if (b.messages.length > MAX_TURNS * 2 || JSON.stringify(b.messages).length > 60000 || b.tools.length > 30) throw new ApiError('too large', '413', 413);
   // At most LIMIT_PER_HOUR model calls per user per hour (the tool round trips count too).
   const k = `ai:${ctx.user.id}`;
@@ -58,6 +60,7 @@ export async function aiInvoice(env, ctx, req, { fetchImpl = fetch } = {}) {
   const b = await req.json().catch(() => null);
   if (!b || typeof b.pharmacy !== 'string' || !MEDIA.has(b.media_type) || typeof b.data !== 'string') throw new ApiError('bad request', '400', 400);
   if (ctx.roles.get(b.pharmacy) !== 'owner') throw new ApiError('not allowed', '42501', 403);
+  if (!(await planFor(env, b.pharmacy)).features.includes('ai')) throw new ApiError('not in plan', '402', 402);
   if (b.data.length > 7_000_000) throw new ApiError('file too large', '413', 413);
   const k = `ai:${ctx.user.id}`;
   const n = (await all(env, 'SELECT COUNT(*) AS n FROM auth_attempts WHERE k = ? AND at > ?', k, new Date(Date.now() - 3600000).toISOString()))[0]?.n || 0;

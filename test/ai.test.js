@@ -7,9 +7,10 @@ import { aiChat } from '../worker/src/ai.js';
 import { route, runTool, answerLocally, toolSpecs, detectPeriod } from '../src/assistant.js';
 import { analyze } from '../src/core.js';
 
-function fakeEnv(key = 'k', count = 0) {
+function fakeEnv(key = 'k', count = 0, plan = null) {
   const rows = [];
-  return { ANTHROPIC_API_KEY: key, rows, DB: { prepare: (sql) => ({ bind: (...a) => ({ all: async () => ({ results: [{ n: count }] }), run: async () => { rows.push([sql, a]); } }) }) } };
+  const first = async (sql) => (/FROM subscriptions/.test(sql) ? (plan ? { plan } : null) : /FROM app_config/.test(sql) ? { plans: null } : null);
+  return { ANTHROPIC_API_KEY: key, rows, DB: { prepare: (sql) => ({ bind: (...a) => ({ all: async () => ({ results: [{ n: count }] }), run: async () => { rows.push([sql, a]); }, first: () => first(sql) }), first: () => first(sql) }) } };
 }
 const req = (b) => ({ json: async () => b });
 const ctx = (role) => ({ user: { id: 'u1' }, roles: new Map([['p1', role]]) });
@@ -78,4 +79,18 @@ test('reading an invoice photo: owner only, and only clean values come back', as
   const out = await aiInvoice(fakeEnv(), ctx('owner'), r({ pharmacy: 'p1', media_type: 'image/jpeg', data: 'abc' }), { fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: `هنا: ${reply}` }] }) }) });
   assert.equal(out.supplier, 'مخزن الأمل');
   assert.deepEqual(out.lines, [{ name: 'بانادول', qty: 10, bonus: 2, cost: 40.5, price: null, expiry: '2027-06' }, { name: 'كونكور', qty: null, bonus: null, cost: null, price: null, expiry: null }]);
+});
+
+test('plans: a pharmacy on Starter has no AI; Pro does; no plan = everything', async () => {
+  const { readPlans, planOf } = await import('../src/plans.js');
+  const body = { pharmacy: 'p1', messages: [], tools: [] };
+  await assert.rejects(aiChat(fakeEnv('k', 0, 'starter'), ctx('owner'), req(body)), /not in plan/);
+  const ok = async () => ({ ok: true, json: async () => ({ content: [] }) });
+  await aiChat(fakeEnv('k', 0, 'pro'), ctx('owner'), req(body), { fetchImpl: ok });
+  await aiChat(fakeEnv('k', 0, null), ctx('owner'), req(body), { fetchImpl: ok });
+  const p = readPlans('{"pro":{"name":"برو","price_month":300,"features":["core","ai","hack"],"max_branches":-5}}');
+  assert.deepEqual([p.pro.name, p.pro.price_month, p.pro.features, p.pro.max_branches], ['برو', 300, ['core', 'ai'], 1]);
+  assert.equal(p.starter.name, 'Starter', 'missing plans keep the defaults');
+  assert.equal(planOf(null, null).max_branches, Infinity);
+  assert.equal(planOf({ plan: 'starter' }, null).max_branches, 1);
 });

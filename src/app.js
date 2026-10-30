@@ -14,6 +14,7 @@ import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
 import { labelHtml } from './labels.js';
+import { planOf, hasFeature } from './plans.js';
 import { answerLocally, runTool, toolSpecs, EXAMPLES } from './assistant.js';
 import { overview, monthlySeries, categoryPerformance, trending, profitClasses, supplierPerformance, healthScore, forecast, stockoutPlan, anomalies, alerts, recommendations } from './insights.js';
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
@@ -237,12 +238,12 @@ function render(background = false) {
   else if (TAB === 'changes' && has) html = renderPriceChanges();
   else if (TAB === 'patients') html = renderPatients();
   else if (TAB === 'alerts') html = renderAlerts(A);
-  else if (TAB === 'assistant') html = renderAssistant();
+  else if (TAB === 'assistant') html = hasFeature(PLAN, 'ai') ? renderAssistant() : notInPlan('«اسأل صيدليتي»');
   else if (TAB === 'tasks') html = renderTasks();
   else if (!has && NEEDS_DATA.has(TAB)) html = emptyState();
   else if (TAB === 'overview') html = renderOverview(A);
-  else if (TAB === 'analysis') html = renderAnalysis(A);
-  else if (TAB === 'health') html = renderHealth(A);
+  else if (TAB === 'analysis') html = hasFeature(PLAN, 'analytics') ? renderAnalysis(A) : notInPlan('التحليلات');
+  else if (TAB === 'health') html = hasFeature(PLAN, 'analytics') ? renderHealth(A) : notInPlan('صحة الصيدلية');
   else if (TAB === 'reorder') {
     html = renderReorder(A, s);
   } else if (TAB === 'expiry') {
@@ -2020,7 +2021,7 @@ function renderOverview(A) {
   const card = (title, t) => `<div class="tile"><span class="k">${title}</span><span class="v">${fmt(t.sales)}</span><span class="s">مكسب ${fmt(t.gross)} · ${pctPill(t.growth)} عن اللي قبلها</span></div>`;
   return `<p class="note">كل الأرقام من سجلات الصيدلية (المبيعات من برنامج الصيدلية + الكاشير، والمصروفات المتسجلة). النمو = مقارنة بنفس المدة اللي قبلها مباشرة؛ الشهر بنفس أيام الشهر اللي فات.</p>
   <section class="tiles">${card('النهارده', o.today)}${card('الأسبوع ده', o.week)}${card('الشهر ده', o.month)}${card('السنة دي', o.year)}</section>
-  ${recsHtml(A)}
+  ${hasFeature(PLAN, 'analytics') ? recsHtml(A) : ''}
   <div class="calc"><div class="card"><h3>الشهر ده</h3><div class="ledger">
     <div><span>المبيعات (بعد الخصم)</span><span class="n">${fmt(o.month.sales, 2)}</span></div>
     <div><span>تكلفة اللي اتباع</span><span class="n">${fmt(o.month.cogs, 2)}</span></div>
@@ -2093,6 +2094,8 @@ function renderAlerts(A) {
 // The conversation lives in memory on this page. Each answer shows the numbers it is based on, the
 // period and the source, with a link to the screen they come from.
 let CHAT = [], CHAT_BUSY = false, AI_ON = null;
+let PLAN = planOf(null, null); // what this pharmacy's plan includes (everything when it has none)
+const notInPlan = (what) => `<div class="card emptybox"><h3>${what} مش في باقتك</h3><p>كلّم دعم صيدليتي عشان تكبّر الباقة.</p></div>`;
 function assistantCtx() {
   const here = (r) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(r);
   return { data: DATA, A: ANALYSIS.full, receipts: POS_SALES.filter(here), expenses: EXP_READY ? EXPENSES : [], purchases: PURCHASES.filter(here), suppliers: SUPPLIERS(), chosen: CHOSEN(),
@@ -2222,15 +2225,18 @@ async function loadSubscription() {
   const k = `sub:${SESS.pharmacy.id}`;
   let got = await kvGet(k, null);
   if (isOnline()) {
+    // plan / plans arrived with database update 0008; an older database is read without them.
+    const pick = async (table, cols, base, q) => { const r = await q(SESS.client.from(table).select(cols)); return r.error && !/fetch|network/i.test(r.error.message) ? q(SESS.client.from(table).select(base)) : r; };
     const [a, b] = await Promise.all([
-      SESS.client.from('subscriptions').select('status, trial_ends, paid_until, price_month').eq('pharmacy_id', SESS.pharmacy.id).limit(1),
-      SESS.client.from('app_config').select('trial_days, grace_days, price_month, price_branch, pay_note, support_phone').limit(1),
+      pick('subscriptions', 'status, trial_ends, paid_until, price_month, plan', 'status, trial_ends, paid_until, price_month', (x) => x.eq('pharmacy_id', SESS.pharmacy.id).limit(1)),
+      pick('app_config', 'trial_days, grace_days, price_month, price_branch, pay_note, support_phone, plans', 'trial_days, grace_days, price_month, price_branch, pay_note, support_phone', (x) => x.limit(1)),
     ]);
     if (!a.error && !b.error) { got = { sub: a.data[0] || null, cfg: b.data[0] || {} }; await kvSet(k, got); }
     const adm = await SESS.client.rpc('is_app_admin');
     $('adminLink').hidden = adm.error || !adm.data;
   }
   SUB = got?.sub ?? null; APPCFG = got?.cfg ?? {};
+  PLAN = planOf(SUB, APPCFG.plans);
   renderSubBanner();
   // A gentle reminder to keep a copy of everything, every two weeks.
   const last = store.get(`saydaliti-cloud-backup-${SESS.pharmacy.id}`, 0);
