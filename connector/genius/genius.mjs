@@ -228,6 +228,9 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
 
   onStep('الأصناف');
   const units = new Map(), items = new Map();
+  // The maker of each item (Company: com_id → name).
+  const makers = new Map();
+  for await (const r of db.rows('Company')) if (ok(r.com_id, 1e9)) { const n = String(r.com_name_ar || r.com_name_en || '').trim(); if (n) makers.set(Math.trunc(r.com_id), n.slice(0, 120)); }
   // Barcodes: the item's international code (itm_int_code), its second code (itm_code2, often the
   // code on Genius's own labels), its code when it isn't just the item number, and the extra
   // barcodes in Item_Objects. A barcode on two items stays with the first one.
@@ -250,6 +253,9 @@ export async function geniusToExport(db, { since, today = new Date(), onStep = (
       owner: null, qty: null, expiry: null, active: String(r.itm_active ?? '1') !== '0',
       // The active ingredient (itm_effictive, e.g. «BISOPROLOL FUMERATE»), for suggesting alternatives.
       ...((g) => (g ? { generic: g } : {}))(String(r.itm_effictive || '').trim().slice(0, 160)),
+      // The maker, and the minimum to keep on the shelf as set in the program (boxes).
+      ...(ok(r.com_id, 1e9) && makers.has(Math.trunc(r.com_id)) ? { maker: makers.get(Math.trunc(r.com_id)) } : {}),
+      ...(ok(r.itm_min_limit, 1e5) && r.itm_min_limit > 0 ? { min: r2(r.itm_min_limit) } : {}),
       // How many strips and pills in a box, so the cashier can sell by the strip or the pill.
       ...(u2 > 1 ? { strips: u2 } : {}), ...(u3 > 1 && u3 !== u2 ? { pills: u3 } : {}),
     });

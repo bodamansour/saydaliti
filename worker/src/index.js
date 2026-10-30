@@ -9,6 +9,7 @@ import { ApiError, select, insert, update, remove } from './db.js';
 import { signUp, signIn, signOut, userOf, changePassword } from './auth.js';
 import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
+import { aiChat, aiInvoice } from './ai.js';
 import { runMorning } from '../../src/morning-job.js';
 import { runReminders } from '../../src/reminders-job.js';
 
@@ -62,7 +63,10 @@ async function api(req, env, url) {
     if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000)), error: null }); }
     throw new ApiError('not found', '404', 404);
   }
+  if (path === '/api/ai/status') return json({ data: { enabled: !!env.ANTHROPIC_API_KEY }, error: null });
   if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
+  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req), error: null });
+  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req), error: null });
   if (path === '/api/db') {
     const q = await body(req);
     const ctx = await contextOf(env, req);

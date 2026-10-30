@@ -107,6 +107,26 @@ test('returns: only against the receipt, never more than was sold', { skip }, as
   assert.equal((await owner.select('pos_sales', 'id', [['pharmacy_id', 'eq', P], ['number', 'eq', 'S2']])).data.length, 1);
 });
 
+test('strips sold and returned are counted in boxes; returns to the supplier; tasks are the owner\'s', { skip }, async () => {
+  const sale = uuid();
+  assert.equal((await device.insert('pos_sales', { id: sale, pharmacy_id: P, branch_id: B, number: 'ST1', sold_at: new Date().toISOString(), kind: 'sale', lines: [{ code: 'A1', qty: 2, per: 3, unit: 'strip', price: 10, bp: 30 }], total: 20, delivery_fee: 5, delivery_to: 'x' })).error, null);
+  assert.match((await device.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B, number: 'SR2', sold_at: new Date().toISOString(), kind: 'return', return_of: sale, lines: [{ code: 'A1', qty: 1, price: 30 }], total: -30 })).error.message, /return more than sold/, 'a whole box is more than 2 strips of 3');
+  assert.equal((await device.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B, number: 'SR3', sold_at: new Date().toISOString(), kind: 'return', return_of: sale, lines: [{ code: 'A1', qty: 2, per: 3, price: 10 }], total: -20 })).error, null);
+  assert.equal((await owner.insert('purchases', { id: uuid(), pharmacy_id: P, received_on: '2026-10-28', kind: 'return', supplier_name: 'الأمل', lines: [{ code: 'A1', qty: 1, cost: 1 }], total: 1 })).error, null);
+  assert.equal((await owner.insert('purchases', { id: uuid(), pharmacy_id: P, received_on: '2026-10-28', kind: 'gift', lines: [{ code: 'A1', qty: 1, cost: 1 }], total: 1 })).status, 400);
+  assert.equal((await owner.insert('catalog_items', { id: uuid(), pharmacy_id: P, code: 'K9', name: 'كونكور', strips: 3, generic: 'BISOPROLOL', maker: 'ميرك', min_qty: 2 })).error, null);
+  assert.equal((await owner.insert('tasks', { id: uuid(), pharmacy_id: P, title: 'رجّع الراكد' })).error, null);
+  assert.equal((await partner.select('tasks', 'title', [['pharmacy_id', 'eq', P]])).data.length, 1, 'partners see tasks');
+  assert.equal((await partner.insert('tasks', { id: uuid(), pharmacy_id: P, title: 'x' })).status, 403);
+  assert.equal((await device.select('tasks', 'title', [['pharmacy_id', 'eq', P]])).data?.length ?? 0, 0, 'the cashier device does not');
+});
+
+test('plans: limits on branches and accounts are kept by the server; AI is off with no key', { skip }, async () => {
+  const st = await (await fetch(`${BASE}/api/ai/status`)).json();
+  assert.equal(st.data.enabled, false);
+  assert.equal((await owner.call('/api/ai', { pharmacy: P, messages: [], tools: [] })).status, 501);
+});
+
 test('cashier PIN, shifts, and the log of changes', { skip }, async () => {
   assert.equal((await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'سارة', p_pin: '1234' })).error, null);
   assert.match((await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'تانية', p_pin: '1234' })).error.message, /PIN already used/);

@@ -456,7 +456,35 @@ tr.sale-lines .ledger { max-width: 560px; }
 .hours .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
 /* Box / strip / pill on a cashier line */
 .unitsel { display: block; margin-top: 4px; padding: 2px 6px; font-size: .85em; max-width: 100%; border: 1px solid var(--line, #d0d7e2); border-radius: 8px; background: var(--card, #fff); color: inherit; }
-.res-title { padding: 6px 10px; font-weight: 700; font-size: .9em; color: var(--muted, #667); border-bottom: 1px solid var(--line, #e3e8ef); }
+.res-title { padding: 6px 10px; font-weight: 700; font-size: .9em; color: var(--muted); border-bottom: 1px solid var(--line, #e3e8ef); }
 .delbox { border: 1px dashed var(--line, #d0d7e2); border-radius: 10px; padding: 6px 10px; }
 .delbox summary { cursor: pointer; font-weight: 600; }
 .delbox .stack { margin-top: 6px; }
+/* ---------- The summary: charts, alerts, recommendations, health, tasks ---------- */
+.chart { margin: 8px 0 0; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart text { font-size: 11px; fill: var(--muted); font-family: var(--num, inherit); }
+.chart .axis { stroke: var(--line-strong); stroke-width: 1; }
+.chart .b0 { fill: var(--accent); } .chart .b1 { fill: #4f8fd9; } .chart .b2 { fill: #e0a43a; } .chart .b3 { fill: #6b5bd2; }
+.chart figcaption { display: flex; flex-wrap: wrap; gap: 12px; font-size: .85em; color: var(--muted); margin-top: 4px; }
+.chart .key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 4px; vertical-align: middle; }
+.chart figcaption .b0 { background: var(--accent); } .chart figcaption .b1 { background: #4f8fd9; } .chart figcaption .b2 { background: #e0a43a; } .chart figcaption .b3 { background: #6b5bd2; }
+.card.alert { border-inline-start: 4px solid var(--line-strong); }
+.card.alert.crit { border-inline-start-color: var(--crit); } .card.alert.warn { border-inline-start-color: var(--warn); } .card.alert.info { border-inline-start-color: #4f8fd9; }
+.card.alert.read { opacity: .7; }
+.card.alert p, .card.rec p, .card.task p { margin: 4px 0; }
+.health { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.health .score { font-size: 2.6rem; font-weight: 800; line-height: 1; display: flex; align-items: baseline; gap: 4px; }
+.health .score span:last-child { font-size: 1rem; color: var(--muted); }
+.health .score.ok { color: var(--ok); } .health .score.warn { color: var(--warn); } .health .score.crit { color: var(--crit); }
+.card.task.done b { text-decoration: line-through; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chips .btn { min-height: 32px; padding: 4px 10px; font-size: .85rem; white-space: normal; }
+.chat { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.chat .msg { max-width: 100%; }
+.chat .msg.me { align-self: flex-start; background: var(--accent-soft); padding: 8px 12px; border-radius: 12px; font-weight: 600; }
+.chat .msg.bot p { margin: 4px 0; }
+.small { font-size: .82em; }
+.card.rec .btn, .card.alert .btn, .card.task .btn { white-space: normal; text-align: start; max-width: 100%; }
+.card.rec .row, .card.alert .row, .card.task .row { flex-wrap: wrap; }
+.tiles .tile .s { overflow-wrap: anywhere; }

@@ -4,6 +4,7 @@
 import { getSession, renderSignIn } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { subscriptionState, monthlyPrice, extendPaid } from './subscription.js';
+import { FEATURES, readPlans } from './plans.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,6 +32,7 @@ async function load() {
   $('gate').hidden = true; $('app').hidden = false;
   $('cTrial').value = CFG.trial_days ?? 14; $('cGrace').value = CFG.grace_days ?? 7; $('cPrice').value = CFG.price_month ?? 0;
   $('cBranch').value = CFG.price_branch ?? 0; $('cPhone').value = CFG.support_phone ?? ''; $('cPay').value = CFG.pay_note ?? '';
+  renderPlans();
   renderList();
   $('errors').innerHTML = (e.data || []).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td><td>${esc(x.page)}</td><td class="name" title="${esc(x.stack || '')}">${esc(x.message)}</td><td class="n">${esc(x.version || '')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">مفيش أخطاء.</td></tr>';
 }
@@ -53,7 +55,7 @@ function renderList() {
     const until = r.status === 'trial' ? r.trial_ends : r.status === 'active' ? r.paid_until : null;
     return `<tr><td class="name"><b>${esc(r.name)}</b><span class="cat">${fmt(r.branches || 1)} فرع · ${fmt(r.employees)} موظف · من ${esc(new Date(r.created_at).toLocaleDateString('ar-EG'))}</span></td>
       <td>${esc(r.owner_email || '')}</td>
-      <td><span class="pill ${st.level === 'locked' ? 'crit' : st.level === 'expired' ? 'crit' : cls}">${label}${st.level === 'locked' ? ' · مقفول' : st.level === 'expired' ? ' · خلص' : ''}</span></td>
+      <td>${r.plan ? `<span class="pill ok">${esc(readPlans(CFG.plans)[r.plan]?.name || r.plan)}</span> ` : ''}<span class="pill ${st.level === 'locked' ? 'crit' : st.level === 'expired' ? 'crit' : cls}">${label}${st.level === 'locked' ? ' · مقفول' : st.level === 'expired' ? ' · خلص' : ''}</span></td>
       <td class="n">${until ? esc(until) : '—'}${st.days != null && st.level !== 'locked' ? `<span class="cat">${st.level === 'expired' ? `سماح ${st.days} يوم` : `فاضل ${st.days} يوم`}</span>` : ''}</td>
       <td class="n">${fmt(r.sales_30d)} فاتورة${r.last_sale ? `<span class="cat">آخر بيع ${esc(new Date(r.last_sale).toLocaleDateString('ar-EG'))}</span>` : ''}</td>
       <td class="n">${fmt(monthlyPrice(CFG, r.branches || 1, r.price_month))}</td>
@@ -61,11 +63,38 @@ function renderList() {
   }).join('') || '<tr><td colspan="7" class="muted">مفيش صيدليات.</td></tr>';
 }
 
+// The plans editor: one block per plan (name, prices, features, limits).
+function renderPlans() {
+  const P = readPlans(CFG.plans);
+  $('plansBox').innerHTML = Object.entries(P).map(([id, p]) => `<fieldset class="card stack" data-plan="${id}"><legend><b>${esc(id)}</b></legend><div class="grid2">
+    <label>الاسم<input data-f="name" maxlength="40" value="${esc(p.name)}"></label>
+    <label>السعر في الشهر<input data-f="price_month" type="number" min="0" step="1" value="${p.price_month}"></label>
+    <label>السعر في السنة<input data-f="price_year" type="number" min="0" step="1" value="${p.price_year}"></label>
+    <label>أقصى عدد فروع<input data-f="max_branches" type="number" min="1" step="1" value="${p.max_branches}"></label>
+    <label>أقصى عدد حسابات<input data-f="max_users" type="number" min="1" step="1" value="${p.max_users}"></label></div>
+    <div>${FEATURES.map(([k, label]) => `<label class="checkline"><input type="checkbox" data-feat="${k}" ${p.features.includes(k) ? 'checked' : ''}> ${esc(label)}</label>`).join('')}</div></fieldset>`).join('');
+  $('ePlan').innerHTML = `<option value="">من غير باقة (كل حاجة)</option>${Object.entries(P).map(([id, p]) => `<option value="${id}">${esc(p.name)}</option>`).join('')}`;
+}
+async function savePlans(e) {
+  e.preventDefault();
+  const plans = {};
+  for (const box of $('plansBox').querySelectorAll('[data-plan]')) {
+    const v = (f) => box.querySelector(`[data-f="${f}"]`).value;
+    plans[box.dataset.plan] = { name: v('name'), price_month: +v('price_month'), price_year: +v('price_year'), max_branches: +v('max_branches'), max_users: +v('max_users'),
+      features: [...box.querySelectorAll('[data-feat]:checked')].map((x) => x.dataset.feat) };
+  }
+  $('plansMsg').textContent = 'لحظة…';
+  const { error } = await SESS.client.rpc('admin_set_plans', { p_plans: plans });
+  $('plansMsg').textContent = error ? arabicError(error).message : 'اتحفظ.';
+  if (!error) await load();
+}
+
 function openEdit(id) {
   EDIT = ROWS.find((r) => r.pharmacy_id === id); if (!EDIT) return;
   $('eName').textContent = EDIT.name;
   $('eStatus').value = EDIT.status || 'trial';
   $('eTrial').value = EDIT.trial_ends || ''; $('ePaid').value = EDIT.paid_until || '';
+  $('ePlan').value = EDIT.plan || '';
   $('ePrice').value = EDIT.price_month ?? ''; $('eNote').value = EDIT.note || ''; $('eMsg').textContent = '';
   showFields();
   $('editDlg').showModal();
@@ -83,7 +112,7 @@ async function saveEdit(e) {
   $('eMsg').textContent = 'لحظة…';
   const { error } = await SESS.client.rpc('admin_set_subscription', {
     p_pharmacy: EDIT.pharmacy_id, p_status: s, p_trial_ends: $('eTrial').value || null, p_paid_until: $('ePaid').value || null,
-    p_price: $('ePrice').value === '' ? null : +$('ePrice').value, p_note: $('eNote').value,
+    p_price: $('ePrice').value === '' ? null : +$('ePrice').value, p_note: $('eNote').value, p_plan: $('ePlan').value || null,
   });
   if (error) { $('eMsg').textContent = arabicError(error).message; return; }
   $('editDlg').close();
@@ -118,5 +147,6 @@ async function boot() {
   $('editForm').addEventListener('submit', saveEdit);
   $('eCancel').addEventListener('click', () => $('editDlg').close());
   $('cfgForm').addEventListener('submit', saveConfig);
+  $('plansForm').addEventListener('submit', savePlans);
   boot();
 }
