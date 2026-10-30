@@ -217,3 +217,15 @@ test('a strip sold at the cashier takes a third of a box off, and a catalog row 
   assert.equal(s.qty, 0.3333);
   assert.equal(s.price, 50.01);
 });
+
+test('a price change: old boxes keep the old price, a sale at the old price takes the old boxes', () => {
+  const b = fromExport({ items: [{ code: 'K', name: 'كونكور', cost: 30, price: 45 }], batches: [{ code: 'K', qty: 2, expiry: '2026-12-01' }] });
+  const d = liveData(b, AT, {
+    purchases: [{ created_at: '2026-10-21T10:00:00Z', received_on: '2026-10-21', lines: [{ code: 'K', qty: 3, cost: 35, price: 52, expiry: '2027-06-01' }] }],
+    sales: [{ id: 's', kind: 'sale', sold_at: '2026-10-22T10:00:00Z', discount: 0, lines: [{ code: 'K', price: 52, bp: 52, qty: 1, discount: 0 }] }],
+  });
+  const k = d.items.find((i) => i.code === 'K');
+  assert.equal(k.price, 52);
+  const by = Object.fromEntries(k.batches.map((x) => [x.price, x.qty]));
+  assert.deepEqual(by, { 45: 2, 52: 2 }, 'the new-price box was sold, the two old ones stay at 45');
+});

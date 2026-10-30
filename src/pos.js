@@ -30,6 +30,20 @@ export const unitLabel = (l) => (+l.per > 1 ? (l.unit === 'pill' ? 'حباية' 
 // The price of one strip or pill: the box's price shared, rounded to the piaster.
 export const unitPrice = (boxPrice, per) => Math.round(((+boxPrice || 0) / (+per || 1)) * 100) / 100;
 
+// ---------- Old and new price ----------
+// The selling prices of the boxes on the shelf when they differ (old boxes keep the old printed
+// price after a price change), earliest expiry first: [{ price, qty }]. One price → [].
+export function pricesOf(item) {
+  const m = new Map();
+  const list = [...(item?.batches || [])].filter((b) => b.qty > 0)
+    .sort((a, b) => (a.expiry ? +new Date(a.expiry) : Infinity) - (b.expiry ? +new Date(b.expiry) : Infinity));
+  for (const b of list) {
+    const p = Math.round((+(b.price ?? item.price) || 0) * 100) / 100;
+    if (p > 0) m.set(p, Math.round(((m.get(p) || 0) + b.qty) * 1000) / 1000);
+  }
+  return m.size > 1 ? [...m].map(([price, qty]) => ({ price, qty })) : [];
+}
+
 // ---------- Alternatives ----------
 // Other items with the same active ingredient, those in stock first (then the cheapest). stockOf(code)
 // gives the shelf stock; without it the item's own qty is used.

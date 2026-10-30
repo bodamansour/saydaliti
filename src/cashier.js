@@ -7,7 +7,7 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, lo
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -205,7 +205,12 @@ function addItem(it) {
   }
   const line = CART.find((l) => l.code === it.code);
   if (line) line.qty += 1;
-  else CART.push({ code: it.code, name: it.name, price: +it.price || 0, box: +it.price || 0, qty: 1, discount: 0 });
+  else {
+    // Old- and new-price boxes on the shelf: the earliest-expiring ones are sold first, at their price.
+    const ps = MODE === 'sale' ? pricesOf(it) : [];
+    const box = ps.length ? ps[0].price : +it.price || 0;
+    CART.push({ code: it.code, name: it.name, price: box, box, qty: 1, discount: 0, ...(ps.length ? { bp: box } : {}) });
+  }
   const inCart = CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0);
   const left = stockOf(it.code) - inCart;
   const alts = MODE === 'sale' && left < -0.0005 ? alternativesOf(it, ITEMS, stockOf).filter((a) => a.qty > 0) : [];
@@ -220,10 +225,13 @@ function addItem(it) {
 // against a receipt keeps the unit the receipt sold it in.
 function unitPick(l, i) {
   if (l.max) return +l.per > 1 ? `<span class="cat">${unitLabel(l)}</span>` : '';
-  const units = unitsOf(ITEMS.find((x) => x.code === l.code));
-  if (units.length < 2) return '';
+  const it = ITEMS.find((x) => x.code === l.code);
+  const ps = pricesOf(it);
+  const pricePick = ps.length ? `<select class="unitsel" data-bp="${i}" aria-label="سعر العلبة">${ps.map((p) => `<option value="${p.price}" ${Math.abs(p.price - (l.bp ?? l.box)) < 0.005 ? 'selected' : ''}>${Math.abs(p.price - (+it.price || 0)) < 0.005 ? 'الجديد' : 'قديم'}: ${fmt(p.price)} ج (فاضل ${fmt(p.qty)})</option>`).join('')}</select>` : '';
+  const units = unitsOf(it);
+  if (units.length < 2) return pricePick;
   const cur = +l.per > 1 ? (l.unit || 'strip') : 'box';
-  return `<select class="unitsel" data-unit="${i}" aria-label="بيع بـ">${units.map((u) => `<option value="${u.key}" ${u.key === cur ? 'selected' : ''}>${u.label}${u.per > 1 ? ` (${u.per} في العلبة)` : ''}</option>`).join('')}</select>`;
+  return pricePick + `<select class="unitsel" data-unit="${i}" aria-label="بيع بـ">${units.map((u) => `<option value="${u.key}" ${u.key === cur ? 'selected' : ''}>${u.label}${u.per > 1 ? ` (${u.per} في العلبة)` : ''}</option>`).join('')}</select>`;
 }
 function setUnit(l, key) {
   const u = unitsOf(ITEMS.find((x) => x.code === l.code)).find((x) => x.key === key) || { key: 'box', per: 1 };
@@ -598,7 +606,7 @@ async function checkout() {
   const sale = {
     id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
     number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
-    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}) })),
+    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}), ...(l.bp ? { bp: l.bp } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
@@ -790,6 +798,10 @@ $('cart').addEventListener('click', (e) => {
   renderCart(); focusSearch();
 });
 $('cart').addEventListener('change', (e) => {
+  if (e.target.dataset.bp !== undefined) {
+    const l = CART[+e.target.dataset.bp]; const bp = +e.target.value;
+    l.bp = bp; l.box = bp; l.price = +l.per > 1 ? unitPrice(bp, l.per) : bp; l.discount = 0; linePctOff(l); renderCart(); focusSearch(); return;
+  }
   if (e.target.dataset.unit !== undefined) { const l = CART[+e.target.dataset.unit]; setUnit(l, e.target.value); linePctOff(l); renderCart(); focusSearch(); return; }
   const i = +(e.target.dataset.qty ?? e.target.dataset.disc);
   if (e.target.dataset.qty !== undefined) CART[i].qty = Math.min(CART[i].max || Infinity, Math.max(1, Math.round(+e.target.value || 1)));

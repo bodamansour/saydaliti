@@ -152,3 +152,10 @@ test('alternatives: same active ingredient, in stock first, then cheapest', asyn
   assert.deepEqual(alternativesOf(items[0], items).map((a) => a.item.code), ['3', '2']);
   assert.deepEqual(alternativesOf({ code: 'x' }, items), []);
 });
+
+test('old and new price boxes: listed earliest expiry first, one price gives none', async () => {
+  const { pricesOf } = await import('../src/pos.js');
+  const item = { price: 52, batches: [{ qty: 4, expiry: new Date('2027-06-01'), price: 52 }, { qty: 2, expiry: new Date('2026-12-01'), price: 45 }, { qty: 0, expiry: null, price: 40 }] };
+  assert.deepEqual(pricesOf(item), [{ price: 45, qty: 2 }, { price: 52, qty: 4 }]);
+  assert.deepEqual(pricesOf({ price: 52, batches: [{ qty: 3 }] }), []);
+});
