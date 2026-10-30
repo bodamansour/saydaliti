@@ -638,7 +638,7 @@ function renderPriceChanges() {
     <td><span class="pill ${c.newMargin < 0 ? 'crit' : c.newMargin < c.oldMargin ? 'warn' : 'ok'}"><span class="n">${fmt(c.oldMargin, 2)}</span> ← <span class="n">${fmt(c.newMargin, 2)}</span></span></td></tr>`);
   return `<p>الأصناف اللي سعر بيعها أو سعر شرائها اتغير بين آخر ملفين اترفعوا (${prevAt ? when(prevAt) : '—'} و${curAt ? when(curAt) : '—'}).</p>
     <p class="note">اتأكد إن سعر البيع في برنامج الصيدلية مطابق للسعر المكتوب على العلبة اللي بتبيعها، وراجع سعر العروض على الأصناف دي.</p>
-    ${ch.some((c) => c.priceMoved && c.qty > 0) ? '<div class="row"><button class="btn" type="button" id="printChanged">اطبع ملصقات بالسعر الجديد (ملصق لكل علبة في الرف)</button></div>' : ''}`
+    ${ch.some((c) => c.priceMoved && c.qty > 0) ? '<div class="row"><button class="btn" type="button" id="printChanged">اطبع ملصقات بالسعر الجديد</button><span class="note">ملصق لكل علبة في الرف.</span></div>' : ''}`
     + (rows.length ? `<div class="tablebox"><table><thead><tr><th>الصنف</th><th>سعر البيع</th><th>سعر الشراء</th><th>في الرف</th><th>مكسب العلبة</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
       : '<div class="tablebox"><p class="empty">مفيش أسعار اتغيرت بين آخر ملفين.</p></div>');
 }
