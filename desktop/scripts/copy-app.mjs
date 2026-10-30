@@ -31,8 +31,8 @@ const FONTS_LINK = /<link rel="preconnect" href="https:\/\/fonts\.googleapis\.co
 for (const f of ['index.html', 'cashier.html', 'attendance.html', 'about.html', 'privacy.html', 'terms.html']) {
   let html = await readFile(join(OUT, f), 'utf8');
   html = html.replace(FONTS_LINK, '<link rel="stylesheet" href="./vendor/fonts/fonts.css">');
-  html = html.replace(/https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/xlsx\/[\d.]+\/xlsx\.full\.min\.js/, './vendor/xlsx.full.min.js');
-  if (/https:\/\/(fonts\.googleapis|cdnjs)/.test(html)) throw new Error(`${f} still loads something from the internet`);
+  html = html.replace(/https:\/\/cdn\.sheetjs\.com\/xlsx-[\d.]+\/package\/dist\/xlsx\.full\.min\.js/, './vendor/xlsx.full.min.js');
+  if (/https:\/\/(fonts\.googleapis|cdnjs|cdn\.sheetjs\.com)/.test(html)) throw new Error(`${f} still loads something from the internet`);
   await writeFile(join(OUT, f), html);
 }
 console.log('app copied to', OUT);
