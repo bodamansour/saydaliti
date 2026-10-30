@@ -26,7 +26,7 @@ export async function aiChat(env, ctx, req, { fetchImpl = fetch } = {}) {
   const b = await req.json().catch(() => null);
   if (!b || typeof b.pharmacy !== 'string' || !Array.isArray(b.messages) || !Array.isArray(b.tools)) throw new ApiError('bad request', '400', 400);
   const role = ctx.roles.get(b.pharmacy);
-  if (!['owner', 'partner'].includes(role)) throw new ApiError('not allowed', '42501', 403);
+  if (!['owner', 'partner', 'accountant', 'stock'].includes(role)) throw new ApiError('not allowed', '42501', 403);
   if (!(await planFor(env, b.pharmacy)).features.includes('ai')) throw new ApiError('not in plan', '402', 402);
   if (b.messages.length > MAX_TURNS * 2 || JSON.stringify(b.messages).length > 60000 || b.tools.length > 30) throw new ApiError('too large', '413', 413);
   // At most LIMIT_PER_HOUR model calls per user per hour (the tool round trips count too).

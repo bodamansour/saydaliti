@@ -6,10 +6,16 @@
 // Column: [type, options]. Types: id (text uuid), text, int, num, bool, json, ts (ISO time), date
 // (yyyy-mm-dd), serial (auto number). Options: nn (not null), def (default: value or 'now'/'today'/
 // 'uuid'), max (text length), min/maxv (numbers), in (allowed values), re (pattern).
-const ROLES_ALL = ['owner', 'partner', 'device'];
-const MANAGERS = ['owner', 'partner'];
+// Roles: owner (صاحب الصيدلية), partner (شريك: الأرقام بس), device (جهاز الكاشير), and staff accounts:
+// pharmacist (صيدلي: يبيع ويشوف المخزون), accountant (محاسب: الأرقام والمصروفات ودفعات الموردين
+// والعملاء), stock (مسؤول مخزن: الطلبيات والجرد والأصناف).
+export const ROLES = ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock'];
+const ROLES_ALL = ROLES;
+const MANAGERS = ['owner', 'partner', 'accountant'];
 const OWNER = ['owner'];
-const SELLERS = ['owner', 'device'];
+const SELLERS = ['owner', 'device', 'pharmacist'];
+const STOCKERS = ['owner', 'stock'];
+const PAYERS = ['owner', 'accountant'];
 
 export const TABLES = {
   // ---------- Accounts (not reachable through the data API) ----------
@@ -48,7 +54,7 @@ export const TABLES = {
     check_out: ['ts'], note: ['text', { max: 300 }] },
   index: [['employee_id', 'check_in'], ['pharmacy_id', 'check_in']] },
   invites: { pk: 'code', read: OWNER, cols: {
-    code: ['text', { nn: true }], pharmacy_id: ['id', { nn: true }], role: ['text', { nn: true, in: ['partner', 'device'] }],
+    code: ['text', { nn: true }], pharmacy_id: ['id', { nn: true }], role: ['text', { nn: true, in: ROLES.filter((r) => r !== 'owner') }],
     created_at: ['ts', { nn: true, def: 'now' }], expires_at: ['ts', { nn: true }], used_by: ['id'], used_at: ['ts'] },
   index: [['pharmacy_id']] },
   // The uploaded data itself is kept in R2 (it can be several MB); the row says where.
@@ -64,7 +70,7 @@ export const TABLES = {
   // ---------- Money and stock ----------
   // The cashier (the pharmacy device) may add only money taken out of the drawer (kind 'withdrawal'),
   // checked in index.js; everything else here is the owner's.
-  expenses: { pk: 'id', read: MANAGERS, insert: SELLERS, del: OWNER, audit: true, refs: { branch_id: 'branches', shift_id: 'pos_shifts' }, cols: {
+  expenses: { pk: 'id', read: MANAGERS, insert: [...SELLERS, 'accountant'], del: OWNER, audit: true, refs: { branch_id: 'branches', shift_id: 'pos_shifts' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], spent_on: ['date', { nn: true }],
     kind: ['text', { nn: true, in: ['electricity', 'water', 'rent', 'salaries', 'maintenance', 'supplies', 'withdrawal', 'other'] }],
     amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
@@ -108,7 +114,7 @@ export const TABLES = {
     opened_at: ['ts', { nn: true }], opening_cash: ['num', { nn: true, def: 0, min: 0 }], closed_at: ['ts'], expected_cash: ['num'], counted_cash: ['num', { min: 0 }],
     totals: ['json'], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id', 'opened_at']] },
-  catalog_items: { pk: 'id', read: ROLES_ALL, insert: SELLERS, update: OWNER, updCols: ['name', 'category', 'price', 'cost', 'barcode', 'strips', 'pills', 'generic', 'maker', 'min_qty', 'updated_at'], del: OWNER, audit: true, cols: {
+  catalog_items: { pk: 'id', read: ROLES_ALL, insert: [...SELLERS, 'stock'], update: STOCKERS, updCols: ['name', 'category', 'price', 'cost', 'barcode', 'strips', 'pills', 'generic', 'maker', 'min_qty', 'updated_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], code: ['text', { nn: true, max: 60 }], name: ['text', { max: 160 }], category: ['text', { max: 60 }],
     price: ['num', { min: 0, maxv: 9999999 }], cost: ['num', { min: 0, maxv: 9999999 }], barcode: ['text', { max: 64 }], created_by: ['id'],
     created_at: ['ts', { nn: true, def: 'now' }], updated_at: ['ts'],
@@ -117,7 +123,7 @@ export const TABLES = {
     // The maker, and the least to keep on the shelf (below it the item is «low»).
     maker: ['text', { max: 120, trim: true, added: 6 }], min_qty: ['num', { min: 0, maxv: 100000, added: 6 }] },
   unique: [['pharmacy_id', 'code']] },
-  purchases: { pk: 'id', read: ROLES_ALL, insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
+  purchases: { pk: 'id', read: ROLES_ALL, insert: STOCKERS, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],
     invoice_no: ['text', { max: 60 }], received_on: ['date', { nn: true }], lines: ['json', { nn: true, array: [1, 500] }],
     total: ['num', { nn: true, min: 0, maxv: 99999999.99 }], paid: ['num', { nn: true, def: 0, min: 0, maxv: 99999999.99 }], note: ['text', { max: 300 }],
@@ -125,25 +131,25 @@ export const TABLES = {
     // 'return': goods sent back to the supplier — out of stock, and off what is owed to them.
     kind: ['text', { nn: true, def: 'buy', in: ['buy', 'return'], added: 5 }] },
   index: [['pharmacy_id', 'received_on']] },
-  supplier_payments: { pk: 'id', read: MANAGERS, insert: OWNER, del: OWNER, audit: true, cols: {
+  supplier_payments: { pk: 'id', read: MANAGERS, insert: PAYERS, del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], supplier_id: ['text', { max: 60 }], supplier_name: ['text', { max: 120 }],
     paid_on: ['date', { nn: true }], amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'],
     created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id']] },
-  stock_moves: { pk: 'id', read: ROLES_ALL, insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
+  stock_moves: { pk: 'id', read: ROLES_ALL, insert: STOCKERS, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], code: ['text', { nn: true, max: 60 }],
     qty: ['num', { nn: true, nonzero: true, min: -9999999, maxv: 9999999 }],
     kind: ['text', { nn: true, in: ['count', 'damaged', 'expired', 'supplier_return', 'transfer', 'withdrawal'] }], expiry: ['date'], cost: ['num', { min: 0 }], ref: ['id'],
     note: ['text', { max: 300 }], happened_at: ['ts', { nn: true, def: 'now' }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
     person: ['text', { max: 80, trim: true, added: 2 }] },
   index: [['pharmacy_id', 'happened_at']] },
-  customers: { pk: 'id', read: SELLERS, insert: SELLERS, update: OWNER, updCols: ['name', 'phone', 'kind', 'coverage_pct', 'credit_limit', 'note', 'active', 'updated_at'], del: OWNER, audit: true, cols: {
+  customers: { pk: 'id', read: [...SELLERS, 'accountant'], insert: SELLERS, update: OWNER, updCols: ['name', 'phone', 'kind', 'coverage_pct', 'credit_limit', 'note', 'active', 'updated_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 120, trim: true }], phone: ['text', { max: 20 }],
     kind: ['text', { nn: true, def: 'person', in: ['person', 'insurance'] }], coverage_pct: ['num', { nn: true, def: 0, min: 0, maxv: 100 }],
     credit_limit: ['num', { min: 0 }], note: ['text', { max: 300 }], active: ['bool', { nn: true, def: true }], created_by: ['id'],
     created_at: ['ts', { nn: true, def: 'now' }], updated_at: ['ts'] },
   index: [['pharmacy_id']], cascade: { customer_payments: 'customer_id' }, setNull: { pos_sales: 'customer_id' } },
-  customer_payments: { pk: 'id', read: SELLERS, insert: SELLERS, del: OWNER, audit: true, refs: { customer_id: 'customers' }, cols: {
+  customer_payments: { pk: 'id', read: [...SELLERS, 'accountant'], insert: [...SELLERS, 'accountant'], del: OWNER, audit: true, refs: { customer_id: 'customers' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], customer_id: ['id', { nn: true }], paid_on: ['date', { nn: true }],
     amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id'], ['customer_id']] },

@@ -4,7 +4,7 @@
 import { arabicError } from './supabase-store.js';
 import { clearLocal, setAlwaysOnline } from './offline.js';
 
-export const ROLE_LABEL = { owner: 'صاحب الصيدلية', partner: 'شريك', device: 'جهاز الصيدلية' };
+export const ROLE_LABEL = { owner: 'صاحب الصيدلية', partner: 'شريك', device: 'جهاز الصيدلية', pharmacist: 'صيدلي', accountant: 'محاسب', stock: 'مسؤول مخزن' };
 let client = null;
 
 const cache = {

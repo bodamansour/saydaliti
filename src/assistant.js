@@ -58,7 +58,7 @@ const soldBy = (ctx, from, to) => {
 };
 
 export const TOOLS = [
-  { name: 'get_sales_summary', description: 'إجمالي المبيعات وتكلفتها ومجمل الربح لفترة، مقارنة بالفترة اللي قبلها بنفس الطول.', input: { type: 'object', properties: { period } }, roles: ['owner', 'partner'],
+  { name: 'get_sales_summary', description: 'إجمالي المبيعات وتكلفتها ومجمل الربح لفترة، مقارنة بالفترة اللي قبلها بنفس الطول.', input: { type: 'object', properties: { period } }, roles: ['owner', 'partner', 'accountant'],
     run(ctx, { period: p = 'today' }) {
       const [a, b] = periodRange(p, ctx.today);
       const now = periodTotals(ctx.data, a, b);
@@ -70,7 +70,7 @@ export const TOOLS = [
         text: `المبيعات ${f(now.sales, 2)} ج (${f(now.qty)} علبة)، مجمل الربح ${f(now.gross, 2)} ج.${g === null ? '' : ` ${g >= 0 ? 'أعلى' : 'أقل'} من المدة اللي قبلها بـ ${f(Math.abs(g), 1)}%.`}${rc.length ? ` فواتير الكاشير ${f(rc.length)} بمتوسط ${f(rc.reduce((x, r) => x + (+r.total || 0), 0) / rc.length, 2)} ج.` : ''}`,
         table: { head: ['', 'المبيعات', 'التكلفة', 'مجمل الربح'], rows: [[PERIODS[p], now.sales, now.cogs, now.gross], ['المدة اللي قبلها', before.sales, before.cogs, before.gross]] }, tab: 'pos' };
     } },
-  { name: 'get_profit_summary', description: 'صافي الربح لفترة: مجمل الربح ناقص المصروفات المتسجلة.', input: { type: 'object', properties: { period } }, roles: ['owner', 'partner'],
+  { name: 'get_profit_summary', description: 'صافي الربح لفترة: مجمل الربح ناقص المصروفات المتسجلة.', input: { type: 'object', properties: { period } }, roles: ['owner', 'partner', 'accountant'],
     run(ctx, { period: p = 'month' }) {
       const [a, b] = periodRange(p, ctx.today);
       const t = periodTotals(ctx.data, a, b);
@@ -79,7 +79,7 @@ export const TOOLS = [
         text: `المبيعات ${f(t.sales, 2)} − تكلفتها ${f(t.cogs, 2)} = مجمل ربح ${f(t.gross, 2)} ج. المصروفات ${f(e.operating, 2)} ج. صافي الربح ${f(t.gross - e.operating, 2)} ج.${e.count ? '' : ' (مفيش مصروفات متسجلة في الفترة دي)'}`,
         table: { head: ['البند', 'جنيه'], rows: [['المبيعات', t.sales], ['تكلفة اللي اتباع', t.cogs], ['مجمل الربح', t.gross], ['المصروفات', r2(e.operating)], ['صافي الربح', r2(t.gross - e.operating)]] }, tab: 'profit' };
     } },
-  { name: 'get_top_products', description: 'أكتر الأصناف مبيعاً في فترة: بالكمية أو بالمبيعات أو بالمكسب.', input: { type: 'object', properties: { period, n: { type: 'integer', minimum: 1, maximum: 50 }, by: { type: 'string', enum: ['qty', 'sales', 'profit'] } } }, roles: ['owner', 'partner'],
+  { name: 'get_top_products', description: 'أكتر الأصناف مبيعاً في فترة: بالكمية أو بالمبيعات أو بالمكسب.', input: { type: 'object', properties: { period, n: { type: 'integer', minimum: 1, maximum: 50 }, by: { type: 'string', enum: ['qty', 'sales', 'profit'] } } }, roles: ['owner', 'partner', 'accountant'],
     run(ctx, { period: p = 'last_30', n = 20, by = 'sales' }) {
       const [a, b] = periodRange(p, ctx.today);
       const key = by === 'qty' ? 'qty' : by === 'profit' ? 'gross' : 'sales';
@@ -89,7 +89,7 @@ export const TOOLS = [
         text: rows.length ? `الأول «${rows[0].name}» (${f(rows[0].qty)} علبة، ${f(rows[0].sales, 2)} ج).` : 'مفيش مبيعات في الفترة دي.',
         table: { head: ['الصنف', 'علب', 'المبيعات', 'المكسب'], rows: rows.map((r) => [r.name, r2(r.qty), r2(r.sales), r2(r.gross)]) }, tab: 'movers' };
     } },
-  { name: 'get_inventory_status', description: 'الأصناف اللي قربت تخلص أو خلصت وبتتباع، ومحتاجة تتطلب.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'device'],
+  { name: 'get_inventory_status', description: 'الأصناف اللي قربت تخلص أو خلصت وبتتباع، ومحتاجة تتطلب.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock'],
     run(ctx) {
       const out = ctx.A.rows.filter((r) => r.rate > 0 && r.qty <= 0);
       const rows = ctx.A.reorder.slice(0, 50);
@@ -97,20 +97,20 @@ export const TOOLS = [
         text: `${f(ctx.A.reorder.length)} صنف محتاج يتطلب، منهم ${f(out.length)} خلص خالص وهو بيتباع.`,
         table: { head: ['الصنف', 'الرصيد', 'بيتباع في الشهر', 'يكفي (يوم)', 'اطلب'], rows: rows.map((r) => [r.name, r.qty, r2(r.monthly), Number.isFinite(r.daysCover) ? Math.round(r.daysCover) : '—', r.order]) }, tab: 'reorder' };
     } },
-  { name: 'get_expiry_report', description: 'الأصناف القريبة من انتهاء الصلاحية والكمية اللي مش هتلحق تتباع وقيمتها.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'device'],
+  { name: 'get_expiry_report', description: 'الأصناف القريبة من انتهاء الصلاحية والكمية اللي مش هتلحق تتباع وقيمتها.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock'],
     run(ctx) {
       const rows = [...ctx.A.expiring].sort((a, b) => b.riskValue - a.riskValue).slice(0, 50);
       return { title: 'قرب ينتهي', source: 'الصلاحية في التشغيلات + معدل البيع',
         text: `${f(ctx.A.expiring.length)} صنف، والفلوس المعرضة للخطر ${f(ctx.A.expiring.reduce((a, r) => a + r.riskValue, 0), 2)} ج (الكمية اللي مش هتلحق تتباع قبل الصلاحية بمعدل البيع الحالي).`,
         table: { head: ['الصنف', 'ينتهي بعد (يوم)', 'الرصيد', 'مش هيلحق', 'القيمة'], rows: rows.map((r) => [r.name, r.expDays, r.qty, r.atRisk, r2(r.riskValue)]) }, tab: 'expiry' };
     } },
-  { name: 'get_slow_moving_products', description: 'الأصناف الراكدة (مفيش بيع من 45 يوم أو أكتر) والفلوس الواقفة فيها.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner'],
+  { name: 'get_slow_moving_products', description: 'الأصناف الراكدة (مفيش بيع من 45 يوم أو أكتر) والفلوس الواقفة فيها.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'accountant'],
     run(ctx) {
       const rows = [...ctx.A.deadStock].sort((a, b) => b.value - a.value).slice(0, 50);
       return { title: 'الراكد', source: 'الرصيد وآخر بيع', text: `${f(ctx.A.deadStock.length)} صنف راكد بقيمة ${f(ctx.A.deadStock.reduce((a, r) => a + r.value, 0), 2)} ج بسعر الشراء.`,
         table: { head: ['الصنف', 'الرصيد', 'القيمة', 'آخر بيع'], rows: rows.map((r) => [r.name, r.qty, r2(r.value), r.lastSale ? dk(r.lastSale) : '—']) }, tab: 'dead' };
     } },
-  { name: 'compare_periods', description: 'يقارن الشهر ده بالشهر اللي فات (لنفس الأيام) ويشرح الفرق: المبيعات، الهامش، المصروفات، والأصناف اللي فرقت.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner'],
+  { name: 'compare_periods', description: 'يقارن الشهر ده بالشهر اللي فات (لنفس الأيام) ويشرح الفرق: المبيعات، الهامش، المصروفات، والأصناف اللي فرقت.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'accountant'],
     run(ctx) {
       const today = ctx.today;
       const a1 = new Date(today.getFullYear(), today.getMonth(), 1), b1 = addDays(today, 1);
@@ -131,20 +131,20 @@ export const TOOLS = [
         text: why.join(' ') || 'مفيش بيانات كفاية للمقارنة.',
         table: { head: ['', 'الشهر اللي فات', 'الشهر ده'], rows: [['المبيعات', before.sales, now.sales], ['مجمل الربح', before.gross, now.gross], ['الهامش %', r2(m(before)), r2(m(now))], ['المصروفات', r2(e0), r2(e1)], ['الصافي', r2(before.gross - e0), r2(now.gross - e1)]] }, tab: 'overview' };
     } },
-  { name: 'get_trending_products', description: 'الأصناف اللي الطلب عليها زاد أو قلّ (آخر 30 يوم مقابل الـ 30 اللي قبلهم).', input: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down'] } } }, roles: ['owner', 'partner'],
+  { name: 'get_trending_products', description: 'الأصناف اللي الطلب عليها زاد أو قلّ (آخر 30 يوم مقابل الـ 30 اللي قبلهم).', input: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down'] } } }, roles: ['owner', 'partner', 'accountant'],
     run(ctx, { direction = 'down' }) {
       const t = trending(ctx.data, ctx.today)[direction === 'up' ? 'up' : 'down'];
       return { title: direction === 'up' ? 'الطلب زاد' : 'الطلب قلّ', source: 'المبيعات', range: rangeText([addDays(ctx.today, -59), addDays(ctx.today, 1)]),
         text: t.length ? `${f(t.length)} صنف.` : 'مفيش أصناف اتغير الطلب عليها بشكل واضح.',
         table: { head: ['الصنف', 'الـ 30 يوم اللي قبل', 'آخر 30 يوم'], rows: t.map((r) => [r.name, r.before, r.now]) }, tab: 'analysis' };
     } },
-  { name: 'get_supplier_comparison', description: 'الموردين: قيمة الطلبيات، المرتجع، وتغيّر أسعارهم.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner'],
+  { name: 'get_supplier_comparison', description: 'الموردين: قيمة الطلبيات، المرتجع، وتغيّر أسعارهم.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'accountant'],
     run(ctx) {
       const s = supplierPerformance(ctx.purchases || []);
       return { title: 'الموردين', source: 'فواتير الشراء المتسجلة', text: s.length ? `${f(s.length)} مورد. الأكبر «${s[0].name}» بـ ${f(s[0].value, 2)} ج.` : 'لسه مفيش فواتير شراء متسجلة.',
         table: { head: ['المورد', 'فواتير', 'القيمة', 'مرتجع %', 'تغيّر الأسعار %'], rows: s.map((x) => [x.name, x.invoices, x.value, x.returnedPct, x.priceChangePct ?? '—']) }, tab: 'analysis' };
     } },
-  { name: 'get_product_details', description: 'تفاصيل صنف: الرصيد، الأسعار، الصلاحية، معدل البيع، والتوقع.', input: { type: 'object', properties: { query: { type: 'string', description: 'اسم الصنف أو الباركود' } }, required: ['query'] }, roles: ['owner', 'partner', 'device'],
+  { name: 'get_product_details', description: 'تفاصيل صنف: الرصيد، الأسعار، الصلاحية، معدل البيع، والتوقع.', input: { type: 'object', properties: { query: { type: 'string', description: 'اسم الصنف أو الباركود' } }, required: ['query'] }, roles: ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock'],
     run(ctx, { query = '' }) {
       const found = findItems(ctx, query);
       if (!found.length) return { title: 'صنف', text: `مفيش صنف اسمه «${query}».`, source: 'الأصناف' };
@@ -156,7 +156,7 @@ export const TOOLS = [
         text: `الرصيد ${f(it.qty)} علبة، سعر البيع ${f(it.price, 2)} ج، الشراء ${f(it.cost, 2)} ج${it.generic ? `، المادة الفعالة ${it.generic}` : ''}. ${row.rate > 0 ? `بيتباع حوالي ${f(row.monthly, 1)} علبة في الشهر.` : 'مبيتباعش اليومين دول.'} ${fc.enough ? `التوقع: ${f(fc.total, 1)} علبة في الأسبوعين الجايين (خطأ الطريقة دي على آخر 4 أسابيع ${fc.error === null ? '—' : `${f(fc.error)}%`}).${plan ? ` الرصيد يخلص بعد حوالي ${f(plan.daysLeft)} يوم.` : ''}` : `مفيش تاريخ بيع كفاية للتوقع (${f(fc.history)} يوم، محتاج 28).`}`,
         table: found.length > 1 ? { head: ['أصناف تانية بنفس الاسم', 'الرصيد', 'السعر'], rows: found.slice(1).map((x) => [x.name, x.qty, x.price]) } : null, tab: 'items' };
     } },
-  { name: 'get_health_score', description: 'مؤشر صحة الصيدلية (استرشادي) وأجزاؤه.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner'],
+  { name: 'get_health_score', description: 'مؤشر صحة الصيدلية (استرشادي) وأجزاؤه.', input: { type: 'object', properties: {} }, roles: ['owner', 'partner', 'accountant'],
     run(ctx) {
       const h = healthScore({ rows: ctx.A.rows, data: ctx.data, today: ctx.today, expenses: ctx.expenses || [], branchId: ctx.branchId || 'all' });
       return { title: 'صحة الصيدلية', source: 'طريقة حساب ثابتة ومكتوبة', text: h.score === null ? 'مفيش بيانات كفاية.' : `${h.score}/100 (مؤشر استرشادي مش تقييم رسمي). أضعف جزء: ${h.parts.filter((p) => p.value !== null).sort((a, b) => a.value - b.value)[0]?.label || '—'}.`,
@@ -168,7 +168,7 @@ export const TOOLS = [
       return { title: 'حاجات تستاهل نظرة', source: 'فواتير الكاشير والورديات والمصروفات (آخر 30 يوم)', text: a.length ? `${f(a.length)} حاجة. دي أرقام بس، مش اتهام لحد.` : 'مفيش حاجة غريبة في آخر 30 يوم.',
         table: { head: ['إيه', 'الأرقام'], rows: a.map((x) => [x.title, x.evidence]) }, tab: 'analysis' };
     } },
-  { name: 'create_purchase_draft', description: 'مسودة طلبية لكل مورد من الأصناف اللي محتاجة تتطلب (مش بتتبعت ولا بتتسجل غير لما صاحب الصيدلية يوافق).', input: { type: 'object', properties: {} }, roles: ['owner'],
+  { name: 'create_purchase_draft', description: 'مسودة طلبية لكل مورد من الأصناف اللي محتاجة تتطلب (مش بتتبعت ولا بتتسجل غير لما صاحب الصيدلية يوافق).', input: { type: 'object', properties: {} }, roles: ['owner', 'stock'],
     run(ctx) {
       const groups = ordersBySupplier(ctx.A.reorder, ctx.suppliers || [], ctx.chosen || {});
       const rows = groups.flatMap((g) => g.lines.map((l) => [g.supplier?.name || 'من غير مورد', l.name, l.qty]));

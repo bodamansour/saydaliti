@@ -75,7 +75,7 @@ async function api(req, env, url) {
       await insert(ctx, env, q, { beforeInsert: async (table, row) => {
         if (table === 'pos_sales') await checkPosSale(env, row);
         // The cashier device records only money taken out of the drawer; other expenses are the owner's.
-        if (table === 'expenses' && ctx.roles.get(row.pharmacy_id) !== 'owner' && row.kind !== 'withdrawal') throw new ApiError('not allowed', '42501', 403);
+        if (table === 'expenses' && !['owner', 'accountant'].includes(ctx.roles.get(row.pharmacy_id)) && row.kind !== 'withdrawal') throw new ApiError('not allowed', '42501', 403);
       } });
       return json({ data: null, error: null }, 201);
     }
