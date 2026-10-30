@@ -7,7 +7,7 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, lo
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -199,6 +199,15 @@ function addItem(it) {
     if (line.qty >= line.max) { msg(`«${it.name}»: اترجع كل اللي اتباع منه في الفاتورة دي (${line.max}).`, true); return; }
     line.qty += 1; line.discount = lineOff(line); renderCart(); return;
   }
+  // Every box of it has expired: not sold, unless the cashier writes why (kept on the receipt).
+  let why = null;
+  if (MODE === 'sale' && dev.blockExpired !== false && allExpired(it, today()) && !CART.some((l) => l.code === it.code)) {
+    why = (prompt(`«${it.name}» كل رصيده المسجل منتهي الصلاحية. متتباعش علبة منتهية.\nلو العلبة اللي قدامك صلاحيتها سليمة (الرصيد مش متظبط)، اكتب ده هنا وكمّل:`) || '').trim();
+    if (!why) { msg(`«${it.name}» متباعش: كل رصيده منتهي الصلاحية.`, true); return; }
+  }
+  if (MODE === 'sale' && dev.blockNegative && stockOf(it.code) - CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0) < 1 - 0.0005) {
+    msg(`«${it.name}» رصيده المسجل خلص. ظبط الرصيد من «جرد وتالف» الأول، أو اقفل منع البيع بعد الرصيد من الإعدادات.`, true); return;
+  }
   const w = expiryWarning(it, today());
   if (w?.level === 'expired' && MODE === 'sale') {
     msg(`«${it.name}» أقرب تشغيلة منه منتهية الصلاحية. اتأكد من تاريخ العلبة قبل ما تبيعها.`, true);
@@ -209,7 +218,7 @@ function addItem(it) {
     // Old- and new-price boxes on the shelf: the earliest-expiring ones are sold first, at their price.
     const ps = MODE === 'sale' ? pricesOf(it) : [];
     const box = ps.length ? ps[0].price : +it.price || 0;
-    CART.push({ code: it.code, name: it.name, price: box, box, qty: 1, discount: 0, ...(ps.length ? { bp: box } : {}) });
+    CART.push({ code: it.code, name: it.name, price: box, box, qty: 1, discount: 0, ...(ps.length ? { bp: box } : {}), ...(why ? { why } : {}) });
   }
   const inCart = CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0);
   const left = stockOf(it.code) - inCart;
@@ -295,6 +304,46 @@ function renderUnits() {
   $('extraDisc').max = dev.billPct ? '100' : '';
   $('extraDisc').step = dev.billPct ? '1' : '0.5';
   $('extraDisc').setAttribute('aria-label', dev.billPct ? 'خصم على الفاتورة (نسبة %)' : 'خصم على الفاتورة (جنيه)');
+}
+
+// ---------- Bills on hold ----------
+// A bill put aside (the customer went to get something) and taken back later; kept on this device.
+const HKEY = () => `saydaliti-held:${SESS.pharmacy.id}`;
+const heldList = () => { try { return JSON.parse(localStorage.getItem(HKEY())) || []; } catch { return []; } };
+const saveHeld = (list) => { try { localStorage.setItem(HKEY(), JSON.stringify(list)); } catch { /* blocked */ } renderHeld(); };
+function renderHeld() {
+  const n = heldList().length;
+  $('heldBtn').hidden = !n; $('heldCount').textContent = n;
+}
+function holdBill() {
+  if (MODE !== 'sale' || !CART.length) { msg(MODE === 'sale' ? 'مفيش أصناف في الفاتورة عشان تتعلّق.' : 'المرتجع مبيتعلّقش.', true); return false; }
+  const list = heldList();
+  list.push({ id: crypto.randomUUID(), at: new Date().toISOString(), cart: CART, cust: CUST?.id ?? null, extra: $('extraDisc').value, delFee: $('delFee').value, delTo: $('delTo').value, payment: PAYMENT, who: CASHIER?.name ?? null });
+  saveHeld(list.slice(-30));
+  newBill();
+  msg(`اتعلّقت. ${heldList().length} فاتورة معلّقة.`);
+  return true;
+}
+function showHeld() {
+  const list = heldList();
+  const t = (iso) => new Date(iso).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' });
+  $('heldList').innerHTML = list.slice().reverse().map((h) => `<button class="res" type="button" data-held="${esc(h.id)}"><span>${esc(h.cart.map((l) => l.name).join('، ').slice(0, 70))}</span><span class="muted n">${fmt(cartTotals(h.cart, 0).total)} ج · ${t(h.at)}${h.who ? ` · ${esc(h.who)}` : ''}</span></button>`).join('') || '<p class="empty">مفيش فواتير معلّقة.</p>';
+  $('heldDlg').showModal();
+}
+function resumeHeld(id) {
+  const list = heldList();
+  const h = list.find((x) => x.id === id);
+  if (!h) return;
+  const rest = list.filter((x) => x.id !== id);
+  // The bill open now goes on hold in its place.
+  if (MODE === 'sale' && CART.length) rest.push({ id: crypto.randomUUID(), at: new Date().toISOString(), cart: CART, cust: CUST?.id ?? null, extra: $('extraDisc').value, delFee: $('delFee').value, delTo: $('delTo').value, payment: PAYMENT, who: CASHIER?.name ?? null });
+  newBill();
+  CART = h.cart; $('extraDisc').value = h.extra || 0; $('delFee').value = h.delFee || ''; $('delTo').value = h.delTo || ''; $('delBox').open = !!(h.delFee || h.delTo);
+  PAYMENT = h.payment || 'cash';
+  if (h.cust) setCustomer(CUSTOMERS.find((c) => c.id === h.cust) || null);
+  saveHeld(rest);
+  $('heldDlg').close();
+  renderPay(); renderCart(); focusSearch();
 }
 
 function newBill() {
@@ -612,6 +661,8 @@ async function checkout() {
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
     // A return says which receipt it came from, or why there was none (database update 012).
     ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()}` }) : {}),
+    // An item sold while all its recorded stock had expired: what the cashier wrote (audited).
+    ...(MODE === 'sale' && CART.some((l) => l.why) ? { note: CART.filter((l) => l.why).map((l) => `اتباع ورصيده منتهي: ${l.name} — ${l.why}`).join(' / ').slice(0, 300) } : {}),
     // A home delivery (database update 0004): the fee is inside the total.
     ...(t.fee || ($('delTo').value.trim() && MODE === 'sale') ? { delivery_fee: t.fee, ...($('delTo').value.trim() ? { delivery_to: $('delTo').value.trim() } : {}) } : {}),
     // Who sold it, and in which shift (database update 013).
@@ -747,6 +798,7 @@ async function boot() {
   $('posBranch').innerHTML = BRANCHES.map((b) => `<option value="${esc(b.id ?? '')}" ${b.id === BRANCH ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
   $('silentWrap').hidden = !window.saydalitiDesktop?.printSilent; $('silentPrint').checked = !!dev.silent; $('kioskNote').hidden = !!window.saydalitiDesktop;
   $('paper').value = dev.paper; $('autoPrint').checked = !!dev.autoPrint; $('footer').value = dev.footer; $('deviceTag').value = dev.tag;
+  $('blockExpired').checked = dev.blockExpired !== false; $('blockNegative').checked = !!dev.blockNegative; renderHeld();
   $('rcAddr').value = dev.addr || ''; $('rcPhone').value = dev.phone || ''; $('rcQr').checked = !!dev.qr; showLogo();
   // The pharmacy device asks for a PIN by default; the owner's own computer only if turned on.
   dev.requirePin ??= SESS.role === 'device'; $('requirePin').checked = !!dev.requirePin;
@@ -898,6 +950,12 @@ $('autoPrint').addEventListener('change', (e) => { dev.autoPrint = e.target.chec
 $('silentPrint').addEventListener('change', (e) => { dev.silent = e.target.checked; saveDev(); });
 $('footer').addEventListener('input', (e) => { dev.footer = e.target.value; saveDev(); });
 $('delFee').addEventListener('input', () => renderCart());
+$('holdBtn').addEventListener('click', () => { holdBill(); focusSearch(); });
+$('heldBtn').addEventListener('click', showHeld);
+$('heldClose').addEventListener('click', () => $('heldDlg').close());
+$('heldList').addEventListener('click', (e) => { const b = e.target.closest('[data-held]'); if (b) resumeHeld(b.dataset.held); });
+$('blockExpired').addEventListener('change', (e) => { dev.blockExpired = e.target.checked; saveDev(); });
+$('blockNegative').addEventListener('change', (e) => { dev.blockNegative = e.target.checked; saveDev(); });
 $('rcAddr').addEventListener('input', (e) => { dev.addr = e.target.value; saveDev(); });
 $('rcPhone').addEventListener('input', (e) => { dev.phone = e.target.value.trim(); saveDev(); });
 $('rcQr').addEventListener('change', (e) => { dev.qr = e.target.checked; saveDev(); if (dev.qr && !whatsappLink(dev.phone)) msg('اكتب رقم موبايل الصيدلية (01xxxxxxxxx) عشان الـ QR يشتغل.', true); });
@@ -915,7 +973,8 @@ $('rcLogo').addEventListener('change', async (e) => {
 $('rcLogoDel').addEventListener('click', () => { dev.logo = ''; saveDev(); showLogo(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
-  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open) return;
+  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open || $('heldDlg').open) return;
+  if (e.key === 'F4') { e.preventDefault(); holdBill(); return; }
   if (e.key === 'F2') { e.preventDefault(); checkout(); }
   if (e.key === 'Escape') { e.preventDefault(); if (!$('results').hidden) { showResults([]); $('q').value = ''; } else if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) newBill(); }
 });

@@ -114,6 +114,14 @@ test('the cashier sells by the strip', { skip }, async () => {
   await owner.fill('#q', 'panadol');
   assert.ok(await until(owner, async () => /Panadol/.test(await text(owner, '#results'))));
   await owner.press('#q', 'Enter');
+  // Put the bill on hold (F4) and take it back.
+  await owner.keyboard.press('F4');
+  assert.ok(await until(owner, async () => (await text(owner, '#heldCount')) === '1'), 'one bill on hold');
+  assert.equal(await owner.locator('#cart tr').count(), 0, 'a new empty bill');
+  await owner.click('#heldBtn');
+  await owner.click('[data-held]');
+  assert.ok(await until(owner, async () => /Panadol/.test(await text(owner, '#cart'))), 'the held bill is back');
+  assert.ok(await owner.locator('#heldBtn').isHidden());
   await owner.selectOption('[data-unit="0"]', 'strip');
   assert.ok(await until(owner, async () => /25\.5/.test(await text(owner, '#tTotal'))), 'half the box price');
   // Delivery on top, and the pharmacy's WhatsApp as a QR on the receipt.
