@@ -1,344 +1,799 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éí×=Õ:-jZ.¶›­–)Þ³Ròò'&÷w6W"FW7BöbF†RF6†&ö&Bv–ç7B7FæBÖ–âFF&6R†S&R÷7W&6R×7GV"æ§2’àÐ¢òò'Vã¢çÒ'VâS&R†æVVG2ç‚Æ—w&–v‡B–ç7FÆÂ6‡&öÖ—VÖöæ6RÐ¦–×÷'B²FW7BÂ&Vf÷&RÂgFW"Òg&öÒvæöFS§FW7Bs°Ð¦–×÷'B76W'Bg&öÒvæöFS¦76W'B÷7G&–7Bs°Ð¦–×÷'B²7&VFU6W'fW"Òg&öÒvæöFS¦‡GGs°Ð¦–×÷'B²&VDf–ÆRÂw&—FTf–ÆRÂÖ¶GFV×Òg&öÒvæöFS¦g2÷&öÖ—6W2s°Ð¦–×÷'B²F×F—"Òg&öÒvæöFS¦÷2s°Ð¦–×÷'B²W‡FæÖRÂ¦ö–âÂæ÷&ÖÆ—¦RÂF—&æÖRÒg&öÒvæöFS§F‚s°Ð¦–×÷'B²f–ÆUU$ÅFõF‚Òg&öÒvæöFS§W&Âs°Ð¦–×÷'B²6‡&öÖ—VÒÒg&öÒwÆ—w&–v‡Bs°Ð¦–×÷'B²6GW&TF÷væÆöBÒg&öÒrâöF÷væÆöBæ§2s°Ð Ð¢òò6WGF–æw2Â&6·W2ÂW‡÷'BæBÆ–æ¶–ærÆ—fR–âF†V—"÷vâf–WrŒ*½Š}˜MŠ]‹ŠýŠ}ŠýŠ}Š¢˜Š}˜MŠ=Šý˜Š}Š¬+²’àÐ¦6öç7B÷VåFööÇ2Ò7–æ2‡’Óâ²–b†v—BæÆö6F÷"‚r7FööÇ5f–Wrr’æ—4†–FFVâ‚’’v—Bæ6Æ–6²‚r7FööÇ4'Fâr“²Ó°Ð¦6öç7B$ôõBÒ¦ö–â†F—&æÖR†f–ÆUU$ÅFõF‚†–×÷'BæÖWFçW&Â’’Ârââr“°Ð¦6öç7Bd•…EU$RÒ¦ö–â…$ôõBÂwFW7Böf—‡GW&W2öW‡÷'Bæ§6öâr“°Ð¦6öç7BE•U2Ò²ræ‡FÖÂs¢wFW‡Bö‡FÖÃ²6†'6WC×WFbÓ‚rÂræ§2s¢wFW‡Bö¦f67&—C²6†'6WC×WFbÓ‚rÂræ772s¢wFW‡Bö772rÂræ§6öâs¢vÆ–6F–öâö§6öârÂrç7frs¢v–ÖvR÷7fr·†ÖÂrÂrçærs¢v–ÖvR÷ærrÂrçvV&Öæ–fW7Bs¢vÆ–6F–öâöÖæ–fW7B¶§6öârÓ°Ð Ð¦ÆWB6W'fW"Â&6RÂ'&÷w6W"Â7G‚ÂvS°Ð¦6öç7BW'&÷'2ÒµÓ°Ð Ð¦&Vf÷&R†7–æ2‚’Óâ°Ð¢6W'fW"Ò7&VFU6W'fW"†7–æ2‡&WÂ&W2’Óâ°Ð¢6öç7BF‚Òæ÷&ÖÆ—¦R†FV6öFUU$”6ö×öæVçB†æWrU$Â‡&WçW&ÂÂv‡GG¢ò÷‚r’çF†æÖR’’ç&WÆ6R‚õâ…²õÅÅÒ’²òÂrr’ç&WÆ6TÆÂ‚uÅÂrÂròr“°Ð¢6öç7Bf–ÆRÒ¦ö–â…$ôõBÂF‚ÓÓÒrròv–æFW‚æ‡FÖÂr¢F‚“°Ð¢–b‚f–ÆRç7F'G5v—F‚…$ôõB’’²&W2çw&—FT†VBƒC2’æVæB‚“²&WGW&ã²ÐÐ¢G'’²6öç7B&öG’Òv—B&VDf–ÆR†f–ÆR“²&W2çw&—FT†VBƒ#Â²t6öçFVçBÕG—Rs¢E•U5¶W‡FæÖR†f–ÆR•ÒÇÂvÆ–6F–öâöö7FWB×7G&VÒrÒ’æVæB†&öG’“²Ò6F6‚²&W2çw&—FT†VBƒCB’æVæB‚“²ÐÐ¢Ò“°Ð¢v—BæWr&öÖ—6R‚‡"’Óâ6W'fW"æÆ—7FVâƒÂs#rãããrÂ"’“°Ð¢&6RÒ‡GG¢òöÆö6Æ†÷7C¢G·6W'fW"æFG&W72‚’ç÷'GÒö°Ð¢6öç7B7GV"Òv—B&VDf–ÆR†¦ö–â…$ôõBÂvS&R÷7W&6R×7GV"æ§2r’ÂwWFc‚r“°Ð¢'&÷w6W"Òv—B6‡&öÖ—VÒæÆVæ6‚‚“°Ð¢7G‚Òv—B'&÷w6W"ææWt6öçFW‡B‡²Æö6ÆS¢v"ÔTrrÂf–Ww÷'C¢²v–GFƒ¢#Â†V–v‡C¢“ÒÂ66WDF÷væÆöG3¢G'VRÒ“°Ð¢v—B7G‚ç&÷WFR‚r¢¢ö’ö6öæf–rrÂ‡"’Óâ"ægVÆf–ÆÂ‡²§6öã¢²6öæf–wW&VC¢G'VRÂW&Ã¢v‡GG3¢ò÷7GV"ç7W&6RçFW7BrÂ¶W“¢wµ÷FW7BrÒÒ’“°Ð¢v—B7G‚ç&÷WFR‚v‡GG3¢òö6Fâæ§6FVÆ—g"ææWBò¢¢rÂ‡"’Óâ"ægVÆf–ÆÂ‡²6öçFVçEG—S¢wFW‡Bö¦f67&—BrÂ&öG“¢7GV"Ò’“°Ð¢òòF†RW†6VÂÆ–'&'’6öÖW2g&öÒF†RÆö6Â6÷“²föçG2&R6¶—VBàÐ¢6öç7B†Ç7‚Òv—B&VDf–ÆR†¦ö–â…$ôõBÂvæöFUöÖöGVÆW2÷†Ç7‚öF—7B÷†Ç7‚ægVÆÂæÖ–âæ§2r’ÂwWFc‚r“°Ð¢v—B7G‚ç&÷WFR‚ö6Fæ§5Âæ6Æ÷VFfÆ&UÂæ6öÕÂö¦…ÂöÆ–'5Â÷†Ç7…ÂòòÂ‡"’Óâ"ægVÆf–ÆÂ‡²6öçFVçEG—S¢wFW‡Bö¦f67&—BrÂ&öG“¢†Ç7‚Ò’“°Ð¢v—B7G‚ç&÷WFR‚öföçG5Ââ†vöövÆV—7Æw7FF–2•Âæ6öÒòÂ‡"’Óâ"æ&÷'B‚’“°Ð¢vRÒv—B7G‚ææWuvR‚“°Ð¢vRæöâ‚wvVW'&÷"rÂ†R’Óâ²W'&÷'2çW6‚†RæÖW76vR“²–b‡&ö6W72æVçbäDT%Tr’6öç6öÆRæÆör‚utTU%$õ"rÂRæÖW76vRÂRç7F6²“²Ò“°Ð¢vRæöâ‚vF–ÆörrÂ†B’ÓâBæ66WB‚’“°Ð§Ò“°Ð¦gFW"†7–æ2‚’Óâ²v—B'&÷w6W#òæ6Æ÷6R‚“²6W'fW#òæ6Æ÷6R‚“²Ò“°Ð Ð¦6öç7BFW‡BÒ‡6VÂÂÒvR’ÓâæÆö6F÷"‡6VÂ’æf—'7B‚’æ–ææW%FW‡B‚“°Ð¦6öç7BF"Ò†²’ÓâvRæWfÇVFR‚†²’Óâv–æF÷råõôD#òå¶µÒóòµÒÂ²“°Ð¦6öç7BvôöffÆ–æRÒ7–æ2‚’Óâ²v—B7G‚ç6WDöffÆ–æR‡G'VR“²v—BvRæWfÇVFR‚‚’ÓâF—7F6„WfVçB†æWrWfVçB‚vöffÆ–æRr’’“²Ó°Ð¦6öç7BvôöæÆ–æRÒ7–æ2‚’Óâ²v—B7G‚ç6WDöffÆ–æR†fÇ6R“²v—BvRæWfÇVFR‚‚’ÓâF—7F6„WfVçB†æWrWfVçB‚vöæÆ–æRr’’“²Ó°Ð¢òò4„õE3ÓÆföÆFW#âçÒ'VâS&R6fW267&VVç6†÷G2öbF†RæWr67&VVç2f÷"f—7VÂ6†V6²àÐ¦6öç7B6†÷BÒ†æÖR’Óâ&ö6W72æVçbå4„õE2bbvRç67&VVç6†÷B‡²Fƒ¢¦ö–â‡&ö6W72æVçbå4„õE2ÂG¶æÖWÒçæv’ÂgVÆÅvS¢G'VRÒ“°Ð¦6öç7BVçF–ÂÒ7–æ2†fâÂ×2ÒC’Óâ²6öç7BBÒFFRææ÷r‚“²v†–ÆR„FFRææ÷r‚’ÒBÂ×2’²–b†v—Bfâ‚’’&WGW&âG'VS²v—BvRçv—Df÷%F–ÖV÷WBƒ“²Ò&WGW&âfÇ6S²Ó°Ð Ð§FW7B‚w6–vâÖ–â6öÖW2f—'7BÂæB6–vâ×W6·2Fò6öæf—&ÒF†R77v÷&BrÂ7–æ2‚’Óâ°Ð¢v—BvRæv÷Fò†&6R“°Ð¢v—BvRçv—Df÷%6VÆV7F÷"‚r6Æöv–äf÷&Òr“°Ð¢76W'BæWVÂ†v—BvRæÆö6F÷"‚r6r’æ—4†–FFVâ‚’ÂG'VR“°Ð¢v—BvRæ6Æ–6²‚r77v—F6„ÖöFRr“°Ð¢v—BvRæf–ÆÂ‚r6VÖ–ÂrÂv&FôW†×ÆRæ6öÒr“°Ð¢v—BvRæf–ÆÂ‚r777v÷&BrÂw†&Ö7“#2r“°Ð¢v—BvRæf–ÆÂ‚r777v÷&C"rÂw†&Ö7“#Br“°Ð¢v—BvRæ6Æ–6²‚r6Æöv–äf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r6WF„×6rr’Âý˜]‹B‹-˜¢Š‹‹bò“°Ð¢v—BvRæ6Æ–6²‚r77v—F6„ÖöFRr“°Ð¢v—BvRæf–ÆÂ‚r6VÖ–ÂrÂv&FôW†×ÆRæ6öÒr“°Ð¢v—BvRæf–ÆÂ‚r777v÷&BrÂw†&Ö7“#2r“°Ð¢v—BvRæ6Æ–6²‚r6Æöv–äf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢v—BvRçv—Df÷%6VÆV7F÷"‚r6¦æ÷B…¶†–FFVåÒ’r“°Ð§Ò“°Ð Ð§FW7B‚vF6†&ö&B÷Vç2v—F‚æòW†×ÆRFFÂw&÷WVB–â6V7F–öç2rÂ7–æ2‚’Óâ°Ð¢76W'BæWVÂ†v—BFW‡B‚r7…F—FÆRr’Â}‹]˜­Šý˜M˜­Š’Š=ŠÝ˜]Šò˜]˜m‹]˜‹r“°Ð¢76W'BæFVWWVÂ†v—BvRæÆö6F÷"‚r76V7F–öç2ç6V2r’æÆÄ–ææW%FW‡G2‚’Â²}Š}˜M˜]˜MŠí‹RrÂ}Š}˜M˜]Ší‹-˜˜brÂ}Š}˜M˜]‹MŠ­‹˜­Š}Š¢rÂ}Š}˜M‹˜]˜MŠ}ŠrÂ}Š}˜M˜˜M˜‹2rÂ}Š}˜MŠ˜­‹’rÂ}Š}˜M˜]‹‹m˜’uÒ“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r7æVÂr’Âý˜M‹=˜r˜]˜˜­‹BŠ˜­Š}˜mŠ}Š¢ò“°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3ÖÖöæW•Òr“°Ð¢76W'BæFVWWVÂ†v—BvRæÆö6F÷"‚r7F'2çF"r’æÆÄ–ææW%FW‡G2‚’Â²}Š}˜MŠ=‹ŠŠ}ŠÒrÂ}Š}˜M˜˜Š}Š­˜­‹˜Š}˜M˜]Š˜­‹Š}Š¢rÂ}Š}˜M˜‹Šý˜­Š}Š¢rÂ}Š}˜M˜]‹]‹˜˜Š}Š¢rÂ}Š}˜M˜]‹=ŠÝ˜ŠŠ}Š¢rÂ}Š}˜MŠÝ‹=Š}ŠŠ}Š¢rÂ}Š}˜M‹M‹˜=Š}ŠrÂ}ŠÝŠ}‹=ŠŠ’Š}˜M˜]˜=‹=Š‚rÂ}‹=ŠÍ˜BŠ}˜MŠ­‹Šý˜­˜MŠ}Š¢uÒ“°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×F–VçG5Òr“°Ð¢76W'BæWVÂ†v—BvRæÆö6F÷"‚r7F'2r’æ—4†–FFVâ‚’ÂG'VRÂvöæR×F"6V7F–öâ†2æòF"&÷rr“°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×7Fö6µÒr“°Ð§Ò“°Ð Ð§FW7B‚wWÆöBæVVG2'&æ6‚–6¶VBÂF†Vâ6fW2FòF†B'&æ6‚rÂ7–æ2‚’Óâ°Ð¢v—BvRç6WD–çWDf–ÆW2‚r6f–ÆRrÂd•…EU$R“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r6f–ÆT×6rr’ÂýŠ}ŠíŠ­Š}‹Š}˜M˜‹‹’ò“°Ð¢v—BvRç6VÆV7D÷F–öâ‚r6'&æ6…6VÂrÂv#r“°Ð¢v—BvRç6WD–çWDf–ÆW2‚r6f–ÆRrÂd•…EU$R“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚w6æ6†÷G2r’’æÆVæwF‚ÓÓÒ’“°Ð¢76W'BæWVÂ‚†v—BF"‚w6æ6†÷G2r’•³Òæ'&æ6…ö–BÂv#r“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r6f–ÆT×6rr’ÂýŠ}Š­ŠÝ˜‹Š¢ò“°Ð§Ò“°Ð Ð§FW7B‚v6V6öæBWÆöB6†÷w2v†–6‚&–6W26†ævVBrÂ7–æ2‚’Óâ°Ð¢6öç7BFFÒ¥4ôâç'6R†v—B&VDf–ÆR„d•…EU$RÂwWFc‚r’“°Ð¢6öç7BÒFFæ—FV×2æf–æB‚†’’Óâ’æ6öFRÓÓÒsr“°Ð¢ç&–6RÒSbã²æ6÷7BÒCC²òò³R&–6RÂ†–v†W"6÷7@Ð¢6öç7Bf–ÆRÒ¦ö–â†v—BÖ¶GFV×†¦ö–â‡F×F—"‚’Âw6BÒr’’ÂvæWr×&–6W2æ§6öâr“°Ð¢v—Bw&—FTf–ÆR†f–ÆRÂ¥4ôâç7G&–æv–g’†FF’“°Ð¢v—BvRç6WD–çWDf–ÆW2‚r6f–ÆRrÂf–ÆR“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚w6æ6†÷G2r’’æÆVæwF‚ÓÓÒ"’“°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×6VÆÅÒr“°Ð¢76W'BæÖF6‚†v—BFW‡B‚u¶FF×F#Ö6†ævW5Òr’ÂóòÂwF"6†÷w2öæR6†ævRr“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#Ö6†ævW5Òr“°Ð¢6öç7B&÷rÒv—BFW‡B‚r7æVÂF&öG’G"r“°Ð¢76W'BæÖF6‚‡&÷rÂõæFöÂò“°Ð¢76W'BæÖF6‚‡&÷rÂõÂ³Rò“°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×7Fö6µÒr“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#ÖÖ÷&æ–æuÒr“°Ð¢76W'BæÖF6‚†v—BvRæ–çWEfÇVR‚r6Ö÷&æ–æt×6rr’Âý‹=‹‹˜rŠ}Š­‹­˜­‹ò“°Ð§Ò“°Ð Ð§FW7B‚w7WÆ–W'3¢&W7BF—66÷VçBÂÖçVÂ–6²ÂæBF†R÷&FW"ÖW76vRf÷"v†G4rÂ7–æ2‚’Óâ°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#×&V÷&FW%Òr“°Ð¢f÷"†6öç7B¶æÖRÂ†öæRÂÆÅÒöbµ²}˜]Ší‹-˜bŠ}˜MŠ=˜]˜BrÂsrÂsRuÒÂ²}˜]Ší‹-˜bŠ}˜M˜m˜‹rÂrrÂs‚uÕÒ’°Ð¢v—BvRæf–ÆÂ‚r77WæÖRrÂæÖR“°Ð¢v—BvRæf–ÆÂ‚r77W†öæRrÂ†öæR“°Ð¢v—BvRæf–ÆÂ‚r77WÆÂrÂÆÂ“°Ð¢v—BvRæ6Æ–6²‚r77Wf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢v—BVçF–Â†7–æ2‚’Óâ†v—BvRæÆö6F÷"‚r77W&÷‚F&öG’G"r’æ6÷VçB‚’’âbb†v—BFW‡B‚r77W&÷‚r’’æ–æ6ÇVFW2†æÖR’“°Ð¢ÐÐ¢6öç7B6WGF–æw2Ò‚’ÓâvRæWfÇVFR‚‚’Óâv–æF÷råõôD"æÖVÖ&W'5³Òç†&Ö6–W2ç6WGF–æw2“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—B6WGF–æw2‚’’ç7WÆ–W'3òæÆVæwF‚ÓÓÒ"’Âw7WÆ–W'26fVBf÷"F†R†&Ö7’r“°Ð¢6öç7B6VÂÒvRæÆö6F÷"‚w6VÆV7E¶FF×7Wf÷#Ò#%Òr“°Ð¢6öç7B–G2Òö&¦V7Bæg&öÔVçG&–W2‚†v—B6WGF–æw2‚’’ç7WÆ–W'2æÖ‚‡‚’Óâ·‚ææÖRÂ‚æ–EÒ’“°Ð¢76W'BæWVÂ†v—B6VÂæ–çWEfÇVR‚’Â–G5²}˜]Ší‹-˜bŠ}˜M˜m˜‹uÒÂv&–vvW7BF—66÷VçB–6¶VBr“°Ð¢76W'BæÖF6‚†v—BFW‡B‚ræ÷&FW'2æ6&B"r’Âý˜]Ší‹-˜bŠ}˜M˜m˜‹ò“°Ð¢v—B6VÂç6VÆV7D÷F–öâ†–G5²}˜]Ší‹-˜bŠ}˜MŠ=˜]˜BuÒ“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—B6WGF–æw2‚’’ç7WÆ–W$f÷#òå²suÒÓÓÒ–G5²}˜]Ší‹-˜bŠ}˜MŠ=˜]˜BuÒ’“°Ð¢76W'BæÖF6‚†v—BFW‡B‚ræ÷&FW'2æ6&B"r’Âý˜]Ší‹-˜bŠ}˜MŠ=˜]˜Bò“°Ð¢v—BvRæWfÇVFR‚‚’Óâ²v–æF÷ræ÷VâÒ‡R’Óâ²v–æF÷råõö÷VæVBÒS²Ó²Ò“°Ð¢v—BvRæ6Æ–6²‚u¶FF×vÒ#%Òr“°Ð¢6öç7BW&ÂÒv—BvRæWfÇVFR‚‚’Óâv–æF÷råõö÷VæVB“°Ð¢76W'Bæö²‡W&Âç7F'G5v—F‚‚v‡GG3¢ò÷væÖRó#÷FW‡CÒr’ÂW&Â“°Ð¢6öç7B×6rÒFV6öFUU$”6ö×öæVçB‡W&Âç7Æ—B‚wFW‡CÒr•³Ò“°Ð¢76W'BæÖF6‚†×6rÂý‹}˜MŠ˜­Š’˜]˜b‹]˜­Šý˜M˜­Š’Š=ŠÝ˜]Šò˜]˜m‹]˜‹ÂŠ}˜M˜‹‹’Š}˜M‹Šm˜­‹=˜¥Â’ò“°Ð¢76W'BæÖF6‚†×6rÂõæFöÂW‡G&#BF#¢ÆB²ò“°Ð§Ò“°Ð Ð§FW7B‚vW‡Vç6W26fRöæÆ–æRÂæBVWVRöffÆ–æRVçF–ÂF†R6öææV7F–öâ—2&6²rÂ7–æ2‚’Óâ°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3ÖÖöæW•Òr“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#ÖW‡Vç6W5Òr“°Ð¢v—BvRç6VÆV7D÷F–öâ‚r6W‡¶–æBrÂvVÆV7G&–6—G’r“°Ð¢v—BvRæf–ÆÂ‚r6W‡Ö÷VçBrÂsCSr“°Ð¢v—BvRæ6Æ–6²‚r6W‡f÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚vW‡Vç6W2r’’æÆVæwF‚ÓÓÒ’“°Ð¢v—BvôöffÆ–æR‚“°Ð¢òòv†BF†R÷væW"F¶W2f÷"†–×6VÆb—2æ÷B6÷7C¢—B†2—G2÷vâF"àÐ¢76W'BæWVÂ†v—BvRæÆö6F÷"‚r6W‡¶–æB÷F–öå·fÇVS×v—F†G&vÅÒr’æ6÷VçB‚’Â“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#×v—F†G&vÇ5Òr“°Ð¢v—BvRæf–ÆÂ‚r7vDÖ÷VçBrÂs3r“°Ð¢v—BvRæ6Æ–6²‚r7vDf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâý˜]‹=Š­˜m˜¢˜­Š­‹˜‹’òçFW7B†v—BFW‡B‚r6æWD6†—r’’’Âw7FGW26†÷w2F†RVWVVB6†ævRr“°Ð¢76W'BæWVÂ‚†v—BF"‚vW‡Vç6W2r’’æÆVæwF‚Â“°Ð¢v—BvôöæÆ–æR‚“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚vW‡Vç6W2r’’æÆVæwF‚ÓÓÒ"’“°Ð¢76W'BæWVÂ‚†v—BF"‚vW‡Vç6W2r’’æf–æB‚†R’ÓâRæ¶–æBÓÓÒwv—F†G&vÂr’çW'6öâÂ}‹]Š}ŠÝŠ‚Š}˜M‹]˜­Šý˜M˜­Š’r“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#Ö&öö·5Òr“°Ð¢v—BvRç6VÆV7D÷F–öâ‚r7W&–öE6VÂrÂvÆÂr“°Ð¢6öç7B&öö·2Òv—BFW‡B‚r7æVÂæ6&BæÆVFvW"r“°Ð¢76W'BæÖF6‚†&öö·2ÂýŠ}˜M˜]‹]‹˜˜Š}Š¢Š}˜M˜]Š­‹=ŠÍ˜MŠ’ò“°Ð¢76W'BæÖF6‚†&öö·2Âý˜]‹=ŠÝ˜ŠŠ}Š¢ò“°Ð§Ò“°Ð Ð§FW7B‚vVF—F–ærâW‡Vç6RÂæBFF–ærÆ7BÖöçF…Âw2f—†VB6÷7G2–âöæRFrÂ7–æ2‚’Óâ°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#ÖW‡Vç6W5Òr“°Ð¢v—BvRæÆö6F÷"‚r7æVÂG"rÂ²†5FW‡C¢}˜=˜}‹ŠŠrrÒ’æÆö6F÷"‚u¶FFÖVF—FW‡Òr’æ6Æ–6²‚“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r6W‡f÷&Òƒ2r’Âý‹Šý™˜Bò“°Ð¢76W'BæWVÂ†v—BvRæ–çWEfÇVR‚r6W‡Ö÷VçBr’ÂsCSr“°Ð¢v—BvRæf–ÆÂ‚r6W‡Ö÷VçBrÂsSr“°Ð¢v—BvRæ6Æ–6²‚r6W‡f÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ²6öç7BÒ†v—BF"‚vW‡Vç6W2r’’æÖ‚†R’Óâ¶RæÖ÷VçB“²&WGW&âæ–æ6ÇVFW2ƒS’bbæ–æ6ÇVFW2ƒCS“²Ò’ÂvVF—FVBÂæ÷BGWÆ–6FVBr“°Ð Ð¢6öç7Bæ÷rÒæWrFFR‚“°Ð¢6öç7BÆ7DÖöçF‚ÒæWrFFR†æ÷rævWDgVÆÅ–V"‚’Âæ÷rævWDÖöçF‚‚’ÒÂ“°Ð¢6öç7B—6òÒG¶Æ7DÖöçF‚ævWDgVÆÅ–V"‚—ÒÒGµ7G&–ær†Æ7DÖöçF‚ævWDÖöçF‚‚’²’çE7F'Bƒ"Âsr—ÒÓ°Ð¢v—BvRç6VÆV7D÷F–öâ‚r6W‡¶–æBrÂw&VçBr“°Ð¢v—BvRæf–ÆÂ‚r6W‡Ö÷VçBrÂsSr“°Ð¢v—BvRæf–ÆÂ‚r6W‡FFRrÂ—6ò“°Ð¢v—BvRæ6Æ–6²‚r6W‡f÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢v—BvRçv—Df÷%6VÆV7F÷"‚r6f—†VD6&Br“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r6f—†VD6&Br’ÂýŠ]˜­ŠÍŠ}‹ò“°Ð¢v—BvRæ6Æ–6²‚r6FDf—†VBr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚vW‡Vç6W2r’’æf–ÇFW"‚†R’ÓâRæ¶–æBÓÓÒw&VçBr’æÆVæwF‚ÓÓÒ"’“°Ð¢76W'BæWVÂ†v—BvRæÆö6F÷"‚r6f—†VD6&Br’æ6÷VçB‚’ÂÂvæ÷F†–ærÆVgBFòFBr“°Ð§Ò“°Ð Ð§FW7B‚vÖ&¶WB6†÷'FvW2ÂÖ&¶WB&–6W2æBF–VçB&VÖ–æFW'2rÂ7–æ2‚’Óâ°Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×7Fö6µÒr“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#×6†÷'FvW5Òr“°Ð¢v—BvRæf–ÆÂ‚r76†÷'DæÖRrÂuæFöÂW‡G&#BF"r“°Ð¢v—BvRæ6Æ–6²‚r76†÷'Df÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚w6†÷'FvW2r’’æÆVæwF‚ÓÓÒ’“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#×&V÷&FW%Òr“°Ð¢76W'BæWVÂ†v—BvRæÆö6F÷"‚r7æVÂç–ÆÂrÂ²†5FW‡C¢}˜mŠ}˜-‹R˜˜¢Š}˜M‹=˜˜"rÒ’æ6÷VçB‚’Â“°Ð Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×6VÆÅÒr“°Ð¢v—BvRæ6Æ–6²‚u¶FF×F#×&–6W5Òr“°Ð¢v—BvRæf–ÆÂ‚r7&–6TæÖRrÂu7Vâ7&VÒ5cSr“°Ð¢v—BvRæf–ÆÂ‚r7&–6UfÂrÂs#Sr“°Ð¢v—BvRæf–ÆÂ‚r7&–6U7&2rÂ}‹]˜­Šý˜M˜­Š’Š­Š}˜m˜­Š’r“°Ð¢v—BvRæ6Æ–6²‚r7&–6Tf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚vÖ&¶WE÷&–6W2r’’æÆVæwF‚ÓÓÒ’“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r7æVÂâçF&ÆV&÷‚F&öG’r’ÂýŠ=‹­˜M˜’ò“°Ð Ð¢v—BvRæ6Æ–6²‚u¶FF×6V3×F–VçG5Òr“°Ð¢v—BvRæf–ÆÂ‚r7&VÔæÖRrÂ}Š=˜R˜]ŠÝ˜]Šòr“°Ð¢v—BvRæf–ÆÂ‚r7&VÕ†öæRrÂs#3CScs‚r“°Ð¢v—BvRæf–ÆÂ‚r7&VÔÖVBrÂ}ŠÍ˜M˜˜=˜˜Š}ŠÂr“°Ð¢v—BvRæf–ÆÂ‚r7&VÕF–ÖW2rÂs’‹]ˆÂ’˜Rr“°Ð¢v—BvRæ6Æ–6²‚r7&VÔf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r7&VÔ×6rr’Âý˜­˜Š}˜˜"òÂv6öç6VçB—2&WV—&VBr“°Ð¢v—BvRæ6†V6²‚r7&VÔ6öç6VçBr“°Ð¢v—BvRæ6Æ–6²‚r7&VÔf÷&Ò'WGFöå·G—S×7V&Ö—EÒr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚w&VÖ–æFW'2r’’æÆVæwF‚ÓÓÒ’“°Ð¢6öç7B·%ÒÒv—BF"‚w&VÖ–æFW'2r“°Ð¢76W'BæFVWWVÂ‡"æF÷6U÷F–ÖW2Â²s“£rÂs#£uÒ“°Ð¢76W'BæWVÂ‚†v—BF"‚wF–VçG2r’•³Òç†öæRÂs##3CScs‚r“°Ð§Ò“°Ð Ð§FW7B‚w'FæW"–çf—FR6öFW2g&öÒF†RF6†&ö&BrÂ7–æ2‚’Óâ°Ð¢v—B÷VåFööÇ2‡vR“°Ð¢v—BvRæ6Æ–6²‚r6'&æ6„&÷‚7VÖÖ'’r“°Ð¢v—BvRæ6Æ–6²‚u¶FFÖ–çf—FS×'FæW%Òr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BvRæÆö6F÷"‚r6–çf—FT÷WBr’æ—4†–FFVâ‚’’’“°Ð¢76W'BæÖF6‚†v—BFW‡B‚r6–çf—FUFW‡Br’Âô4ôDSò“°Ð¢76W'BæWVÂ‚†v—BF"‚v–çf—FW2r’•³Òç&öÆRÂw'FæW"r“°Ð§Ò“°Ð Ð§FW7B‚v66†–W#¢66âÂ6V&6‚ÂFV6‚&&6öFRÂF¶R–ÖVçBæB&–çBrÂ7–æ2‚’Óâ°Ð¢v—BvRæv÷Fò†G¶&6WÖ66†–W"æ‡FÖÆ“°Ð¢v—BvRçv—Df÷%6VÆV7F÷"‚r7÷3¦æ÷B…¶†–FFVåÒ’r“°Ð¢v—BvRæWfÇVFR‚‚’Óâ²v–æF÷rç&–çBÒ‚’Óâ²v–æF÷råõ÷&–çFVBÒ‡v–æF÷råõ÷&–çFVBÇÂ’²²Ó²Ò“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâý‹]˜m˜òçFW7B†v—BFW‡B‚r7÷4×6rr’’’Âv—FV×2ÆöFVBr“°Ð¢v—BvRæf–ÆÂ‚r7rÂwæFöÂr“°Ð¢v—BvRç&W72‚r7rÂtVçFW"r“°Ð¢v—BvRæf–ÆÂ‚r7rÂsr“²òòF†R—FVÒ6öFRÂÆ–¶R66ææW"6VæG2—@Ð¢v—BvRç&W72‚r7rÂtVçFW"r“°Ð¢76W'BæWVÂ†v—BvRæ–çWEfÇVR‚r66'B¶FF×G“Ò#%Òr’Âs"r“°Ð¢v—BvRæf–ÆÂ‚r7rÂsc##3#3CSbr“²òò&&6öFRF†RFöW6âwB¶æ÷r–W@Ð¢v—BvRç&W72‚r7rÂtVçFW"r“°Ð¢v—BvRçv—Df÷%6VÆV7F÷"‚r7Væ¶æ÷väFÆu¶÷VåÒr“°Ð¢v—BvRæf–ÆÂ‚r6Æ–æµrÂw7Vâr“°Ð¢v—BvRæ6Æ–6²‚r6Æ–æµ&W7VÇG2¶FFÖÆ–æ³Ò##"%Òr“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚w÷5ö&&6öFW2r’’æÆVæwF‚ÓÓÒ’Âv&&6öFR&VÖVÖ&W&VBr“°Ð¢76W'BæWVÂ‚†v—BF"‚w÷5ö&&6öFW2r’•³Òæ6öFRÂs#"r“°Ð¢6öç7BF÷FÂÒv—BFW‡B‚r7EF÷FÂr“°Ð¢76W'BæWVÂ‡F÷FÂÂsS3"ã#r“²òò"9rSbã²C# Ð¢v—BvRæf–ÆÂ‚r7–BrÂscr“°Ð¢76W'BæWVÂ†v—BFW‡B‚r7D6†ævRr’Âscrãƒr“°Ð¢v—BvRæ¶W–&ö&Bç&W72‚tc"r“°Ð¢76W'Bæö²†v—BVçF–Â†7–æ2‚’Óâ†v—BF"‚w÷5÷6ÆW2r’’æÆVæwF‚ÓÓÒ’“°Ð¢6öç7B·6ÆUÒÒv—BF"‚w÷5÷6ÆW2r“°Ð¢76W'BæFVWWVÂ…·6ÆRæ¶–æBÂ6ÆRçF÷FÂÂ6ÆRç–BÂ6ÆRæÆ–æW2æÆVæwF…ÒÂ²w6ÆRrÂS3"ã"ÂcÂ%Ò“°Ð¢76W'BæWVÂ†v—BvRæWnt÷[h‘éì¶»§q«^tÉÊJK™š[\Š
-JHOˆKšÚ[™OOH	Ý˜[œÙ™\‰ÊK›[™ÝOOHŠJNÃBˆÛÛœÝÛÝ][›—HH
-]ØZ]Š	ÜÝØÚ×Û[Ý™\ÉÊJK™š[\Š
-JHOˆKšÚ[™OOH	Ý˜[œÙ™\‰ÊKœÛÜ
+// Browser test of the dashboard against a stand-in database (e2e/supabase-stub.js).
+// Run: npm run e2e   (needs `npx playwright install chromium` once)
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { extname, join, normalize, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+import { captureDownload } from './download.js';
 
-KŠHOˆKœ]HH‹œ]JNÃBˆ\ÜÙ\™Y\\]X[
-ÛÝ]˜œ˜[˜ÚÚYÝ]œ]K[›‹˜œ˜[˜ÚÚY[›‹œ]KÝ]œ™YˆOOH[›‹œ™Y—KÉØŒIËMK	ØŒ‰ËKYWJNÃBˆ]ØZ]YÙKœÙ[XÝÜ[ÛŠ	ÈØœ˜[˜ÚÙ[	Ë	ØŒ‰ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K]XZ][\×IÊNÃBˆ]ØZ]YÙK™š[
-	ÈÚ][\ÔIË	ö-6)ö-	ÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÚ][\Ð›ÙH‰ÊK×W‹ÊNÃBˆ]ØZ]YÙKœÙ[XÝÜ[ÛŠ	ÈØœ˜[˜ÚÙ[	Ë	ØŒIÊNÃBŸJNÃBƒB\Ý
-	ÙY][™È[ˆ][Nˆ]X[]H[™^\žH\ˆ˜]ÚÈY][™ÈH\˜Ú\ÙH[›ÚXÙIË\Þ[˜È
+// Settings, backups, export and linking live in their own view (Â«Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª ÙˆØ§Ù„Ø£Ø¯ÙˆØ§ØªÂ»).
+const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const FIXTURE = join(ROOT, 'test/fixtures/export.json');
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 
-HOˆÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K\ÙXÏ\ÝØÚ×IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K]XZ][\×IÊNÃBˆ]ØZ]YÙK™š[
-	ÈÚ][\ÔIË	ö-6)ö-	ÊNÃBˆÛÛœÝ™Y›Ü™HH]ØZ]^
-	ÈÚ][\Ð›ÙH‰ÊNÃBˆ\ÜÙ\›X]Ú
-™Y›Ü™K×ŒMW‹ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÚ][\Ð›ÙHÙ]KYY]][WIÊNÃBˆ\ÜÙ\™\]X[
-]ØZ]YÙKš[œ]˜[YJ	ÖÙ]KXœOHŒ—IÊK	ÌMIÊNÃBˆ]ØZ]YÙK™š[
-	ÖÙ]KXœOHŒ—IË	ÌL‰ÊNÃBˆ]ØZ]YÙK™š[
-	ÖÙ]KX™OHŒ—IË	ÌŒËLËLIÊNÃBˆ]ØZ]YÙK™š[
-	ÈÚ]šXÙIË	ÌM‰ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÚ][Q›Ü›H]Û–Ý\O\ÝX›Z]IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+let server, base, browser, ctx, page;
+const errors = [];
 
-HOˆ
-]ØZ]Š	ÜÝØÚ×Û[Ý™\ÉÊJK™š[\Š
-JHOˆK››ÝHOOH	ö*¶.v+öb¶a6b¶+öb6b‰ÊK›[™ÝOOHŠJNÃBˆ]ØZ]YÙK™š[
-	ÈÚ][\ÔIË	ö-6)ö-	ÊNÃBˆÛÛœÝ›ÝÈH]ØZ]^
-	ÈÚ][\Ð›ÙH‰ÊNÃBˆ\ÜÙ\›X]Ú
-›ÝË×ŒL—‹ÊNÈ\ÜÙ\›X]Ú
-›ÝËÌM—ŒÊNÈ\ÜÙ\›X]Ú
-›ÝËÌŒß6h¶h6h¶iËÊNÃBƒBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K\ÙXÏX^WIÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K]XZ[›ÚXÙ\×IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÜ[™[]Z[ÈÝ[[X\žIÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]KYY]\˜Ú\ÙWIÊNÃBˆ\ÜÙ\™\]X[
-]ØZ]YÙKš[œ]˜[YJ	ÖÙ]K[HŒ—VÙ]KYHœ]H—IÊK	ÌL	ÊNÃBˆ]ØZ]YÙK™š[
-	ÖÙ]K[HŒ—VÙ]KYHœ]H—IË	Î	ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÜ˜Ý‘›Ü›H]Û–Ý\O\ÝX›Z]IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+before(async () => {
+  server = createServer(async (req, res) => {
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '').replaceAll('\\', '/');
+    const file = join(ROOT, path === '' ? 'index.html' : path);
+    if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+    try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' }).end(body); } catch { res.writeHead(404).end(); }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://localhost:${server.address().port}/`;
+  const stub = await readFile(join(ROOT, 'e2e/supabase-stub.js'), 'utf8');
+  browser = await chromium.launch();
+  ctx = await browser.newContext({ locale: 'ar-EG', viewport: { width: 1200, height: 900 }, acceptDownloads: true });
+  await ctx.route('**/api/config', (r) => r.fulfill({ json: { configured: true, url: 'https://stub.supabase.test', key: 'pk_test' } }));
+  await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
+  // The Excel library comes from the local copy; fonts are skipped.
+  const xlsx = await readFile(join(ROOT, 'node_modules/xlsx/dist/xlsx.full.min.js'), 'utf8');
+  await ctx.route(/cdnjs\.cloudflare\.com\/ajax\/libs\/xlsx\//, (r) => r.fulfill({ contentType: 'text/javascript', body: xlsx }));
+  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  page = await ctx.newPage();
+  page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
+  page.on('dialog', (d) => d.accept());
+});
+after(async () => { await browser?.close(); server?.close(); });
 
-HOˆÈÛÛœÝH]ØZ]Š	Ü\˜Ú\Ù\ÉÊNÈ™]\›ˆ›[™ÝOOHH	‰ˆÌK›[™\ÖÌKœ]HOOHÈJK	ÝHØ[YH[›ÚXÙKY]Y	ÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ˜Ý“\ÙÉÊKö)ö*¶.v+öa6*ˆ6)öa6`v)ö*¶b6,v*KÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K\ÙXÏ\ÝØÚ×IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K]XZ][\×IÊNÃBˆ]ØZ]YÙK™š[
-	ÈÚ][\ÔIË	ö-6)ö-	ÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÚ][\Ð›ÙH‰ÊK×ŒL‹Ë	ÝÛÈ™]Ù\ˆ™XÙZ]™Y	ÊNÃBŸJNÃBƒB\Ý
-	Ù^Üˆ^Ù[Ú]]™\žHX›KÔÕ‹[™HØ^Y[]Hš[IË\Þ[˜È
+const text = (sel, p = page) => p.locator(sel).first().innerText();
+const db = (k) => page.evaluate((k) => window.__DB?.[k] ?? [], k);
+const goOffline = async () => { await ctx.setOffline(true); await page.evaluate(() => dispatchEvent(new Event('offline'))); };
+const goOnline = async () => { await ctx.setOffline(false); await page.evaluate(() => dispatchEvent(new Event('online'))); };
+// SHOTS=<folder> npm run e2e saves screenshots of the new screens for a visual check.
+const shot = (name) => process.env.SHOTS && page.screenshot({ path: join(process.env.SHOTS, `${name}.png`), fullPage: true });
+const until = async (fn, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await page.waitForTimeout(100); } return false; };
 
-HOˆÃBˆ]ØZ]Ü[•ÛÛÊYÙJNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÙ^Ü›ÞÝ[[X\žIÊNÃBˆÛÛœÝH]ØZ]Ø\\™QÝÛ›ØY
-YÙK	ÖÙ]KY^Ü^ÞIÊNÃBˆ\ÜÙ\›X]Ú
-™š[[˜[YK×œØ^Y[]KKŠ—žÞ	ÊNÃBˆÛÛœÝž]\ÈHY™™\‹™œ›ÛJ˜ž]\ÊNÃBˆ\ÜÙ\™\]X[
-ž]\ËœÝX˜\œ˜^JŠKÔÝš[™Ê
-K	ÔÉË	ØH™X[^Ù[š[IÊNÃBˆ]ØZ]YÙKœÙ[XÝÜ[ÛŠ	ÈÙ^ÜÚXÚ	Ë	ö)öa6(ö-va¶)ö`IÊNÃBˆÛÛœÝÈH]ØZ]Ø\\™QÝÛ›ØY
-YÙK	ÖÙ]KY^ÜXÜÝ—IÊNÃBˆÛÛœÝÜÝˆHË^œ™\XÙJ×—Q‘Q‘‹Ë	ÉÊNÃBˆ\ÜÙ\›X]Ú
-ÜÝ‹œÜ]
-	×—‰ÊVÌK×¶)öa6`öb6+Ë6)öa6-va¶`K6)öa6a¶b6.K6)öa6*6)ö,v`öb6+Ë6,ö.v,H6)öa6-6,v)ö(K6,ö.v,H6)öa6*6b¶.K6)öa6,v-vb¶+ËÊNÃBˆ\ÜÙ\›X]Ú
-ÜÝ‹ö-6)ö-6-ö*6b‹ÊNÃBˆÛÛœÝˆH]ØZ]Ø\\™QÝÛ›ØY
-YÙK	ÖÙ]KY^ÜZœÛÛ—IÊNÃBˆÛÛœÝœÛÛˆH”ÓÓ‹œ\œÙJ‹^
-NÃBˆ\ÜÙ\›ÚÊœÛÛ‹š][\ËœÛÛYJ
-JHOˆK›˜[YHOOH	ö-6)ö-6-ö*6b‰ÊJNÃBŸJNÃBƒB\Ý
-	ÛÜ[œÈÙ™›[™HÚ]Ø]™Y]H]™[ˆY\ˆHÚYÛ‹Z[ˆ^\™Y	Ë\Þ[˜È
+test('sign-in comes first, and sign-up asks to confirm the password', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#loginForm');
+  assert.equal(await page.locator('#app').isHidden(), true);
+  await page.click('#switchMode');
+  await page.fill('#email', 'abdo@example.com');
+  await page.fill('#password', 'pharmacy123');
+  await page.fill('#password2', 'pharmacy124');
+  await page.click('#loginForm button[type=submit]');
+  assert.match(await text('#authMsg'), /Ù…Ø´ Ø²ÙŠ Ø¨Ø¹Ø¶/);
+  await page.click('#switchMode');
+  await page.fill('#email', 'abdo@example.com');
+  await page.fill('#password', 'pharmacy123');
+  await page.click('#loginForm button[type=submit]');
+  await page.waitForSelector('#app:not([hidden])');
+});
 
-HOˆÃBˆ]ØZ]YÙK™]˜[X]J
+test('dashboard opens with no example data, grouped in sections', async () => {
+  assert.equal(await text('#phTitle'), 'ØµÙŠØ¯Ù„ÙŠØ© Ø£Ø­Ù…Ø¯ Ù…Ù†ØµÙˆØ±');
+  assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['Ø§Ù„Ù…Ù„Ø®Øµ', 'Ø§Ù„Ù…Ø®Ø²ÙˆÙ†', 'Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª', 'Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡', 'Ø§Ù„ÙÙ„ÙˆØ³', 'Ø§Ù„Ø¨ÙŠØ¹', 'Ø§Ù„Ù…Ø±Ø¶Ù‰']);
+  assert.match(await text('#panel'), /Ù„Ø³Ù‡ Ù…ÙÙŠØ´ Ø¨ÙŠØ§Ù†Ø§Øª/);
+  await page.click('[data-sec=money]');
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['Ø§Ù„Ø£Ø±Ø¨Ø§Ø­', 'Ø§Ù„ÙÙˆØ§ØªÙŠØ± ÙˆØ§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª', 'Ø§Ù„ÙˆØ±Ø¯ÙŠØ§Øª', 'Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª', 'Ø§Ù„Ù…Ø³Ø­ÙˆØ¨Ø§Øª', 'Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª', 'Ø§Ù„Ø´Ø±ÙƒØ§Ø¡', 'Ø­Ø§Ø³Ø¨Ø© Ø§Ù„Ù…ÙƒØ³Ø¨', 'Ø³Ø¬Ù„ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª']);
+  await page.click('[data-sec=patients]');
+  assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
+  await page.click('[data-sec=stock]');
+});
 
-HOˆ˜]šYØ]Ü‹œÙ\šXÙUÛÜšÙ\‹œ™XYJNÃBˆ]ØZ]YÙKØZ]›Ü•[Y[Ý]
-
-NÈËÈ]H\š[\Èš[š\ÚØXÚ[™ÃBˆ]ØZ]YÙK˜Y[š]ØÜš\
+test('upload needs a branch picked, then saves to that branch', async () => {
+  await page.setInputFiles('#file', FIXTURE);
+  assert.match(await text('#fileMsg'), /Ø§Ø®ØªØ§Ø± Ø§Ù„ÙØ±Ø¹/);
+  await page.selectOption('#branchSel', 'b1');
+  await page.setInputFiles('#file', FIXTURE);
+  assert.ok(await until(async () => (await db('snapshots')).length === 1));
+  assert.equal((await db('snapshots'))[0].branch_id, 'b1');
+  assert.match(await text('#fileMsg'), /Ø§ØªØ­ÙØ¸Øª/);
+});
 
+test('a second upload shows which prices changed', async () => {
+  const data = JSON.parse(await readFile(FIXTURE, 'utf8'));
+  const p = data.items.find((i) => i.code === '101');
+  p.price = 56.1; p.cost = 44; // +10% price, higher cost
+  const file = join(await mkdtemp(join(tmpdir(), 'sd-')), 'new-prices.json');
+  await writeFile(file, JSON.stringify(data));
+  await page.setInputFiles('#file', file);
+  assert.ok(await until(async () => (await db('snapshots')).length === 2));
+  await page.click('[data-sec=sell]');
+  assert.match(await text('[data-tab=changes]'), /1/, 'tab shows one change');
+  await page.click('[data-tab=changes]');
+  const row = await text('#panel tbody tr');
+  assert.match(row, /Panadol/);
+  assert.match(row, /\+10%/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=morning]');
+  assert.match(await page.inputValue('#morningMsg'), /Ø³Ø¹Ø±Ù‡ Ø§ØªØºÙŠØ±/);
+});
 
-HOˆÈÚ[™ÝË—×ÜÙ\ÜÚ[Û‘^\™YHYNÈJNÃBˆ]ØZ]ÛÓÙ™›[™J
-NÃBˆ]ØZ]YÙKœ™[ØY
+test('suppliers: best discount, a manual pick, and the order message for WhatsApp', async () => {
+  await page.click('[data-tab=reorder]');
+  for (const [name, phone, all] of [['Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„', '01011111111', '5'], ['Ù…Ø®Ø²Ù† Ø§Ù„Ù†ÙˆØ±', '', '8']]) {
+    await page.fill('#supName', name);
+    await page.fill('#supPhone', phone);
+    await page.fill('#supAll', all);
+    await page.click('#supForm button[type=submit]');
+    await until(async () => (await page.locator('#supBox tbody tr').count()) > 0 && (await text('#supBox')).includes(name));
+  }
+  const settings = () => page.evaluate(() => window.__DB.members[0].pharmacies.settings);
+  assert.ok(await until(async () => (await settings()).suppliers?.length === 2), 'suppliers saved for the pharmacy');
+  const sel = page.locator('select[data-supfor="101"]');
+  const ids = Object.fromEntries((await settings()).suppliers.map((x) => [x.name, x.id]));
+  assert.equal(await sel.inputValue(), ids['Ù…Ø®Ø²Ù† Ø§Ù„Ù†ÙˆØ±'], 'biggest discount picked');
+  assert.match(await text('.orders .card b'), /Ù…Ø®Ø²Ù† Ø§Ù„Ù†ÙˆØ±/);
+  await sel.selectOption(ids['Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„']);
+  assert.ok(await until(async () => (await settings()).supplierFor?.['101'] === ids['Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„']));
+  assert.match(await text('.orders .card b'), /Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„/);
+  await page.evaluate(() => { window.open = (u) => { window.__opened = u; }; });
+  await page.click('[data-wa="0"]');
+  const url = await page.evaluate(() => window.__opened);
+  assert.ok(url.startsWith('https://wa.me/201011111111?text='), url);
+  const msg = decodeURIComponent(url.split('text=')[1]);
+  assert.match(msg, /Ø·Ù„Ø¨ÙŠØ© Ù…Ù† ØµÙŠØ¯Ù„ÙŠØ© Ø£Ø­Ù…Ø¯ Ù…Ù†ØµÙˆØ± \(Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ\)/);
+  assert.match(msg, /Panadol Extra 24 tab: \d+/);
+});
 
-NÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIËÈ[Y[Ý]ˆJNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÛ™]Ú\	ÊKöavaˆ6.¶b¶,H6a¶*‹ÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+test('expenses save online, and queue offline until the connection is back', async () => {
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=expenses]');
+  await page.selectOption('#expKind', 'electricity');
+  await page.fill('#expAmount', '1450');
+  await page.click('#expForm button[type=submit]');
+  assert.ok(await until(async () => (await db('expenses')).length === 1));
+  await goOffline();
+  // What the owner takes for himself is not a cost: it has its own tab.
+  assert.equal(await page.locator('#expKind option[value=withdrawal]').count(), 0);
+  await page.click('[data-tab=withdrawals]');
+  await page.fill('#wdAmount', '3000');
+  await page.click('#wdForm button[type=submit]');
+  assert.ok(await until(async () => /Ù…Ø³ØªÙ†ÙŠ ÙŠØªØ±ÙØ¹/.test(await text('#netChip'))), 'status shows the queued change');
+  assert.equal((await db('expenses')).length, 1);
+  await goOnline();
+  assert.ok(await until(async () => (await db('expenses')).length === 2));
+  assert.equal((await db('expenses')).find((e) => e.kind === 'withdrawal').person, 'ØµØ§Ø­Ø¨ Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ©');
+  await page.click('[data-tab=books]');
+  await page.selectOption('#periodSel', 'all');
+  const books = await text('#panel .card .ledger');
+  assert.match(books, /Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª Ø§Ù„Ù…ØªØ³Ø¬Ù„Ø©/);
+  assert.match(books, /Ù…Ø³Ø­ÙˆØ¨Ø§Øª/);
+});
 
-HOˆÍH6-va¶`KË\Ý
-]ØZ]^
-	ÈÝ[\ÉÊJJK	ÜØ]™YÝØÚÈ
-È\ØYY
-ÈˆYY\™JHÚÝÜÈÙ™›[™IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K\ÙXÏ\ÝØÚ×IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K]X\™[Ü™\—IÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	Ë›Ü™\œÈ˜Ø\™‰ÊKöav+¶,¶aˆ6)öa6(öavaË	ÜÝ\Y\œÈ]˜Z[X›HÙ™›[™IÊNÃBˆ]ØZ]ÛÓÛ›[™J
-NÃBŸJNÃBƒB\Ý
-	ÝHÝ[[X\žNˆÝ™\šY]È[X™\œËX[ØÛÜ™K[\ËH\ÜÚ\Ý[[œÝÙ\œÈœ›ÛHH]K\ÚÜÉË\Þ[˜È
+test('editing an expense, and adding last month\'s fixed costs in one tap', async () => {
+  await page.click('[data-tab=expenses]');
+  await page.locator('#panel tr', { hasText: 'ÙƒÙ‡Ø±Ø¨Ø§' }).locator('[data-editexp]').click();
+  assert.match(await text('#expForm h3'), /Ø¹Ø¯Ù‘Ù„/);
+  assert.equal(await page.inputValue('#expAmount'), '1450');
+  await page.fill('#expAmount', '1500');
+  await page.click('#expForm button[type=submit]');
+  assert.ok(await until(async () => { const a = (await db('expenses')).map((e) => +e.amount); return a.includes(1500) && !a.includes(1450); }), 'edited, not duplicated');
 
-HOˆÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K\ÙXÏZ[œÚYÚ×IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝXœÈÙ]K]X[Ý™\šY]×IÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ[™[	ÊKö)öa6a¶aö)ö,v+öaËÊNÃBˆ\ÜÙ\›ÚÊ]ØZ]YÙK›ØØ]ÜŠ	ÈÜ[™[˜Ú\Ý™ÉÊK˜ÛÝ[
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const iso = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-01`;
+  await page.selectOption('#expKind', 'rent');
+  await page.fill('#expAmount', '5000');
+  await page.fill('#expDate', iso);
+  await page.click('#expForm button[type=submit]');
+  await page.waitForSelector('#fixedCard');
+  assert.match(await text('#fixedCard'), /Ø¥ÙŠØ¬Ø§Ø±/);
+  await page.click('#addFixed');
+  assert.ok(await until(async () => (await db('expenses')).filter((e) => e.kind === 'rent').length === 2));
+  assert.equal(await page.locator('#fixedCard').count(), 0, 'nothing left to add');
+});
 
-K	ÝHL‹[[ÛÚ\	ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝXœÈÙ]K]XZX[IÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ[™[šX[	ÊK×ÌLÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝXœÈÙ]K]XX[\×IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+test('market shortages, market prices and patient reminders', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=shortages]');
+  await page.fill('#shortName', 'Panadol Extra 24 tab');
+  await page.click('#shortForm button[type=submit]');
+  assert.ok(await until(async () => (await db('shortages')).length === 1));
+  await page.click('[data-tab=reorder]');
+  assert.equal(await page.locator('#panel .pill', { hasText: 'Ù†Ø§Ù‚Øµ ÙÙŠ Ø§Ù„Ø³ÙˆÙ‚' }).count(), 1);
 
-HOˆö*¶a¶*6b¶aß6av`vb¶-6*¶a¶*6b¶aö)ö*Ÿ6-va¶`KË\Ý
-]ØZ]^
-	ÈÜ[™[	ÊJJJNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝXœÈÙ]K]XX\ÜÚ\Ý[IÊNÃBˆ]ØZ]YÙK™š[
-	ÈØ\ÚÔIË	ö)vb¶aÈ6)öa6(ö-va¶)ö`H6)öa6,v)ö`ö+ö*v'ÉÊNÃBˆ]ØZ]YÙKœ™\ÜÊ	ÈØ\ÚÔIË	Ñ[\‰ÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+  await page.click('[data-sec=sell]');
+  await page.click('[data-tab=prices]');
+  await page.fill('#priceName', 'Sun cream SPF50');
+  await page.fill('#priceVal', '250');
+  await page.fill('#priceSrc', 'ØµÙŠØ¯Ù„ÙŠØ© ØªØ§Ù†ÙŠØ©');
+  await page.click('#priceForm button[type=submit]');
+  assert.ok(await until(async () => (await db('market_prices')).length === 1));
+  assert.match(await text('#panel > .tablebox tbody'), /Ø£ØºÙ„Ù‰/);
 
-HOˆö)öa6,v)ö`ö+ËË\Ý
-]ØZ]^
-	ÈØÚ]ÙÉÊJJK	Ø[œÝÙ\™Y	ÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈØÚ]ÙÉÊKö)öa6av-v+ö,KÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]KX\ÚÏH¶,v-vb¶+È6*6)öa¶)ö+öb6a—IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+  await page.click('[data-sec=patients]');
+  await page.fill('#remName', 'Ø£Ù… Ù…Ø­Ù…Ø¯');
+  await page.fill('#remPhone', '01012345678');
+  await page.fill('#remMed', 'Ø¬Ù„ÙˆÙƒÙˆÙØ§Ø¬ 1000');
+  await page.fill('#remTimes', '9 ØµØŒ 9 Ù…');
+  await page.click('#remForm button[type=submit]');
+  assert.match(await text('#remMsg'), /ÙŠÙˆØ§ÙÙ‚/, 'consent is required');
+  await page.check('#remConsent');
+  await page.click('#remForm button[type=submit]');
+  assert.ok(await until(async () => (await db('reminders')).length === 1));
+  const [r] = await db('reminders');
+  assert.deepEqual(r.dose_times, ['09:00', '21:00']);
+  assert.equal((await db('patients'))[0].phone, '201012345678');
+});
 
-HOˆö)öa6,v-vb¶+ËË\Ý
-]ØZ]^
-	ÈØÚ]ÙÉÊJJJNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝXœÈÙ]K]X]\ÚÜ×IÊNÃBˆ]ØZ]YÙK™š[
-	ÈÝÕ]IË	ö,v+6dv.H6)öa6,v)ö`ö+È6a6a6avb6,v+ÉÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝ\ÚÑ›Ü›H]Û–Ý\O\ÝX›Z]IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+test('partner invite codes from the dashboard', async () => {
+  await openTools(page);
+  await page.click('#branchBox summary');
+  await page.click('[data-invite=partner]');
+  assert.ok(await until(async () => !(await page.locator('#inviteOut').isHidden())));
+  assert.match(await text('#inviteText'), /CODE1/);
+  assert.equal((await db('invites'))[0].role, 'partner');
+});
 
-HOˆ
-]ØZ]Š	Ý\ÚÜÉÊJK›[™ÝOOHJJNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K]\ÚÙÛ™WIÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+test('cashier: scan, search, teach a barcode, take payment and print', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; }; });
+  assert.ok(await until(async () => /ØµÙ†Ù/.test(await text('#posMsg'))), 'items loaded');
+  await page.fill('#q', 'panadol');
+  await page.press('#q', 'Enter');
+  await page.fill('#q', '101'); // the item code, like a scanner sends it
+  await page.press('#q', 'Enter');
+  assert.equal(await page.inputValue('#cart [data-qty="0"]'), '2');
+  await page.fill('#q', '6223000123456'); // a barcode the app doesn't know yet
+  await page.press('#q', 'Enter');
+  await page.waitForSelector('#unknownDlg[open]');
+  await page.fill('#linkQ', 'sun');
+  await page.click('#linkResults [data-link="202"]');
+  assert.ok(await until(async () => (await db('pos_barcodes')).length === 1), 'barcode remembered');
+  assert.equal((await db('pos_barcodes'))[0].code, '202');
+  const total = await text('#tTotal');
+  assert.equal(total, '532.20'); // 2 Ã— 56.10 + 420
+  await page.fill('#paid', '600');
+  assert.equal(await text('#tChange'), '67.80');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).length === 1));
+  const [sale] = await db('pos_sales');
+  assert.deepEqual([sale.kind, sale.total, sale.paid, sale.lines.length], ['sale', 532.2, 600, 2]);
+  assert.equal(await page.evaluate(() => window.__printed), 1);
+  assert.match(await page.locator('#receipt').innerHTML(), /532\.20/);
+  assert.equal(await page.locator('#cart tr').count(), 0, 'new bill after payment');
+  // The barcode now works straight away.
+  await page.fill('#q', '6223000123456');
+  await page.press('#q', 'Enter');
+  assert.match(await text('#cart'), /Sun cream/);
+  // Discounts as a percent: 10% off the item (420 â†’ 378), then 5% off the receipt (378 â†’ 359.10).
+  await page.click('#lineUnit');
+  await page.fill('#cart [data-disc="0"]', '10');
+  await page.press('#cart [data-disc="0"]', 'Tab');
+  assert.equal(await text('#tTotal'), '378.00');
+  await page.click('#extraUnit');
+  assert.equal(await text('#extraUnit'), '%');
+  await page.fill('#extraDisc', '5');
+  assert.equal(await text('#tTotal'), '359.10');
+  assert.equal(await text('#tDisc'), '60.90');
+  // Back to pounds: the same discount, shown in pounds.
+  await page.click('#extraUnit');
+  assert.equal(await page.inputValue('#extraDisc'), '18.9');
+  assert.equal(await text('#tTotal'), '359.10');
+  await page.click('#lineUnit');
+  await page.keyboard.press('Escape');
+});
 
-HOˆ
-]ØZ]Š	Ý\ÚÜÉÊJVÌKœÝ]\ÈOOH	ÙÛ™IÊJNÃBŸJNÃBƒB\Ý
-	ØÛÜÚ[™ÈH^NˆHØ\Ú]ÚÝ[™H\™KHÛÝ[Ù\Û˜ÙIË\Þ[˜È
+test('cashier: a return, and a sale with no connection', async () => {
+  await page.click('#modeReturn');
+  await page.fill('#q', '303');
+  await page.press('#q', 'Enter');
+  await page.keyboard.press('F2');
+  assert.match(await text('#posMsg'), /Ø±Ù‚Ù… ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø¨ÙŠØ¹/, 'a return needs its receipt');
+  assert.equal((await db('pos_sales')).length, 1);
+  await page.click('#retNoReceipt');
+  await page.fill('#retReason', 'Ø¨ÙŠØ¹Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø¨Ø±Ù†Ø§Ù…Ø¬');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140 && /Ø¨ÙŠØ¹Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø¨Ø±Ù†Ø§Ù…Ø¬/.test(x.note))));
+  await goOffline();
+  await page.fill('#q', '101');
+  await page.press('#q', 'Enter');
+  await page.click('[data-pay="card"]');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /Ù…Ø³ØªÙ†ÙŠ ÙŠØªØ±ÙØ¹/.test(await text('#netChip'))));
+  assert.equal((await db('pos_sales')).length, 2, 'not uploaded while offline');
+  assert.match(await text('#dayList'), /Ù…Ø³ØªÙ†ÙŠ Ø§Ù„Ù†Øª/);
+  await goOnline();
+  assert.ok(await until(async () => (await db('pos_sales')).length === 3));
+  const sum = await text('#daySum');
+  assert.match(sum, /ÙÙŠØ²Ø§/);
+  assert.match(sum, /Ù…Ø±ØªØ¬Ø¹Ø§Øª/);
+});
 
-HOˆÃBˆ]ØZ]YÙKœÙ[XÝÜ[ÛŠ	ÈØœ˜[˜ÚÙ[	Ë	ØŒIÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K\ÙXÏ[[Û™^WIÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÝXœÈÙ]K]X\Ü×IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+test('cashier sales show up in the dashboard', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=pos]');
+  assert.ok(await until(async () => (await page.locator('#panel .sale-row').count()) === 3), 'today\'s receipts');
+  assert.match(await text('#panel .card .ledger'), /Ø§Ù„ØµØ§ÙÙŠ/);
+  assert.match(await text('#panel'), /Ø§ØªØ¨Ø§Ø¹ Ø¥ÙŠÙ‡/);
+  // Find one receipt by an item in it, open it, and see its lines.
+  await page.fill('#posQ', 'sun');
+  assert.ok(await until(async () => (await page.locator('#panel .sale-row').count()) === 1), 'found by the item');
+  await page.click('#panel .sale-row');
+  assert.match(await text('#panel .sale-lines'), /Sun cream/);
+  assert.equal(await page.locator('#panel [data-printsale]').count(), 1);
+  // Yesterday had none.
+  await page.fill('#posQ', '');
+  await page.click('[data-posday]:nth-of-type(2)');
+  assert.ok(await until(async () => /Ù…ÙÙŠØ´ ÙÙˆØ§ØªÙŠØ± ÙÙŠ Ø§Ù„ÙØªØ±Ø© Ø¯ÙŠ/.test(await text('#panel'))));
+  await page.click('[data-posday]');
+});
 
-HOˆ]ØZ]YÙK›ØØ]ÜŠ	ÈØÛÜÙQ^Q›Ü›IÊK˜ÛÝ[
+test('stock: add a new item, receive a delivery, pay the supplier', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.click('#newItemBtn');
+  await page.fill('#itName', 'Ø´Ø§Ø´ Ø·Ø¨ÙŠ');
+  await page.fill('#itBarcode', '6220000000001');
+  await page.press('#itBarcode', 'Enter'); // a scanner ends with Enter: the form must not be sent yet
+  assert.equal((await db('catalog_items')).length, 0);
+  await page.fill('#itPrice', '15');
+  await page.fill('#itCost', '10');
+  await page.fill('#itQty', '20');
+  await page.click('#itemForm button[type=submit]');
+  assert.ok(await until(async () => (await db('catalog_items')).length === 1 && (await db('stock_moves')).length === 1));
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  assert.match(await text('#itemsBody tr'), /20/);
 
-HOOHJK	ÝHÛÜÙH›Ü›IÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ[™[	ÊKö)öa6`ö)ö-6)öa6av`v,vb6-ˆ6b¶*6`¶bH6avb6+6b6+ËÊNÃBˆ]ØZ]YÙK™š[
-	ÈØÙØ\Ú	Ë	ÌL	ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈØÛÜÙQ^Q›Ü›H]Û–Ý\O\ÝX›Z]IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=receive]');
+  const ids = Object.fromEntries((await page.evaluate(() => window.__DB.members[0].pharmacies.settings.suppliers)).map((x) => [x.name, x.id]));
+  await page.selectOption('#rcvSup', ids['Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„']);
+  await page.fill('#rcvQ', '6220000000001');
+  await page.press('#rcvQ', 'Enter');
+  await page.fill('[data-l="0"][data-f="qty"]', '10');
+  await page.fill('[data-l="0"][data-f="bonus"]', '2');
+  await page.fill('[data-l="0"][data-f="cost"]', '9');
+  await page.fill('#rcvQ', 'panadol');
+  await page.press('#rcvQ', 'Enter');
+  assert.equal(await page.locator('#rcvLines tr').count(), 2);
+  await page.fill('#rcvPaid', '50');
+  await shot('receive');
+  await page.setViewportSize({ width: 390, height: 844 }); await shot('receive-phone'); await page.setViewportSize({ width: 1200, height: 900 });
+  await page.click('#rcvForm button[type=submit]');
+  assert.ok(await until(async () => (await db('purchases')).length === 1));
+  const [p] = await db('purchases');
+  assert.deepEqual([p.supplier_name, p.lines.length, p.branch_id, p.paid], ['Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„', 2, 'b1', 50]);
+  assert.match(await text('#rcvMsg'), /Ø§ØªØ³Ø¬Ù„Øª Ø§Ù„Ø·Ù„Ø¨ÙŠØ©/);
 
-HOˆ
-]ØZ]Š	Ù^WØÛÜÙ\ÉÊJK›[™ÝOOHJJNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  assert.match(await text('#itemsBody tr'), /32/, '20 + 10 + 2 free');
+  await page.fill('#itemsQ', ''); await shot('items');
 
-HOˆö)öa6b¶b6aH6+öaÈ6)ö*¶`¶`vaË\Ý
-]ØZ]^
-	ÈÜ[™[	ÊJJJNÃBˆ\ÜÙ\™\]X[
-]ØZ]YÙK›ØØ]ÜŠ	ÈØÛÜÙQ^Q›Ü›IÊK˜ÛÝ[
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=supaccounts]');
+  assert.match(await text('#panel tbody tr'), /Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„/);
+  await page.fill('#payAmount', '20');
+  await page.click('#payForm button[type=submit]');
+  assert.ok(await until(async () => (await db('supplier_payments')).length === 1));
+  await shot('accounts');
+  await page.click('[data-tab=invoices]');
+  assert.match(await text('#panel details summary'), /Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„/);
 
-K	ØÛÜÙYÛ˜ÙIÊNÃBŸJNÃBƒB\Ý
-	ÜÛ™HÚ^™Nˆ›ÈÚY]Ø^\ÈØÜ›Û[™È[ˆ[žHÙXÝ[Û‰Ë\Þ[˜È
+  // A return to the supplier: 2 boxes back, out of stock and off the account; then deleted again.
+  await page.click('[data-tab=receive]');
+  await page.check('#rcvReturn');
+  await page.selectOption('#rcvSup', ids['Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„']);
+  await page.fill('#rcvQ', '6220000000001');
+  await page.press('#rcvQ', 'Enter');
+  await page.fill('[data-l="0"][data-f="qty"]', '2');
+  await page.fill('[data-l="0"][data-f="cost"]', '9');
+  await page.click('#rcvForm button[type=submit]');
+  assert.ok(await until(async () => (await db('purchases')).some((x) => x.kind === 'return')));
+  assert.match(await text('#rcvMsg'), /Ø§ØªØ³Ø¬Ù„ Ø§Ù„Ù…Ø±ØªØ¬Ø¹/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  assert.match(await text('#itemsBody tr'), /30/, '32 âˆ’ 2 sent back');
+  await page.fill('#itemsQ', '');
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=supaccounts]');
+  assert.match(await text('#panel tbody tr'), /18/, 'returned 2 Ã— 9');
+  await page.click('[data-tab=invoices]');
+  assert.match(await text('#panel'), /Ù…Ø±ØªØ¬Ø¹ Ù„Ù„Ù…ÙˆØ±Ø¯/);
+  const rid = (await db('purchases')).find((x) => x.kind === 'return').id;
+  await page.locator(`details:has([data-delpurchase="${rid}"]) summary`).click();
+  await page.click(`[data-delpurchase="${rid}"]`);
+  assert.ok(await until(async () => !(await db('purchases')).some((x) => x.kind === 'return')));
+});
 
-HOˆÃBˆ]ØZ]YÙKœÙ]šY]ÜÜÚ^™JÈÚYˆÎLZYÚˆJNÃBˆ]ØZ]YÙKœÙ[XÝÜ[ÛŠ	ÈØœ˜[˜ÚÙ[	Ë	Ø[	ÊNÃBˆÛÛœÝXœÈHÉÛÝ™\šY]ÉË	Ø[˜[\Ú\ÉË	ÚX[	Ë	Ø[\ÉË	Ø\ÜÚ\Ý[	Ë	Ý\ÚÜÉË	ØÝ\ÝÛY\œÉË	ØÛZ[\ÉË	Ü›Ùš]	Ë	Ú][\ÉË	ØY\Ý	Ë	Ü™XÙZ]™IË	Ú[›ÚXÙ\ÉË	ÜÝ\XØÛÝ[ÉË	Ü™[Ü™\‰Ë	Ù^\žIË	ÙXY	Ë	ÜÚÜYÙ\ÉË	Û[Ý™\œÉË	Û[Ü›š[™ÉË	ÜÜÉË	Ù^[œÙ\ÉË	ÝÚ]˜]Ø[ÉË	Ø›ÛÚÜÉË	Ü\™\œÉË	ØØ[ÉË	ÛÙ™™\œÉË	ÜšXÙ\ÉË	ØÚ[™Ù\ÉË	Ü]Y[É×NÃBˆ›Üˆ
-ÛÛœÝXˆÙˆXœÊHÃBˆÛÛœÝÙXÈH]ØZ]YÙK™]˜[X]J
-
-HOˆ
-ÈÝ™\šY]Îˆ	Ú[œÚYÚÉË[˜[\Ú\Îˆ	Ú[œÚYÚÉËX[ˆ	Ú[œÚYÚÉË[\Îˆ	Ú[œÚYÚÉË\ÜÚ\Ý[ˆ	Ú[œÚYÚÉË\ÚÜÎˆ	Ú[œÚYÚÉËÝ\ÝÛY\œÎˆ	ØÝ\ÝÛY\œÉËÛZ[\Îˆ	ØÝ\ÝÛY\œÉË›Ùš]ˆ	Û[Û™^IË][\Îˆ	ÜÝØÚÉËY\Ýˆ	ÜÝØÚÉË™XÙZ]™Nˆ	Ø^IË[›ÚXÙ\Îˆ	Ø^IËÝ\XØÛÝ[Îˆ	Ø^IË™[Ü™\Žˆ	ÜÝØÚÉË^\žNˆ	ÜÝØÚÉËXYˆ	ÜÝØÚÉËÚÜYÙ\Îˆ	ÜÝØÚÉË[Ý™\œÎˆ	ÜÝØÚÉË[Ü›š[™Îˆ	ÜÝØÚÉËÜÎˆ	Û[Û™^IË^[œÙ\Îˆ	Û[Û™^IËÚ]˜]Ø[Îˆ	Û[Û™^IË›ÛÚÜÎˆ	Û[Û™^IË\™\œÎˆ	Û[Û™^IËØ[Îˆ	Û[Û™^IËÙ™™\œÎˆ	ÜÙ[	ËšXÙ\Îˆ	ÜÙ[	ËÚ[™Ù\Îˆ	ÜÙ[	Ë]Y[Îˆ	Ü]Y[ÉÈJVÝKXŠNÃBˆ]ØZ]YÙK˜ÛXÚÊÙ]K\ÙXÏIÜÙXßWX
-NÃBˆYˆ
-]ØZ]YÙK›ØØ]ÜŠÝXœÈÙ]K]XIÝXŸWX
-Kš\Õš\ÚX›J
-JH]ØZ]YÙK˜ÛXÚÊÝXœÈÙ]K]XIÝXŸWX
-NÃBˆ]ØZ]YÙK™]˜[X]J
+test('cashier: sells from the stock entered here, and adds a brand-new item on the spot', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  assert.ok(await until(async () => /ØµÙ†Ù/.test(await text('#posMsg'))));
+  await page.fill('#q', 'Ø´Ø§Ø´');
+  assert.match(await text('#results'), /Ø±ØµÙŠØ¯ 32/, 'stock = 20 entered + 12 received');
+  await page.fill('#q', '6220000000001');
+  await page.press('#q', 'Enter');
+  assert.match(await text('#cart'), /Ø´Ø§Ø´ Ø·Ø¨ÙŠ/);
+  await page.fill('#q', '6220000000099'); // not in the list at all
+  await page.press('#q', 'Enter');
+  await page.waitForSelector('#unknownDlg[open]');
+  await page.fill('#niName', 'Ù‚Ø·Ù† 100 Ø¬Ù…');
+  await page.fill('#niPrice', '12');
+  await page.press('#niPrice', 'Enter');
+  assert.ok(await until(async () => (await db('catalog_items')).some((c) => c.barcode === '6220000000099' && c.name === 'Ù‚Ø·Ù† 100 Ø¬Ù…')));
+  assert.match(await text('#cart'), /Ù‚Ø·Ù† 100 Ø¬Ù…/);
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).length === 4));
+  await page.fill('#q', 'Ø´Ø§Ø´');
+  assert.match(await text('#results'), /Ø±ØµÙŠØ¯ 31/, 'the sale took one off');
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+});
 
-HOˆØÝ[Y[œ]Y\žTÙ[XÝÜ[
-	Ù]Z[ÉÊK™›Ü‘XXÚ
+test('stock count, damaged boxes, and a return to the supplier', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=adjust]');
+  // Damaged: 2 boxes of gauze (31 on the shelf after the cashier sale).
+  await page.click('[data-adjkind=damaged]');
+  await page.fill('#adjQ', 'Ø´Ø§Ø´');
+  await page.press('#adjQ', 'Enter');
+  assert.match(await text('#adjForm'), /Ø§Ù„Ø±ØµÙŠØ¯ Ø¯Ù„ÙˆÙ‚ØªÙŠ 31/);
+  await page.fill('#adjQty', '2');
+  await page.click('#adjForm button[type=submit]');
+  assert.ok(await until(async () => (await db('stock_moves')).some((m) => m.kind === 'damaged' && m.qty === -2)));
+  assert.match(await text('#adjMsg'), /Ø§ØªØ³Ø¬Ù„/);
+  // Return 3 to the supplier: off the shelf and off what we owe him.
+  await page.click('[data-adjkind=supplier_return]');
+  await page.fill('#adjQ', '6220000000001');
+  await page.press('#adjQ', 'Enter');
+  await page.fill('#adjQty', '3');
+  await page.fill('#adjCost', '9');
+  await page.click('#adjForm button[type=submit]');
+  assert.ok(await until(async () => (await db('supplier_payments')).some((p) => p.amount === 27)));
+  // Shelf count: 20 found.
+  await page.click('#countBox summary');
+  await page.fill('#countQ', 'Ø´Ø§Ø´');
+  await page.fill('[data-count="6220000000001"]', '20');
+  assert.match(await text('[data-diff="6220000000001"]'), /-6/);
+  await shot('adjust'); await page.setViewportSize({ width: 390, height: 844 }); await shot('adjust-phone'); await page.setViewportSize({ width: 1200, height: 900 });
+  await page.click('#countSave');
+  assert.ok(await until(async () => (await db('stock_moves')).some((m) => m.kind === 'count' && m.qty === -6)));
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  assert.match(await text('#itemsBody tr'), /20/);
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=supaccounts]');
+  assert.match(await text('#panel tbody tr'), /37/, '64 owed âˆ’ 27 returned');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=books]');
+  assert.match(await text('#panel'), /Ø§Ù„Ù‡Ø§Ù„Ùƒ ÙˆØ§Ù„Ù…Ù†ØªÙ‡ÙŠ/);
+});
 
-
-HOˆÈ›Ü[ˆHYNÈJJNÈËÈÜ[ˆ›Þ\È\™HHÚY\ÝBˆÛÛœÝÝ™\ˆH]ØZ]YÙK™]˜[X]J
+test('customers: credit and insurance at the cashier, balances, collecting, claims', async () => {
+  await page.click('[data-sec=customers]');
+  await page.click('#cuNew');
+  await page.fill('#cuName', 'Ø´Ø±ÙƒØ© Ù…ØµØ± Ù„Ù„ØªØ£Ù…ÙŠÙ†');
+  await page.selectOption('#cuKind', 'insurance');
+  await page.fill('#cuCov', '80');
+  await page.click('#custForm button[type=submit]');
+  assert.ok(await until(async () => (await db('customers')).length === 1));
 
-HOˆØÝ[Y[™ØÝ[Y[[[Y[œØÜ›ÛÚYH[›™\•ÚY
-NÃBˆ\ÜÙ\™\]X[
-Ý™\‹	ÝXŸHØÜ›ÛÈÚY]Ø^\ÈžH	ÛÝ™\Ÿ\
-NÃBˆCBˆ]ØZ]YÙKœÙ]šY]ÜÜÚ^™JÈÚYˆLŒZYÚˆLJNÃBŸJNÃBƒB\Ý
-	ÜÚYÛ‹[Ý]ÛÜšÜÈÙ™›[™H[™X]™\È›Ý[™ÈÛˆH]šXÙIË\Þ[˜È
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  assert.ok(await until(async () => /ØµÙ†Ù/.test(await text('#posMsg'))));
+  // A regular customer buying on credit, added at the counter.
+  await page.fill('#q', '303'); await page.press('#q', 'Enter');   // 140
+  await page.fill('#custQ', 'Ø£Ø³ØªØ§Ø° Ø³Ø§Ù…ÙŠ');
+  await page.click('[data-newcust]');
+  await page.fill('#ncPhone', '01012345678');
+  await page.click('#custForm button[type=submit]');
+  assert.ok(await until(async () => /Ø£Ø³ØªØ§Ø° Ø³Ø§Ù…ÙŠ/.test(await text('#custName'))), 'customer added and chosen');
+  assert.equal(await text('#tCredit'), '140.00');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 140 && x.payment === 'credit')));
+  // Insurance: the company pays 80%, the patient pays the rest in cash.
+  await page.fill('#q', '303'); await page.press('#q', 'Enter');
+  await page.fill('#custQ', 'Ù…ØµØ±');
+  await page.press('#custQ', 'Enter');
+  await page.fill('#claimNo', 'APP-1');
+  assert.equal(await text('#tCredit'), '112.00');
+  assert.equal(await text('#tNow'), '28.00');
+  await page.fill('#paid', '50');
+  assert.equal(await text('#tChange'), '22.00');
+  await shot('cashier-insurance');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 112 && x.claim_no === 'APP-1' && x.paid === 50)));
+  assert.match(await text('#daySum'), /Ø¢Ø¬Ù„/);
 
-HOˆÃBˆ]ØZ]ÛÓÙ™›[™J
-NÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÛÙÛÝ]	ÊNÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈÛÙÚ[‘›Ü›IËÈ[Y[Ý]ˆJNÃBˆÛÛœÝYH]ØZ]YÙK™]˜[X]J\Þ[˜È
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.waitForLoadState('networkidle'); // everything loaded: no re-render wipes the form while it is filled
+  await page.click('[data-sec=customers]');
+  await page.click('[data-tab=customers]');
+  assert.ok(await until(async () => /140/.test(await text('#panel tbody'))));
+  await page.selectOption('#cpCust', { label: 'Ø£Ø³ØªØ§Ø° Ø³Ø§Ù…ÙŠ (Ø¹Ù„ÙŠÙ‡ 140.00)' });
+  await page.fill('#cpAmount', '40');
+  await page.click('#cpayForm button[type=submit]');
+  assert.ok(await until(async () => (await db('customer_payments')).length === 1, 10000));
+  await page.locator('#panel tbody tr', { hasText: 'Ø£Ø³ØªØ§Ø° Ø³Ø§Ù…ÙŠ' }).locator('[data-stmt]').click();
+  assert.match(await text('#panel .card'), /ÙƒØ´Ù Ø­Ø³Ø§Ø¨/);
+  assert.match(await text('#panel'), /100\.00/, 'balance after paying 40');
+  await shot('customers');
+  await page.click('[data-tab=claims]');
+  assert.match(await text('#panel .card'), /Ø´Ø±ÙƒØ© Ù…ØµØ± Ù„Ù„ØªØ£Ù…ÙŠÙ†/);
+  assert.match(await page.inputValue('#claimMsg0'), /APP-1/);
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=profit]');
+  assert.match(await text('#panel'), /ÙƒÙ„ Ø´Ù‡Ø±/);
+  await shot('profit');
+});
 
-HOˆÃBˆÛÛœÝÙ^\ÈHØš™XÝšÙ^\ÊØØ[ÝÜ˜YÙJK™š[\Š
-ÊHOˆËœÝ\ÕÚ]
-	ÜØ^Y[]KIÊH	‰ˆÈOOH	ÜØ^Y[]KXÛÛ™šYË]ŒIÊNÃBˆÛÛœÝYˆH]ØZ]™]È›ÛZ\ÙJ
-™\ÊHOˆÃBˆÛÛœÝˆH[™^Y‹›Ü[Š	ÜØ^Y[]IËJNÃBˆ‹›Û\Ü˜Y[™YYYH
+test('moving stock from one branch to another', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=adjust]');
+  await page.click('[data-adjkind=transfer]');
+  await page.fill('#adjQ', 'Ø´Ø§Ø´');
+  await page.press('#adjQ', 'Enter');
+  await page.selectOption('#adjTo', 'b2');
+  await page.fill('#adjQty', '5');
+  await page.click('#adjForm button[type=submit]');
+  assert.ok(await until(async () => (await db('stock_moves')).filter((m) => m.kind === 'transfer').length === 2));
+  const [out, inn] = (await db('stock_moves')).filter((m) => m.kind === 'transfer').sort((a, b) => a.qty - b.qty);
+  assert.deepEqual([out.branch_id, out.qty, inn.branch_id, inn.qty, out.ref === inn.ref], ['b1', -5, 'b2', 5, true]);
+  await page.selectOption('#branchSel', 'b2');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  assert.match(await text('#itemsBody tr'), /\b5\b/);
+  await page.selectOption('#branchSel', 'b1');
+});
 
-HOˆ‹œ™\Ý[˜Ü™X]SØš™XÝÝÜ™J	ÚÝ‰ÊNÃBˆ‹›ÛœÝXØÙ\ÜÈH
+test('editing an item: quantity and expiry per batch; editing a purchase invoice', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  const before = await text('#itemsBody tr');
+  assert.match(before, /\b15\b/);
+  await page.click('#itemsBody [data-edititem]');
+  assert.equal(await page.inputValue('[data-bq="0"]'), '15');
+  await page.fill('[data-bq="0"]', '12');
+  await page.fill('[data-be="0"]', '2027-03-01');
+  await page.fill('#itPrice', '16');
+  await page.click('#itemForm button[type=submit]');
+  assert.ok(await until(async () => (await db('stock_moves')).filter((m) => m.note === 'ØªØ¹Ø¯ÙŠÙ„ ÙŠØ¯ÙˆÙŠ').length === 2));
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  const row = await text('#itemsBody tr');
+  assert.match(row, /\b12\b/); assert.match(row, /16\.00/); assert.match(row, /2027|Ù¢Ù Ù¢Ù§/);
 
-HOˆÈÛÛœÝHH‹œ™\Ý[˜[œØXÝ[ÛŠ	ÚÝ‰ÊK›Øš™XÝÝÜ™J	ÚÝ‰ÊK˜ÛÝ[
+  await page.click('[data-sec=buy]');
+  await page.click('[data-tab=invoices]');
+  await page.click('#panel details summary');
+  await page.click('[data-editpurchase]');
+  assert.equal(await page.inputValue('[data-l="0"][data-f="qty"]'), '10');
+  await page.fill('[data-l="0"][data-f="qty"]', '8');
+  await page.click('#rcvForm button[type=submit]');
+  assert.ok(await until(async () => { const p = await db('purchases'); return p.length === 1 && p[0].lines[0].qty === 8; }), 'the same invoice, edited');
+  assert.match(await text('#rcvMsg'), /Ø§ØªØ¹Ø¯Ù„Øª Ø§Ù„ÙØ§ØªÙˆØ±Ø©/);
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=items]');
+  await page.fill('#itemsQ', 'Ø´Ø§Ø´');
+  assert.match(await text('#itemsBody tr'), /\b10\b/, 'two fewer received');
+});
 
-NÈK›ÛœÝXØÙ\ÜÈH
+test('export: Excel with every table, CSV, and the Saydaliti file', async () => {
+  await openTools(page);
+  await page.click('#exportBox summary');
+  const x = await captureDownload(page, '[data-export=xlsx]');
+  assert.match(x.filename, /^saydaliti-.*\.xlsx$/);
+  const xbytes = Buffer.from(x.bytes);
+  assert.equal(xbytes.subarray(0, 2).toString(), 'PK', 'a real Excel file');
+  await page.selectOption('#exportWhich', 'Ø§Ù„Ø£ØµÙ†Ø§Ù');
+  const c = await captureDownload(page, '[data-export=csv]');
+  const csv = c.text.replace(/^\uFEFF/, '');
+  assert.match(csv.split('\r\n')[0], /^Ø§Ù„ÙƒÙˆØ¯,Ø§Ù„ØµÙ†Ù,Ø§Ù„Ù†ÙˆØ¹,Ø§Ù„Ø¨Ø§Ø±ÙƒÙˆØ¯,Ø³Ø¹Ø± Ø§Ù„Ø´Ø±Ø§Ø¡,Ø³Ø¹Ø± Ø§Ù„Ø¨ÙŠØ¹,Ø§Ù„Ø±ØµÙŠØ¯/);
+  assert.match(csv, /Ø´Ø§Ø´ Ø·Ø¨ÙŠ/);
+  const j = await captureDownload(page, '[data-export=json]');
+  const json = JSON.parse(j.text);
+  assert.ok(json.items.some((i) => i.name === 'Ø´Ø§Ø´ Ø·Ø¨ÙŠ'));
+});
 
-HOˆ™\ÊKœ™\Ý[
-NÈNÃBˆ‹›Û™\œ›ÜˆH
+test('opens offline with saved data even after the sign-in expired', async () => {
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForTimeout(800); // let the app files finish caching
+  await page.addInitScript(() => { window.__sessionExpired = true; });
+  await goOffline();
+  await page.reload();
+  await page.waitForSelector('#app:not([hidden])', { timeout: 8000 });
+  assert.match(await text('#netChip'), /Ù…Ù† ØºÙŠØ± Ù†Øª/);
+  assert.ok(await until(async () => /5 ØµÙ†Ù/.test(await text('#tiles'))), 'saved stock (3 uploaded + 2 added here) shows offline');
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=reorder]');
+  assert.match(await text('.orders .card b'), /Ù…Ø®Ø²Ù† Ø§Ù„Ø£Ù…Ù„/, 'suppliers available offline');
+  await goOnline();
+});
 
-HOˆ™\ÊLJNÃBˆJNÃBˆ™]\›ˆÈÙ^\ËY‹ÚYÛ™Y[ŽˆH[ØØ[ÝÜ˜YÙK™Ù]][J	ÜØ‹\ÝX‹X]]]ÚÙ[‰ÊHNÃBˆJNÃBˆ\ÜÙ\™Y\\]X[
-YÈÙ^\Îˆ×KYŽˆÚYÛ™Y[Žˆ˜[ÙHJNÃBˆ]ØZ]ÛÓÛ›[™J
-NÃBŸJNÃBƒB\Ý
-	ØH]X˜\ÙHÚ]Ý]H]\Ý\]\ÈÝ[ÛÜšÜÉË\Þ[˜È
+test('the summary: overview numbers, health score, alerts, the assistant answers from the data, tasks', async () => {
+  await page.click('[data-sec=insights]');
+  await page.click('#tabs [data-tab=overview]');
+  assert.match(await text('#panel'), /Ø§Ù„Ù†Ù‡Ø§Ø±Ø¯Ù‡/);
+  assert.ok(await page.locator('#panel .chart svg').count(), 'the 12-month chart');
+  await page.click('#tabs [data-tab=health]');
+  assert.match(await text('#panel .health'), /\/100/);
+  await page.click('#tabs [data-tab=alerts]');
+  assert.ok(await until(async () => /ØªÙ†Ø¨ÙŠÙ‡|Ù…ÙÙŠØ´ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª|ØµÙ†Ù/.test(await text('#panel'))));
+  await page.click('#tabs [data-tab=assistant]');
+  await page.fill('#askQ', 'Ø¥ÙŠÙ‡ Ø§Ù„Ø£ØµÙ†Ø§Ù Ø§Ù„Ø±Ø§ÙƒØ¯Ø©ØŸ');
+  await page.press('#askQ', 'Enter');
+  assert.ok(await until(async () => /Ø§Ù„Ø±Ø§ÙƒØ¯/.test(await text('#chatLog'))), 'answered');
+  assert.match(await text('#chatLog'), /Ø§Ù„Ù…ØµØ¯Ø±/);
+  await page.click('[data-ask="Ø±ØµÙŠØ¯ Ø¨Ø§Ù†Ø§Ø¯ÙˆÙ„"]');
+  assert.ok(await until(async () => /Ø§Ù„Ø±ØµÙŠØ¯/.test(await text('#chatLog'))));
+  await page.click('#tabs [data-tab=tasks]');
+  await page.fill('#tkTitle', 'Ø±Ø¬Ù‘Ø¹ Ø§Ù„Ø±Ø§ÙƒØ¯ Ù„Ù„Ù…ÙˆØ±Ø¯');
+  await page.click('#taskForm button[type=submit]');
+  assert.ok(await until(async () => (await db('tasks')).length === 1));
+  await page.click('[data-taskdone]');
+  assert.ok(await until(async () => (await db('tasks'))[0].status === 'done'));
+});
 
-HOˆÃBˆÛÛœÝˆH]ØZ]Ý›™]ÔYÙJ
-NÃBˆ]ØZ]‹˜Y[š]ØÜš\
+test('closing the day: the cash that should be there, the count, kept once', async () => {
+  await page.selectOption('#branchSel', 'b1');
+  await page.click('[data-sec=money]');
+  await page.click('#tabs [data-tab=pos]');
+  assert.ok(await until(async () => await page.locator('#closeDayForm').count() === 1), 'the close form');
+  assert.match(await text('#panel'), /Ø§Ù„ÙƒØ§Ø´ Ø§Ù„Ù…ÙØ±ÙˆØ¶ ÙŠØ¨Ù‚Ù‰ Ù…ÙˆØ¬ÙˆØ¯/);
+  await page.fill('#cdCash', '100');
+  await page.click('#closeDayForm button[type=submit]');
+  assert.ok(await until(async () => (await db('day_closes')).length === 1));
+  assert.ok(await until(async () => /Ø§Ù„ÙŠÙˆÙ… Ø¯Ù‡ Ø§ØªÙ‚ÙÙ„/.test(await text('#panel'))));
+  assert.equal(await page.locator('#closeDayForm').count(), 0, 'closed once');
+});
 
+test('phone size: no sideways scrolling in any section', async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.selectOption('#branchSel', 'all');
+  const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  for (const tab of tabs) {
+    const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    await page.click(`[data-sec=${sec}]`);
+    if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    assert.equal(over, 0, `${tab} scrolls sideways by ${over}px`);
+  }
+  await page.setViewportSize({ width: 1200, height: 900 });
+});
 
-HOˆÈÚ[™ÝË—×Û›Ðœ˜[˜Ú\ÈHYNÈÚ[™ÝË—×Û›ÌHYNÈJNÃBˆ]ØZ]‹™ÛÝÊ˜\ÙJNÃBˆ]ØZ]‹ØZ]›Ü”Ù[XÝÜŠ	ÈÛÙÚ[‘›Ü›IÊNÃBˆ]ØZ]‹™š[
-	ÈÙ[XZ[	Ë	ØX™Ð^[\K˜ÛÛIÊNÃBˆ]ØZ]‹™š[
-	ÈÜ\ÜÝÛÜ™	Ë	Ü\›XXÞLLŒÉÊNÃBˆ]ØZ]‹˜ÛXÚÊ	ÈÛÙÚ[‘›Ü›H]Û–Ý\O\ÝX›Z]IÊNÃBˆ]ØZ]‹ØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆ\ÜÙ\™\]X[
-]ØZ]‹›ØØ]ÜŠ	ÈØœ˜[˜ÚÜ˜\	ÊKš\ÒY[Š
-KYK	Û›Èœ˜[˜ÚXÚÙ\‰ÊNÃBˆ]ØZ]‹˜ÛXÚÊ	ÖÙ]K\ÙXÏ\ÝØÚ×IÊNÃBˆ]ØZ]‹˜ÛXÚÊ	ÖÙ]K]X\ÚÜYÙ\×IÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ[™[	ËŠKöav+v*¶)ö+6*¶+v+öb¶*È6`¶)ö.v+ö*H6)öa6*6b¶)öa¶)ö*‹ÊNÃBˆ]ØZ]‹˜ÛÜÙJ
-NÃBŸJNÃBƒB\Ý
-	ØHØ[H\È™]™\ˆÜÝÚ[ˆH]X˜\ÙH\]H›ÜˆHØ\ÚY\ˆ\ÈZ\ÜÚ[™ÉË\Þ[˜È
+test('sign-out works offline and leaves nothing on the device', async () => {
+  await goOffline();
+  await page.click('#logout');
+  await page.waitForSelector('#loginForm', { timeout: 8000 });
+  const left = await page.evaluate(async () => {
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith('saydaliti-') && k !== 'saydaliti-config-v1');
+    const idb = await new Promise((res) => {
+      const r = indexedDB.open('saydaliti', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => { const q = r.result.transaction('kv').objectStore('kv').count(); q.onsuccess = () => res(q.result); };
+      r.onerror = () => res(-1);
+    });
+    return { keys, idb, signedIn: !!localStorage.getItem('sb-stub-auth-token') };
+  });
+  assert.deepEqual(left, { keys: [], idb: 0, signedIn: false });
+  await goOnline();
+});
 
-HOˆÃBˆÛÛœÝÈH]ØZ]Ý›™]ÔYÙJ
-NÃBˆ]ØZ]Ë˜Y[š]ØÜš\
+test('a database without the latest updates still works', async () => {
+  const p2 = await ctx.newPage();
+  await p2.addInitScript(() => { window.__noBranches = true; window.__no008 = true; });
+  await p2.goto(base);
+  await p2.waitForSelector('#loginForm');
+  await p2.fill('#email', 'abdo@example.com');
+  await p2.fill('#password', 'pharmacy123');
+  await p2.click('#loginForm button[type=submit]');
+  await p2.waitForSelector('#app:not([hidden])');
+  assert.equal(await p2.locator('#branchWrap').isHidden(), true, 'no branch picker');
+  await p2.click('[data-sec=stock]');
+  await p2.click('[data-tab=shortages]');
+  assert.match(await text('#panel', p2), /Ù…Ø­ØªØ§Ø¬ ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª/);
+  await p2.close();
+});
 
+test('a sale is never lost when the database update for the cashier is missing', async () => {
+  const p3 = await ctx.newPage();
+  await p3.addInitScript(() => { window.__no009 = true; window.print = () => {}; });
+  await p3.goto(`${base}cashier.html`);
+  await p3.waitForSelector('#pos:not([hidden])');
+  const before = await p3.evaluate(() => window.__DB.pos_sales.length);
+  assert.ok(await until(async () => /ØµÙ†Ù/.test(await text('#posMsg', p3))), 'items loaded');
+  await p3.fill('#q', '101');
+  await p3.press('#q', 'Enter');
+  await p3.keyboard.press('F2');
+  await p3.waitForTimeout(1500); // a few sync attempts
+  assert.equal(await p3.evaluate(() => window.__DB.pos_sales.length), before, 'not uploaded');
+  assert.match(await text('#netChip', p3), /Ø¨ÙŠØ±ÙØ¹ 1/, 'still waiting in the queue');
+  assert.match(await text('#dayList', p3), /Ù…Ø³ØªÙ†ÙŠ Ø§Ù„Ù†Øª/);
+  await p3.close();
+});
 
-HOˆÈÚ[™ÝË—×Û›ÌHHYNÈÚ[™ÝËœš[H
+test('two tabs queuing changes at the same moment lose none of them', async () => {
+  const a = await ctx.newPage(), b = await ctx.newPage();
+  await Promise.all([a.goto(`${base}cashier.html`), b.goto(base)]);
+  const run = (p, tag) => p.evaluate(async (tag) => {
+    const { enqueue } = await import('./src/offline.js');
+    await Promise.all(Array.from({ length: 40 }, (_, i) => enqueue('test-only', { tag, i })));
+  }, tag);
+  await Promise.all([run(a, 'a'), run(b, 'b')]);
+  const queued = await a.evaluate(async () => (await (await import('./src/offline.js')).pending()).filter((e) => e.type === 'test-only').length);
+  assert.equal(queued, 80);
+  await a.evaluate(async () => { const { kvUpdate } = await import('./src/offline.js'); await kvUpdate('outbox', (q) => q.filter((e) => e.type !== 'test-only'), []); });
+  await a.close(); await b.close();
+});
 
-HOˆßNÈJNÃBˆ]ØZ]Ë™ÛÝÊ	Ø˜\Ù_XØ\ÚY\‹š[
-NÃBˆ]ØZ]ËØZ]›Ü”Ù[XÝÜŠ	ÈÜÜÎ››Ý
-ÚY[—JIÊNÃBˆÛÛœÝ™Y›Ü™HH]ØZ]Ë™]˜[X]J
+test('subscription: a note while it runs, the dashboard locks after the grace days, the cashier never', async () => {
+  const setSub = (sub) => page.evaluate((sub) => {
+    window.__DB.subscriptions = sub ? [{ pharmacy_id: 'ph1', ...sub }] : [];
+    window.__DB.app_config = [{ grace_days: 7, price_month: 500, price_branch: 250, pay_note: 'Ø¥Ù†Ø³ØªØ§Ø¨Ø§ÙŠ: test@instapay', support_phone: '01000000000' }];
+    localStorage.setItem('__stubdb', JSON.stringify(window.__DB));
+  }, sub);
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  const soon = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  await setSub({ status: 'trial', trial_ends: soon });
+  await page.reload(); await page.waitForSelector('#app:not([hidden])');
+  assert.ok(await until(async () => /ÙØ§Ø¶Ù„ 2 ÙŠÙˆÙ…/.test(await text('#subBanner'))));
+  await setSub({ status: 'active', paid_until: '2020-01-01' });
+  await page.reload(); await page.waitForSelector('#app:not([hidden])');
+  assert.ok(await until(async () => /Ø¬Ø¯Ù‘Ø¯/.test(await text('#panel'))));
+  assert.match(await text('#panel'), /test@instapay/);
+  assert.match(await text('#panel'), /750/, '500 + 250 for the second branch');
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await setSub(null);
+});
 
-HOˆÚ[™ÝË—×Ñ‹œÜ×ÜØ[\Ë›[™Ý
-NÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
+test('admin page: see each pharmacy and turn on a paid month', async () => {
+  await page.goto(`${base}admin.html`);
+  await page.waitForSelector('#app:not([hidden])');
+  assert.match(await text('#list'), /ØµÙŠØ¯Ù„ÙŠØ© Ø£Ø­Ù…Ø¯ Ù…Ù†ØµÙˆØ±/);
+  await page.click('#list [data-edit]');
+  await page.selectOption('#eStatus', 'active');
+  await page.click('#eAdd [data-add="1"]');
+  assert.match(await page.inputValue('#ePaid'), /^\d{4}-\d{2}-\d{2}$/);
+  await page.fill('#eNote', 'Ø¯ÙØ¹ Ø¥Ù†Ø³ØªØ§Ø¨Ø§ÙŠ');
+  await page.click('#editForm button[type=submit]');
+  assert.ok(await until(async () => (await db('subscriptions'))[0]?.status === 'active'));
+  assert.equal((await db('subscriptions'))[0].note, 'Ø¯ÙØ¹ Ø¥Ù†Ø³ØªØ§Ø¨Ø§ÙŠ');
+  await page.evaluate(() => { window.__DB.subscriptions = []; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
+});
 
-HOˆö-va¶`KË\Ý
-]ØZ]^
-	ÈÜÜÓ\ÙÉËÊJJK	Ú][\ÈØYY	ÊNÃBˆ]ØZ]Ë™š[
-	ÈÜIË	ÌLIÊNÃBˆ]ØZ]Ëœ™\ÜÊ	ÈÜIË	Ñ[\‰ÊNÃBˆ]ØZ]ËšÙ^X›Ø\™œ™\ÜÊ	ÑŒ‰ÊNÃBˆ]ØZ]ËØZ]›Ü•[Y[Ý]
-ML
-NÈËÈH™]ÈÞ[˜È][\ÃBˆ\ÜÙ\™\]X[
-]ØZ]Ë™]˜[X]J
+test('public pages open', async () => {
+  for (const f of ['about.html', 'privacy.html', 'terms.html']) {
+    await page.goto(base + f);
+    assert.match(await text('h1'), /ØµÙŠØ¯Ù„ÙŠØªÙŠ|Ø§Ù„Ø®ØµÙˆØµÙŠØ©|Ø§Ù„Ø´Ø±ÙˆØ·|Ø´Ø±ÙˆØ·/);
+  }
+});
 
-HOˆÚ[™ÝË—×Ñ‹œÜ×ÜØ[\Ë›[™Ý
-K™Y›Ü™K	Û›Ý\ØYY	ÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÛ™]Ú\	ËÊKö*6b¶,v`v.HKË	ÜÝ[ØZ][™È[ˆH]Y]YIÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÙ^S\Ý	ËÊKöav,ö*¶a¶bˆ6)öa6a¶*‹ÊNÃBˆ]ØZ]Ë˜ÛÜÙJ
-NÃBŸJNÃBƒB\Ý
-	ÝÛÈXœÈ]Y]Z[™ÈÚ[™Ù\È]HØ[YH[ÛY[ÜÙH›Û™HÙˆ[IË\Þ[˜È
+test('English interface: the button switches the dashboard and cashier to English, and back', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.waitForLoadState('networkidle');
+  await page.click('[data-langbtn]');
+  await page.waitForSelector('html[dir=ltr]');
+  await page.waitForSelector('#app:not([hidden])');
+  assert.equal(await page.getAttribute('html', 'lang'), 'en');
+  assert.ok(await until(async () => {
+    const labels = await page.locator('#sections .sec').allInnerTexts();
+    return labels.includes('Summary') && labels.includes('Stock');
+  }, 10000));
+  await shot('english-dashboard');
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  assert.equal(await page.getAttribute('html', 'dir'), 'ltr');
+  assert.match(await page.getAttribute('#q', 'placeholder'), /Scan/);
+  await shot('english-cashier');
+  await page.click('[data-langbtn]');
+  await page.waitForSelector('html[dir=rtl]');
+  assert.equal(await page.evaluate(() => localStorage.getItem('saydaliti-lang')), 'ar');
+});
 
-HOˆÃBˆÛÛœÝHH]ØZ]Ý›™]ÔYÙJ
-KˆH]ØZ]Ý›™]ÔYÙJ
-NÃBˆ]ØZ]›ÛZ\ÙK˜[
-ØK™ÛÝÊ	Ø˜\Ù_XØ\ÚY\‹š[
-K‹™ÛÝÊ˜\ÙJWJNÃBˆÛÛœÝ[ˆH
-YÊHOˆ™]˜[X]J\Þ[˜È
-YÊHOˆÃBˆÛÛœÝÈ[œ]Y]YHHH]ØZ][\Ü
-	Ë‹ÜÜ˜ËÛÙ™›[™KšœÉÊNÃBˆ]ØZ]›ÛZ\ÙK˜[
-\œ˜^K™œ›ÛJÈ[™ÝˆK
-ËJHOˆ[œ]Y]YJ	Ý\Ý[Û›IËÈYËHJJJNÃBˆKYÊNÃBˆ]ØZ]›ÛZ\ÙK˜[
-Ü[ŠK	ØIÊK[Š‹	Ø‰ÊWJNÃBˆÛÛœÝ]Y]YYH]ØZ]K™]˜[X]J\Þ[˜È
-
-HOˆ
-]ØZ]
-]ØZ][\Ü
-	Ë‹ÜÜ˜ËÛÙ™›[™KšœÉÊJKœ[™[™Ê
-JK™š[\Š
-JHOˆK\HOOH	Ý\Ý[Û›IÊK›[™Ý
-NÃBˆ\ÜÙ\™\]X[
-]Y]YY
-NÃBˆ]ØZ]K™]˜[X]J\Þ[˜È
-
-HOˆÈÛÛœÝÈÝ•\]HHH]ØZ][\Ü
-	Ë‹ÜÜ˜ËÛÙ™›[™KšœÉÊNÈ]ØZ]Ý•\]J	ÛÝ]›Þ	Ë
-JHOˆK™š[\Š
-JHOˆK\HOOH	Ý\Ý[Û›IÊK×JNÈJNÃBˆ]ØZ]K˜ÛÜÙJ
-NÈ]ØZ]‹˜ÛÜÙJ
-NÃBŸJNÃBƒB\Ý
-	ÜÝXœØÜš\[ÛŽˆH›ÝHÚ[H][œËH\Ú›Ø\™ØÚÜÈY\ˆHÜ˜XÙH^\ËHØ\ÚY\ˆ™]™\‰Ë\Þ[˜È
-
-HOˆÃBˆÛÛœÝÙ]ÝXˆH
-ÝXŠHOˆYÙK™]˜[X]J
-ÝXŠHOˆÃBˆÚ[™ÝË—×Ñ‹œÝXœØÜš\[ÛœÈHÝXˆÈÞÈ\›XXÞWÚYˆ	ÜIË‹‹œÝXˆWHˆ×NÃBˆÚ[™ÝË—×Ñ‹˜\ØÛÛ™šYÈHÞÈÜ˜XÙWÙ^\ÎˆËšXÙWÛ[ÛˆLšXÙWØœ˜[˜ÚˆL^WÛ›ÝNˆ	ö)va¶,ö*¶)ö*6)öbŽˆ\Ý[œÝ\^IËÝ\ÜÜÛ™Nˆ	ÌL	ÈWNÃBˆØØ[ÝÜ˜YÙKœÙ]][J	××ÜÝX™‰Ë”ÓÓ‹œÝš[™ÚYžJÚ[™ÝË—×ÑŠJNÃBˆKÝXŠNÃBˆ]ØZ]YÙK™ÛÝÊ˜\ÙJNÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆÛÛœÝÛÛÛˆH™]È]J]K››ÝÊ
-H
-Èˆ
-ˆ
-KÒTÓÔÝš[™Ê
-KœÛXÙJL
-NÃBˆ]ØZ]Ù]ÝXŠÈÝ]\Îˆ	ÝšX[	ËšX[Ù[™ÎˆÛÛÛˆJNÃBˆ]ØZ]YÙKœ™[ØY
-
-NÈ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
-
-HOˆö`v)ö-¶aˆ6b¶b6aKË\Ý
-]ØZ]^
-	ÈÜÝX˜[›™\‰ÊJJJNÃBˆ]ØZ]Ù]ÝXŠÈÝ]\Îˆ	ØXÝ]™IËZYÝ[[ˆ	ÌŒŒLKLIÈJNÃBˆ]ØZ]YÙKœ™[ØY
-
-NÈ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
-
-HOˆö+6+ödv+ËË\Ý
-]ØZ]^
-	ÈÜ[™[	ÊJJJNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ[™[	ÊKÝ\Ý[œÝ\^KÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÜ[™[	ÊKÍÍLË	ÍL
-ÈL›ÜˆHÙXÛÛ™œ˜[˜Ú	ÊNÃBˆ]ØZ]YÙK™ÛÝÊ	Ø˜\Ù_XØ\ÚY\‹š[
-NÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈÜÜÎ››Ý
-ÚY[—JIÊNÃBˆ]ØZ]Ù]ÝXŠ[
-NÃBŸJNÃBƒB\Ý
-	ØYZ[ˆYÙNˆÙYHXXÚ\›XXÞH[™\›ˆÛˆHZY[Û	Ë\Þ[˜È
-
-HOˆÃBˆ]ØZ]YÙK™ÛÝÊ	Ø˜\Ù_XYZ[‹š[
-NÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÈÛ\Ý	ÊKö-vb¶+öa6b¶*H6(ö+vav+È6ava¶-vb6,KÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÛ\ÝÙ]KYY]IÊNÃBˆ]ØZ]YÙKœÙ[XÝÜ[ÛŠ	ÈÙTÝ]\ÉË	ØXÝ]™IÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÙPYÙ]KXYHŒH—IÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]YÙKš[œ]˜[YJ	ÈÙTZY	ÊK×—ÍKWÌŸKWÌŸIÊNÃBˆ]ØZ]YÙK™š[
-	ÈÙS›ÝIË	ö+ö`v.H6)va¶,ö*¶)ö*6)öb‰ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÈÙY]›Ü›H]Û–Ý\O\ÝX›Z]IÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
-
-HOˆ
-]ØZ]Š	ÜÝXœØÜš\[ÛœÉÊJVÌOËœÝ]\ÈOOH	ØXÝ]™IÊJNÃBˆ\ÜÙ\™\]X[
-
-]ØZ]Š	ÜÝXœØÜš\[ÛœÉÊJVÌK››ÝK	ö+ö`v.H6)va¶,ö*¶)ö*6)öb‰ÊNÃBˆ]ØZ]YÙK™]˜[X]J
-
-HOˆÈÚ[™ÝË—×Ñ‹œÝXœØÜš\[ÛœÈH×NÈØØ[ÝÜ˜YÙKœÙ]][J	××ÜÝX™‰Ë”ÓÓ‹œÝš[™ÚYžJÚ[™ÝË—×ÑŠJNÈJNÃBŸJNÃBƒB\Ý
-	ÜX›XÈYÙ\ÈÜ[‰Ë\Þ[˜È
-
-HOˆÃBˆ›Üˆ
-ÛÛœÝˆÙˆÉØX›Ý]š[	Ë	Üš]˜XÞKš[	Ë	Ý\›\Ëš[	×JHÃBˆ]ØZ]YÙK™ÛÝÊ˜\ÙH
-ÈŠNÃBˆ\ÜÙ\›X]Ú
-]ØZ]^
-	ÚIÊKö-vb¶+öa6b¶*¶bŸ6)öa6+¶-vb6-vb¶*_6)öa6-6,vb6-ß6-6,vb6-ËÊNÃBˆCBŸJNÃBƒB\Ý
-	Ñ[™Û\Ú[\™˜XÙNˆH]ÛˆÝÚ]Ú\ÈH\Ú›Ø\™[™Ø\ÚY\ˆÈ[™Û\Ú[™˜XÚÉË\Þ[˜È
-
-HOˆÃBˆ]ØZ]YÙK™ÛÝÊ˜\ÙJNÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆ]ØZ]YÙKØZ]›Ü“ØYÝ]J	Û™]ÛÜšÚYIÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K[[™Ø—IÊNÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	Ú[Ù\[—IÊNÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈØ\››Ý
-ÚY[—JIÊNÃBˆ\ÜÙ\™\]X[
-]ØZ]YÙK™Ù]]šX]J	Ú[	Ë	Û[™ÉÊK	Ù[‰ÊNÃBˆ\ÜÙ\›ÚÊ]ØZ][[
-\Þ[˜È
-
-HOˆÃBˆÛÛœÝX™[ÈH]ØZ]YÙK›ØØ]ÜŠ	ÈÜÙXÝ[ÛœÈœÙXÉÊK˜[[›™\•^Ê
-NÃBˆ™]\›ˆX™[Ëš[˜ÛY\Ê	ÔÝ[[X\žIÊH	‰ˆX™[Ëš[˜ÛY\Ê	ÔÝØÚÉÊNÃBˆKL
-JNÃBˆ]ØZ]ÚÝ
-	Ù[™Û\ÚY\Ú›Ø\™	ÊNÃBˆ]ØZ]YÙK™ÛÝÊ	Ø˜\Ù_XØ\ÚY\‹š[
-NÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	ÈÜÜÎ››Ý
-ÚY[—JIÊNÃBˆ\ÜÙ\™\]X[
-]ØZ]YÙK™Ù]]šX]J	Ú[	Ë	Ù\‰ÊK	Û‰ÊNÃBˆ\ÜÙ\›X]Ú
-]ØZ]YÙK™Ù]]šX]J	ÈÜIË	ÜXÙZÛ\‰ÊKÔØØ[‹ÊNÃBˆ]ØZ]ÚÝ
-	Ù[™Û\ÚXØ\ÚY\‰ÊNÃBˆ]ØZ]YÙK˜ÛXÚÊ	ÖÙ]K[[™Ø—IÊNÃBˆ]ØZ]YÙKØZ]›Ü”Ù[XÝÜŠ	Ú[Ù\\IÊNÃBˆ\ÜÙ\™\]X[
-]ØZ]YÙK™]˜[X]J
-
-HOˆØØ[ÝÜ˜YÙK™Ù]][J	ÜØ^Y[]K[[™ÉÊJK	Ø\‰ÊNÃBŸJNÃBƒB\Ý
-	Û›ÈØÜš\\œ›ÜœÉË
-
-HOˆÃBˆ\ÜÙ\™Y\\]X[
-\œ›ÜœË×JNÃBŸJNÃB
+test('no script errors', () => {
+  assert.deepEqual(errors, []);
+});
