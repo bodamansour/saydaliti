@@ -488,3 +488,5 @@ tr.sale-lines .ledger { max-width: 560px; }
 .card.rec .btn, .card.alert .btn, .card.task .btn { white-space: normal; text-align: start; max-width: 100%; }
 .card.rec .row, .card.alert .row, .card.task .row { flex-wrap: wrap; }
 .tiles .tile .s { overflow-wrap: anywhere; }
+.itemimg img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.res .thumb { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; background: #fff; flex: none; }

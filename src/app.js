@@ -559,7 +559,9 @@ function renderReorder(A, s) {
     const bname = multi() && BRANCH !== 'all' ? branchName(BRANCH) : '';
     orders = `<h3>الطلبيات${sup.length ? ' حسب المورد' : ''}</h3><div class="orders">${groups.map((g, i) => {
       const msg = orderMessage(g, { pharmacyName: SESS.pharmacy?.name || 'الصيدلية', branchName: bname });
-      return `<div class="card msg"><div class="row" style="justify-content:space-between"><b>${esc(g.supplier?.name || (sup.length ? 'من غير مورد' : 'الطلبية'))}</b>
+      // Items that run out before this supplier's delivery arrives are marked.
+      const late = g.supplier?.lead ? g.lines.filter((l) => { const r = A.reorder.find((x) => x.code === l.code); return r && Number.isFinite(r.daysCover) && r.daysCover < g.supplier.lead; }).length : 0;
+      return `<div class="card msg"><div class="row" style="justify-content:space-between"><b>${esc(g.supplier?.name || (sup.length ? 'من غير مورد' : 'الطلبية'))}${g.supplier?.lead != null && g.supplier.lead !== '' ? ` <span class="muted">· بيوصّل في ${fmt(g.supplier.lead)} يوم</span>` : ''}${late ? ` <span class="pill crit">${fmt(late)} صنف هيخلص قبل ما الطلبية توصل</span>` : ''}</b>
         <span class="muted">${fmt(g.lines.length)} صنف · ${egp(g.cost)}${g.saved > 0.5 ? ` · وفّرت <span class="n">${fmt(g.saved)}</span> ج` : ''}</span></div>
         ${g.lines.length > 40
           // A long order is kept folded: drawing thousands of lines is slow on an older PC. Copy and WhatsApp still send all of it.
@@ -589,6 +591,7 @@ function renderSuppliers() {
         <label>خصم الأدوية % (لو مختلف)<input id="supMed" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.medicine)}"></label>
         <label>خصم التجميل % (لو مختلف)<input id="supCos" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.cosmetics)}"></label>
         <label>خصم المستلزمات % (لو مختلف)<input id="supSup" type="number" min="0" max="100" step="0.1" value="${pct(E?.discounts?.supplies)}"></label>
+        <label>بيوصّل الطلبية خلال كام يوم<input id="supLead" type="number" min="0" max="60" step="1" value="${E?.lead ?? ''}" placeholder="مثلاً 1"></label>
       </div>
       <div class="row"><button class="btn primary" type="submit">${E ? 'احفظ التعديل' : 'ضيف المورد'}</button>${E ? '<button class="btn" type="button" id="supCancel">إلغاء</button>' : ''}<span class="note" id="supMsg" role="status"></span></div>
       <p class="note">الخصم هنا إضافي على سعر الشراء. لو مورد معين بيدّي صنف أرخص، اختاره للصنف ده من القايمة في الجدول فوق.</p>
@@ -605,14 +608,15 @@ async function saveSupplier(e) {
   const phone = rawPhone ? normalizeEgPhone(rawPhone) : '';
   if (rawPhone && !phone) return msg('رقم الواتساب لازم يبقى رقم موبايل مصري صحيح، أو سيبه فاضي.');
   const num = (id) => { const v = $(id).value.trim(); return v === '' ? undefined : Math.max(0, Math.min(100, +v || 0)); };
+  const lead = $('supLead').value === '' ? null : Math.max(0, Math.min(60, Math.round(+$('supLead').value || 0)));
   const discounts = Object.fromEntries([['all', num('supAll') ?? 0], ['medicine', num('supMed')], ['cosmetics', num('supCos')], ['supplies', num('supSup')]].filter(([, v]) => v !== undefined));
   const sup = [...SUPPLIERS()];
   if (EDIT_SUP) {
     const i = sup.findIndex((x) => x.id === EDIT_SUP);
-    if (i >= 0) sup[i] = { ...sup[i], name, phone, discounts };
+    if (i >= 0) sup[i] = { ...sup[i], name, phone, discounts, lead };
   } else {
     if (sup.some((x) => x.name === name)) return msg('المورد ده موجود.');
-    sup.push({ id: crypto.randomUUID().slice(0, 8), name, phone, discounts });
+    sup.push({ id: crypto.randomUUID().slice(0, 8), name, phone, discounts, lead });
   }
   EDIT_SUP = null;
   SUP_OPEN = true;
@@ -717,6 +721,7 @@ function renderPosSales() {
       <div><span>مبيعات</span><span class="n">${fmt(sum.sales, 2)}</span></div>
       ${sum.returns ? `<div><span>مرتجعات (${fmt(sum.returns)})</span><span class="n">${fmt(sum.returned, 2)}</span></div>` : ''}
       ${R.delivery?.count ? `<div><span>توصيل (${fmt(R.delivery.count)} طلب)</span><span class="n">${fmt(R.delivery.fees, 2)}</span></div>` : ''}
+      ${R.vat ? `<div><span>ضريبة قيمة مضافة جوه المبيعات</span><span class="n">${fmt(R.vat, 2)}</span></div>` : ''}
       <div><span>خصومات</span><span class="n">${fmt(sum.discount, 2)}</span></div>
       ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(payName(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('')}
       <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div>
@@ -736,7 +741,46 @@ function renderPosSales() {
   const staff = R.employees.length > 1 || (R.employees[0] && R.employees[0].name !== 'من غير اسم') ? `<h3>أداء الكاشيرز</h3>` + table(['الكاشير', 'فواتير', 'المبيعات', 'متوسط الفاتورة', 'خصومات', 'مرتجعات'],
     R.employees.map((e) => `<tr><td class="name">${esc(e.name)}</td><td class="n">${fmt(e.receipts)}</td><td>${egp(e.sales)}</td><td>${egp(e.avg)}</td><td>${egp(e.discount)}</td><td class="n">${e.returns ? `${fmt(e.returns)} · ${fmt(e.returned, 2)}` : '—'}</td></tr>`)) : '';
   return `${controls}<p class="note">دوس على أي فاتورة عشان تشوف أصنافها وتطبعها تاني. الفواتير دي من شاشة الكاشير.</p>
-  <div class="calc">${summary}${hours}</div>${invoices}${items}${staff}`;
+  <div class="calc">${summary}${hours}</div>${POS_PERIOD === 'day' && BRANCH !== 'all' || (POS_PERIOD === 'day' && !multi()) ? dayCloseHtml(R) : ''}${invoices}${items}${staff}`;
+}
+
+// ---------- Closing the day (migration 0009) ----------
+// For one branch and one day: what came in by payment, the money paid out that day (expenses and
+// withdrawals), the cash that should be there, the cash counted, and who closed it. Kept as it was.
+let DAY_CLOSES = [], DAY_CLOSES_READY = null;
+async function loadDayCloses() {
+  try { DAY_CLOSES = await loadTable('day_closes', 'id, branch_id, day, totals, expected_cash, counted_cash, note, created_by, created_at', 'day'); DAY_CLOSES_READY = true; } catch (e) { DAY_CLOSES_READY = false; }
+}
+function dayCloseFigures(R) {
+  const bid = BRANCH === 'all' ? mainBranchId() : BRANCH_ID();
+  const day = POS_DAY;
+  const exp = (EXP_READY ? EXPENSES : []).filter((e) => !e.deleted && String(e.spent_on) === day && (e.branch_id ?? mainBranchId()) === bid);
+  const spent = exp.filter((e) => e.kind !== 'withdrawal').reduce((a, e) => a + (+e.amount || 0), 0);
+  const taken = exp.filter((e) => e.kind === 'withdrawal').reduce((a, e) => a + (+e.amount || 0), 0);
+  const cash = R.summary.byPayment.cash || 0;
+  return { bid, day, sales: R.summary.net, byPayment: R.summary.byPayment, receipts: R.summary.receipts, returns: R.summary.returns, spent: Math.round(spent * 100) / 100, taken: Math.round(taken * 100) / 100, expected: Math.round((cash - spent - taken) * 100) / 100, vat: R.vat || 0 };
+}
+function dayCloseHtml(R) {
+  if (DAY_CLOSES_READY === null) { DAY_CLOSES_READY = false; loadDayCloses().then(() => { if (TAB === 'pos') render(true); }); return ''; }
+  if (!DAY_CLOSES_READY) return '';
+  const f = dayCloseFigures(R);
+  const done = DAY_CLOSES.find((x) => x.day === f.day && (x.branch_id ?? mainBranchId()) === f.bid);
+  const pay = Object.entries(f.byPayment).map(([k, v]) => `<div><span>${esc(payName(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('');
+  if (done) {
+    const diff = done.counted_cash == null ? null : Math.round((+done.counted_cash - +done.expected_cash) * 100) / 100;
+    return `<div class="card"><h3>اليوم ده اتقفل <span class="pill ok">مقفول</span></h3><div class="ledger">
+      <div><span>صافي المبيعات وقت القفل</span><span class="n">${fmt(done.totals?.sales ?? 0, 2)}</span></div>
+      <div><span>الكاش المتوقع</span><span class="n">${fmt(done.expected_cash ?? 0, 2)}</span></div>
+      <div><span>الكاش المعدود</span><span class="n">${done.counted_cash == null ? '—' : fmt(done.counted_cash, 2)}</span></div>
+      ${diff === null ? '' : `<div class="tot"><span>الفرق</span><span class="n">${diff > 0 ? '+' : ''}${fmt(diff, 2)}</span></div>`}</div>
+      <p class="note">اتقفل ${esc(new Date(done.created_at).toLocaleString('ar-EG'))}${done.note ? ` · ${esc(done.note)}` : ''}.${Math.abs((done.totals?.sales ?? 0) - f.sales) > 0.005 ? ` <b>بعد القفل اتسجلت حاجات: الصافي دلوقتي ${fmt(f.sales, 2)}.</b>` : ''}</p></div>`;
+  }
+  return `<div class="card"><h3>قفل اليوم</h3><div class="ledger">${pay}
+    <div><span>مصروفات اتدفعت النهارده</span><span class="n">−${fmt(f.spent, 2)}</span></div>
+    <div><span>مسحوبات فلوس</span><span class="n">−${fmt(f.taken, 2)}</span></div>
+    <div class="tot"><span>الكاش المفروض يبقى موجود</span><span class="n">${fmt(f.expected, 2)}</span></div></div>
+    ${canPay() ? `<form id="closeDayForm" class="row"><label>الكاش المعدود<input id="cdCash" type="number" min="0" step="0.5" inputmode="decimal" style="width:8rem"></label><input id="cdNote" maxlength="300" placeholder="ملاحظة (اختياري)" style="flex:1;min-width:8rem"><button class="btn primary" type="submit">اقفل اليوم</button><span class="note" id="cdMsg" role="status"></span></form>` : ''}
+    <p class="note">القفل بيحفظ أرقام اليوم زي ما هي دلوقتي. لو اتسجلت حاجة بعده، الفرق هيبان هنا.</p></div>`;
 }
 // The report on paper (or PDF): the totals, the hours and what sold.
 function printPosReport() {
@@ -833,7 +877,7 @@ function renderShifts() {
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
-const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة' };
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم' };
 const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
@@ -864,7 +908,7 @@ let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
 const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
   customers: () => CUSTOMERS, customer_payments: () => CUST_PAYMENTS,
-  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS };
+  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS, day_closes: () => DAY_CLOSES };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -1235,7 +1279,8 @@ const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year
 async function loadInventory() {
   try {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
-      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')
+      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, tax_pct, image_at, created_at, updated_at')
+        .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at') : Promise.reject(e)))
         .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at') : Promise.reject(e)))
         .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at') : Promise.reject(e))),
       loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, kind, created_at', 'received_on')
@@ -1297,6 +1342,7 @@ function itemForm() {
       <label>عدد الحبايات في العلبة (للبيع بالحباية)<input id="itPills" type="number" min="1" max="10000" step="1" inputmode="numeric" value="${esc(f.pills ?? '')}" placeholder="اختياري"></label>
       <label>المادة الفعالة (عشان البدائل)<input id="itGeneric" maxlength="160" value="${esc(f.generic ?? '')}" placeholder="مثلاً: paracetamol"></label>
       <label>الشركة المصنّعة<input id="itMaker" maxlength="120" value="${esc(f.maker ?? '')}"></label>
+      <label>ضريبة القيمة المضافة % (داخلة في السعر)<input id="itTax" type="number" min="0" max="100" step="1" inputmode="numeric" value="${esc(f.tax ?? '')}" placeholder="0 لأغلب الأدوية، 14 للتجميل"></label>
       <label>الحد الأدنى في الرف (علب)<input id="itMin" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.min ?? '')}" placeholder="تحته يبقى «ناقص»"></label>
       ${editing || f.forReceive ? '' : `<label>الكمية اللي عندك دلوقتي (اختياري)<input id="itQty" type="number" min="0" step="1" inputmode="numeric"></label>
       <label>الصلاحية (اختياري)<input id="itExp" type="month"></label>`}
@@ -1310,8 +1356,39 @@ function itemForm() {
     ${editing ? `<div class="row"><b>ملصقات باركود:</b><input id="lbCount" class="disc n" type="number" min="1" max="200" step="1" value="1" aria-label="عدد الملصقات"><button class="btn" type="button" id="printLabels">اطبع ملصقات</button>
       <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>
       <details class="help"><summary>حركة الصنف</summary>${historyTable(f.code)}</details>` : ''}
+    ${editing && SESS.client?.itemImage ? `<div class="row itemimg"><img id="itImg" alt="" hidden><label class="btn" for="itImgFile">${f.image ? 'غيّر الصورة' : 'ضيف صورة للصنف'}<input id="itImgFile" type="file" accept="image/*" hidden></label>${f.image ? '<button class="btn" type="button" id="itImgDel">شيل الصورة</button>' : ''}<span class="note" id="itImgMsg" role="status"></span></div>` : ''}
   </form>`;
 }
+// ----- Item photos (R2, through /api/item-image) -----
+async function showItemImage(code) {
+  const url = await SESS.client.itemImage(SESS.pharmacy.id, code);
+  const img = $('itImg');
+  if (url && img && ITEM_FORM?.code === code) { img.src = url; img.hidden = false; }
+}
+// Made small on this device (at most 480 px, JPEG) before it is sent.
+async function shrinkImage(file) {
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
+  const c = Object.assign(document.createElement('canvas'), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
+  for (const q of [0.82, 0.7, 0.55]) { const b = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', q)); if (b.size <= 300 * 1024) return b; }
+  throw new Error('الصورة كبيرة قوي حتى بعد التصغير.');
+}
+async function setItemImage(code, file) {
+  const say = (t) => { const m = $('itImgMsg'); if (m) m.textContent = t; };
+  if (!isOnline()) return say('الصور محتاجة نت.');
+  say('بترفع…');
+  try {
+    const r = await SESS.client.itemImage(SESS.pharmacy.id, code, file ? await shrinkImage(file) : null);
+    if (r.error) return say(arabicError(r.error).message);
+    const at = file ? new Date().toISOString() : null;
+    const row = CATALOG.find((c) => c.code === code);
+    if (row) await localUpdate('catalog_items', row.id, { image_at: at, updated_at: new Date().toISOString() });
+    else await localInsert('catalog_items', { code, image_at: at });
+    if (ITEM_FORM?.code === code) { ITEM_FORM.image = at; render(); if (at) showItemImage(code); }
+  } catch (e) { say(e.message); }
+}
+
 // Everything that moved one item in the branch on screen (last 200 entries).
 function historyTable(code) {
   const b = BRANCH === 'all' ? BRANCHES[0] : BRANCHES.find((x) => key(x.id) === BRANCH);
@@ -1323,13 +1400,13 @@ function historyTable(code) {
 }
 function batchRows() {
   return ITEM_FORM.batches.map((b, i) => `<tr><td><input class="disc n" type="number" min="0" step="1" data-bq="${i}" value="${esc(b.qty)}" aria-label="الكمية"></td>
-    <td><input type="date" data-be="${i}" value="${esc(b.expiry || '')}" aria-label="الصلاحية"></td>
+    <td><input type="date" data-be="${i}" value="${esc(b.expiry || '')}" aria-label="الصلاحية">${b.lot ? `<span class="cat">تشغيلة <span class="n">${esc(b.lot)}</span></span>` : ''}</td>
     <td><button class="btn" type="button" data-bdel="${i}" aria-label="شيل التشغيلة">✕</button></td></tr>`).join('');
 }
 // The batches of an item as the owner sees them in this branch, for editing.
 function editableBatches(it) {
   const list = it.batches?.length ? it.batches.filter((b) => b.qty > 0) : (it.qty ? [{ qty: it.qty, expiry: it.expiry ?? null }] : []);
-  return list.map((b) => ({ qty: b.qty, expiry: b.expiry ? isoDay(b.expiry) : '' }));
+  return list.map((b) => ({ qty: b.qty, expiry: b.expiry ? isoDay(b.expiry) : '', ...(b.lot ? { lot: b.lot } : {}) }));
 }
 function renderItems() {
   if (!INV_READY) return needInv();
@@ -1357,7 +1434,8 @@ async function saveItem(e) {
   const int = (id) => ($(id).value === '' ? null : Math.max(1, Math.round(+$(id).value || 1)));
   const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null,
     strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null,
-    maker: $('itMaker').value.trim() || null, min_qty: $('itMin').value === '' ? null : Math.max(0, +$('itMin').value || 0) };
+    maker: $('itMaker').value.trim() || null, min_qty: $('itMin').value === '' ? null : Math.max(0, +$('itMin').value || 0),
+    tax_pct: $('itTax').value === '' ? null : Math.min(100, Math.max(0, +$('itTax').value || 0)) };
   const qty = +($('itQty')?.value || 0), exp = $('itExp')?.value;
   if (f.batches?.some((b) => b.qty !== '' && (!(+b.qty >= 0)))) return msg('الكمية لازم تبقى صفر أو أكتر.');
   const moves = f.batches ? stockEdits(f.orig, f.batches.filter((b) => +b.qty > 0).map((b) => ({ qty: +b.qty, expiry: b.expiry || null }))) : [];
@@ -1368,7 +1446,7 @@ async function saveItem(e) {
     const it = DATA.items.find((i) => i.code === code);
     const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null)
       || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic
-      || (it.maker || null) !== fields.maker || (it.min || null) !== (fields.min_qty > 0 ? fields.min_qty : null);
+      || (it.maker || null) !== fields.maker || (it.min || null) !== (fields.min_qty > 0 ? fields.min_qty : null) || (it.tax || null) !== (fields.tax_pct > 0 ? fields.tax_pct : null);
     if (row && changed) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
     else if (!row && changed) await localInsert('catalog_items', { code, ...fields });
     const t0 = Date.now();
@@ -1399,6 +1477,7 @@ function receiveLinesHtml() {
     <td><input class="disc n" type="number" min="0" step="0.01" data-l="${i}" data-f="cost" value="${esc(l.cost)}" aria-label="سعر الشراء"></td>
     <td><input class="disc n" type="number" min="0" step="0.25" data-l="${i}" data-f="price" value="${esc(l.price)}" aria-label="سعر البيع"></td>
     <td><input type="month" data-l="${i}" data-f="expiry" value="${esc(l.expiry)}" aria-label="الصلاحية" style="min-width:130px"></td>
+    <td><input class="disc" data-l="${i}" data-f="lot" maxlength="40" value="${esc(l.lot || '')}" aria-label="رقم التشغيلة" placeholder="اختياري" style="min-width:90px"></td>
     <td class="n" id="rl${i}">${fmt((+l.qty || 0) * (+l.cost || 0), 2)}</td>
     <td><button class="btn" type="button" data-rcvdel="${i}" aria-label="شيل السطر">✕</button></td></tr>`).join('');
 }
@@ -1427,7 +1506,7 @@ function renderReceive() {
     </div>
     ${RCV.kind !== 'return' ? `<div class="row"><label class="btn" for="rcvPhoto">اقرا فاتورة المورد من صورة أو PDF<input id="rcvPhoto" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" hidden></label><span class="note">${AI_ON ? 'البرنامج بيقرا الأصناف والكميات والأسعار، وانت تراجعها قبل ما تسجّل.' : 'محتاجة إعداد الذكاء الاصطناعي على السيرفر.'}</span></div>` : ''}
     <div class="pos-search"><input id="rcvQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه… (Enter)" aria-label="ضيف صنف للطلبية"><div id="rcvResults" class="results" role="listbox" hidden></div></div>
-    <div class="tablebox cart"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء للعلبة</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th><th></th></tr></thead>
+    <div class="tablebox cart"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء للعلبة</th><th>سعر البيع</th><th>الصلاحية</th><th>التشغيلة</th><th>الإجمالي</th><th></th></tr></thead>
       <tbody id="rcvLines">${receiveLinesHtml()}</tbody></table>${RCV.lines.length ? '' : '<p class="empty">امسح أول صنف في الطلبية.</p>'}</div>
     <div class="grid2">
       <label>${RCV.kind === 'return' ? 'استلمت من المورد فلوس كام (لو رجّعلك كاش)' : 'دفعت كام للمورد دلوقتي'}<input id="rcvPaid" type="number" min="0" step="0.5" inputmode="decimal" value="${esc(RCV.paid)}" placeholder="${RCV.kind === 'return' ? '0 لو هيتخصم من حسابه' : '0 لو آجل'}"></label>
@@ -1473,7 +1552,7 @@ async function saveReceive(e) {
   e.preventDefault();
   const msg = (t) => { RCV_NOTE = ''; $('rcvMsg').textContent = t; };
   if (!RCV.lines.length) return msg('ضيف الأصناف اللي وصلت الأول.');
-  const lines = RCV.lines.map((l) => ({ code: l.code, name: l.name, qty: +l.qty || 0, bonus: +l.bonus || 0, cost: +l.cost || 0, price: +l.price || 0, expiry: l.expiry ? `${l.expiry}-01` : null }));
+  const lines = RCV.lines.map((l) => ({ code: l.code, name: l.name, qty: +l.qty || 0, bonus: +l.bonus || 0, cost: +l.cost || 0, price: +l.price || 0, expiry: l.expiry ? `${l.expiry}-01` : null, ...(String(l.lot || '').trim() ? { lot: String(l.lot).trim().slice(0, 40) } : {}) }));
   const bad = lines.find((l) => l.qty + l.bonus <= 0);
   if (bad) return msg(`اكتب كمية «${bad.name}».`);
   let supId = RCV.supplier, supName = '';
@@ -1746,6 +1825,7 @@ $('panel').addEventListener('click', async (e) => {
   if (e.target.id === 'logReload') { LOG_ROWS = null; render(); }
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
   // The summary: go to a tab, mark alerts read, turn alerts and recommendations into tasks.
+  if (e.target.id === 'itImgDel' && ITEM_FORM?.code && confirm('تشيل صورة الصنف؟')) { setItemImage(ITEM_FORM.code, null); return; }
   if (t('gotab')) { TAB = t('gotab'); render(); scrollTo({ top: 0 }); return; }
   // A supplier's order from «اطلب إيه» → a draft in «طلبية وصلت», recorded only when the owner saves it.
   if (t('todraft') !== undefined) {
@@ -1807,6 +1887,7 @@ $('panel').addEventListener('input', (e) => {
   if (f) { RCV[f] = t.value; if (f === 'paid') receiveTotals(); saveDraft(); }
 });
 $('panel').addEventListener('change', (e) => {
+  if (e.target.id === 'itImgFile') { const f = e.target.files[0]; e.target.value = ''; if (f && ITEM_FORM?.code) setItemImage(ITEM_FORM.code, f); return; }
   if (e.target.id === 'rcvPhoto') { const f = e.target.files[0]; e.target.value = ''; if (f) readInvoicePhoto(f); return; }
   if (e.target.id === 'rcvReturn') { RCV.kind = e.target.checked ? 'return' : 'buy'; saveDraft(); render(); return; }
   if (e.target.id === 'rcvSup') { RCV.supplier = e.target.value; saveDraft(); $('rcvSupNameWrap').hidden = RCV.supplier !== '__new'; if (!$('rcvSupNameWrap').hidden) $('rcvSupName').focus(); }
@@ -1823,6 +1904,14 @@ $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'rcvForm') saveReceive(e);
   if (e.target.id === 'payForm') savePayment(e);
   if (e.target.id === 'askForm') { e.preventDefault(); ask($('askQ').value); return; }
+  if (e.target.id === 'closeDayForm') {
+    e.preventDefault();
+    const R = salesReport(posList(), posCost());
+    const f = dayCloseFigures(R);
+    const counted = $('cdCash').value === '' ? null : Math.max(0, +$('cdCash').value);
+    if (counted === null && !confirm('تقفل اليوم من غير ما تعد الكاش؟')) return;
+    localInsert('day_closes', { branch_id: f.bid, day: f.day, totals: { sales: f.sales, byPayment: f.byPayment, receipts: f.receipts, returns: f.returns, spent: f.spent, taken: f.taken, vat: f.vat }, expected_cash: f.expected, counted_cash: counted, note: $('cdNote').value.trim() || null });
+  }
   if (e.target.id === 'taskForm') {
     e.preventDefault();
     const title = $('tkTitle').value.trim();
@@ -1837,8 +1926,9 @@ $('panel').addEventListener('click', (e) => {
     const i = DATA.items.find((x) => x.code === t('edititem')); const c = CATALOG.find((x) => x.code === i?.code);
     if (i) {
       const batches = needBranch() ? null : editableBatches(i);
-      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', maker: i.maker || '', min: i.min || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
+      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', maker: i.maker || '', min: i.min || '', tax: i.tax || '', image: i.image || null, batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
       ITEM_NOTE = ''; render(); $('itemForm')?.scrollIntoView({ block: 'center' });
+      if (i.image) showItemImage(i.code);
     }
   }
   if (e.target.id === 'addBatch') { ITEM_FORM.batches.push({ qty: '', expiry: '' }); $('batchRows').innerHTML = batchRows(); $('batchRows').querySelector('tr:last-child input')?.focus(); }
@@ -1856,7 +1946,7 @@ $('panel').addEventListener('click', (e) => {
       const known = SUPPLIERS().some((x) => x.id === p.supplier_id);
       RCV = { editing: p.id, editingAt: p.created_at, supplier: known ? p.supplier_id : '__new', supplierName: known ? '' : (p.supplier_name || ''), invoice: p.invoice_no || '', date: String(p.received_on).slice(0, 10),
         branch: key(p.branch_id ?? mainBranchId()), paid: String(p.paid ?? ''), note: p.note || '', kind: p.kind === 'return' ? 'return' : 'buy',
-        lines: p.lines.map((l) => ({ code: l.code, name: l.name || l.code, qty: l.qty, bonus: l.bonus || 0, cost: l.cost, price: l.price || '', expiry: l.expiry ? String(l.expiry).slice(0, 7) : '' })) };
+        lines: p.lines.map((l) => ({ code: l.code, name: l.name || l.code, qty: l.qty, bonus: l.bonus || 0, cost: l.cost, price: l.price || '', expiry: l.expiry ? String(l.expiry).slice(0, 7) : '', lot: l.lot || '' })) };
       saveDraft(); RCV_NOTE = ''; TAB = 'receive'; render();
     }
   }

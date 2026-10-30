@@ -59,6 +59,17 @@ export function createCloudflareClient() {
     // «اسأل صيدليتي» with an AI model (only when the server has one configured).
     ai(payload) { return payload === 'status' ? call('/api/ai/status', null, 'GET') : call('/api/ai', payload); },
     aiInvoice(payload) { return call('/api/ai/invoice', payload); },
+    // Item photos: sent and read with the sign-in (an <img> can't), shown as a blob URL.
+    async itemImage(pharmacy, code, blob = undefined) {
+      const q = `/api/item-image?pharmacy=${encodeURIComponent(pharmacy)}&code=${encodeURIComponent(code)}`;
+      const s = read();
+      const auth = s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {};
+      try {
+        if (blob === undefined) { const r = await fetch(q, { headers: auth }); return r.ok ? URL.createObjectURL(await r.blob()) : null; }
+        const r = await fetch(q, blob === null ? { method: 'DELETE', headers: auth } : { method: 'POST', headers: { ...auth, 'Content-Type': blob.type }, body: blob });
+        return r.ok ? { error: null } : { error: { message: (await r.json().catch(() => ({})))?.error?.message || `server error ${r.status}` } };
+      } catch (e) { return blob === undefined ? null : { error: { message: `TypeError: Failed to fetch (${e?.message ?? e})` } }; }
+    },
     rpc(name, params = {}) {
       // An upload (several MB) goes as its own body, so the server stores it without reading it all.
       if (name === 'save_snapshot') {

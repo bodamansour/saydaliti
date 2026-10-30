@@ -7,7 +7,7 @@ import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, lo
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired, vatOf } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -87,7 +87,7 @@ async function loadStock() {
     return rows;
   };
   const [catalog, purchases, moves] = await Promise.all([
-    (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
+    (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, tax_pct, image_at, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
     (await get('purchases', 'id, branch_id, received_on, lines, kind, created_at')) ?? get('purchases', 'id, branch_id, received_on, lines, created_at'),
     get('stock_moves', 'id, branch_id, code, qty, kind, expiry, happened_at, created_at'),
   ]);
@@ -218,7 +218,7 @@ function addItem(it) {
     // Old- and new-price boxes on the shelf: the earliest-expiring ones are sold first, at their price.
     const ps = MODE === 'sale' ? pricesOf(it) : [];
     const box = ps.length ? ps[0].price : +it.price || 0;
-    CART.push({ code: it.code, name: it.name, price: box, box, qty: 1, discount: 0, ...(ps.length ? { bp: box } : {}), ...(why ? { why } : {}) });
+    CART.push({ code: it.code, name: it.name, price: box, box, qty: 1, discount: 0, ...(ps.length ? { bp: box } : {}), ...(why ? { why } : {}), ...(+it.tax > 0 ? { tax: +it.tax } : {}) });
   }
   const inCart = CART.filter((l) => l.code === it.code).reduce((a, l) => a + boxQty(l), 0);
   const left = stockOf(it.code) - inCart;
@@ -413,9 +413,16 @@ function showResults(list, box = $('results'), attr = 'pick', title = '') {
   box.hidden = !list.length;
   box.innerHTML = (title && list.length ? `<div class="res-title">${esc(title)}</div>` : '') + list.map((it, i) => {
     const left = stockOf(it.code);
-    return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}"><span>${esc(it.name)}${it.en ? ` <span class="muted" dir="ltr">${esc(it.en)}</span>` : ''}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
+    return `<button class="res ${i === 0 ? 'first' : ''}" data-${attr}="${esc(it.code)}">${it.image && SESS.client?.itemImage ? `<img class="thumb" data-img="${esc(it.code)}" alt="">` : ''}<span>${esc(it.name)}${it.en ? ` <span class="muted" dir="ltr">${esc(it.en)}</span>` : ''}</span><span class="muted n">${fmt(it.price)} ج · رصيد ${left}</span></button>`;
   }).join('');
+  // Item photos, read once per item and kept for the session.
+  for (const img of box.querySelectorAll('img[data-img]')) {
+    const code = img.dataset.img;
+    if (!IMG_CACHE.has(code)) IMG_CACHE.set(code, SESS.client.itemImage(SESS.pharmacy.id, code));
+    IMG_CACHE.get(code).then((u) => { if (u) img.src = u; else img.remove(); });
+  }
 }
+const IMG_CACHE = new Map();
 function onSearch(enter) {
   const q = $('q').value;
   const r = lookup(q, ITEMS, BARCODES);
@@ -621,7 +628,7 @@ async function findReceipt() {
   if (!lines.length) { $('retInfo').textContent = `كل اللي في فاتورة ${no} اترجع قبل كده.`; return; }
   RET = { sale };
   $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
-  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0, ...(l.per ? { per: l.per, unit: l.unit } : {}) }));
+  CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0, ...(l.per ? { per: l.per, unit: l.unit } : {}), ...((t) => (t ? { tax: t } : {}))(+(sale.lines || []).find((x) => String(x.code) === String(l.code))?.tax || 0) }));
   for (const l of CART) l.discount = lineOff(l);
   $('extraDisc').value = 0; $('extraDisc').disabled = true;
   const cust = sale.customer_id && CUSTOMERS.find((c) => c.id === sale.customer_id);
@@ -655,7 +662,7 @@ async function checkout() {
   const sale = {
     id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
     number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
-    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}), ...(l.bp ? { bp: l.bp } : {}) })),
+    lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}), ...(l.bp ? { bp: l.bp } : {}), ...(+l.tax > 0 ? { tax: +l.tax } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
@@ -690,6 +697,7 @@ function receiptHtml(sale) {
     <table class="rc-lines">${sale.lines.map((l) => `<tr><td colspan="3">${esc(l.name)}</td></tr><tr><td class="n">${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price)}</td><td class="n">${l.discount ? `−${fmt(l.discount)}` : ''}</td><td class="n">${fmt(l.price * l.qty - l.discount)}</td></tr>`).join('')}</table>
     <div class="rc-tot">${sale.discount ? `<div><span>الخصم</span><span class="n">${fmt(sale.discount)}</span></div>` : ''}${sale.delivery_fee ? `<div><span>التوصيل</span><span class="n">${fmt(sale.delivery_fee)}</span></div>` : ''}
     <div class="big"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(sale.total))}</span></div>
+    ${vatOf(sale.lines, sale.discount) ? `<div><span>منها ضريبة القيمة المضافة</span><span class="n">${fmt(vatOf(sale.lines, sale.discount))}</span></div>` : ''}
     ${sale.customer_id ? `<div><span>العميل</span><span>${esc(CUSTOMERS.find((c) => c.id === sale.customer_id)?.name ?? '')}</span></div>${sale.claim_no ? `<div><span>رقم الموافقة</span><span class="n">${esc(sale.claim_no)}</span></div>` : ''}` : ''}
     ${sale.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(sale.credit))}</span></div>` : ''}
     ${!ret && sale.payment === 'cash' && sale.paid ? `<div><span>المدفوع</span><span class="n">${fmt(sale.paid)}</span></div><div><span>الباقي</span><span class="n">${fmt(sale.paid - (sale.total - (sale.credit || 0)))}</span></div>` : ''}

@@ -254,3 +254,14 @@ test("an item's history: deliveries, returns to the supplier, counts and cashier
   });
   assert.deepEqual(h.map((r) => [r.kind, r.qty]), [['pos-sale', -0.5], ['move-damaged', -1], ['supplier-return', -4], ['buy', 12], ['program-sale', -2]]);
 });
+
+test('batch numbers from a delivery stay on their batch; tax and photo come from the item row', () => {
+  const d = liveData(base, AT, {
+    catalog: [{ code: 'Z0', tax_pct: 14, image_at: '2026-10-21T00:00:00Z', created_at: '2026-10-21T09:00:00Z' }],
+    purchases: [{ created_at: '2026-10-21T10:00:00Z', received_on: '2026-10-21', lines: [{ code: 'Z0', qty: 4, cost: 10, expiry: '2027-03-01', lot: 'A12' }, { code: 'Z0', qty: 2, cost: 10, expiry: '2027-03-01', lot: 'B7' }] }],
+  });
+  const z = d.items.find((i) => i.code === 'Z0');
+  assert.deepEqual(z.batches.map((b) => [b.lot, b.qty]), [['A12', 4], ['B7', 2]]);
+  assert.equal(z.tax, 14);
+  assert.ok(z.image);
+});

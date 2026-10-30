@@ -168,3 +168,10 @@ test('all stock expired: only when every box on the shelf is past its date', asy
   assert.equal(allExpired({ batches: [{ qty: 0, expiry: new Date('2026-09-01') }] }, today), false, 'no stock: nothing to stop');
   assert.equal(allExpired({ qty: 3 }, today), false, 'no expiry known');
 });
+
+test('VAT inside the price: only on lines with tax, after discounts', async () => {
+  const { vatOf } = await import('../src/pos.js');
+  assert.equal(vatOf([{ price: 114, qty: 1, discount: 0, tax: 14 }, { price: 50, qty: 2, discount: 0 }]), 14);
+  assert.equal(vatOf([{ price: 114, qty: 1, discount: 0, tax: 14 }], 57), 7, 'half the bill off → half the VAT');
+  assert.equal(vatOf([{ price: 50, qty: 1, discount: 0 }]), 0);
+});
