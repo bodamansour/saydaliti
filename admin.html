@@ -40,6 +40,13 @@
     </form>
   </details>
 
+  <details class="help">
+    <summary>الباقات (اللي في كل باقة وحدودها)</summary>
+    <p class="note">صيدلية من غير باقة بتاخد كل حاجة زي الأول. الحدود بتتطبق على السيرفر: عدد الفروع، وعدد الحسابات (صاحب الصيدلية والشركاء والأجهزة)، والذكاء الاصطناعي.</p>
+    <form id="plansForm" class="stack"><div id="plansBox"></div>
+      <div class="row"><button class="btn primary" type="submit">احفظ الباقات</button><span class="note" id="plansMsg" role="status"></span></div></form>
+  </details>
+
   <div class="row" style="margin:12px 0"><input id="q" type="search" placeholder="دوّر باسم الصيدلية أو الإيميل…" style="flex:1" aria-label="بحث">
     <label>الحالة<select id="fStatus"><option value="">الكل</option><option value="trial">تجربة</option><option value="active">مدفوع</option><option value="due">خلص / قرب يخلص</option><option value="free">مجاني</option><option value="suspended">موقوف</option></select></label></div>
   <div class="tablebox"><table>
@@ -62,6 +69,7 @@
     <label id="eTrialWrap">التجربة لحد<input id="eTrial" type="date"></label>
     <label id="ePaidWrap">مدفوع لحد<input id="ePaid" type="date"></label>
     <div class="row" id="eAdd"><span class="muted">زوّد:</span><button class="btn" type="button" data-add="1">شهر</button><button class="btn" type="button" data-add="3">3 شهور</button><button class="btn" type="button" data-add="6">6 شهور</button><button class="btn" type="button" data-add="12">سنة</button></div>
+    <label>الباقة<select id="ePlan"></select></label>
     <label>سعر خاص للصيدلية دي في الشهر (فاضي = السعر العادي)<input id="ePrice" type="number" min="0" step="1"></label>
     <label>ملاحظة (مثلاً: دفع 500 إنستاباي يوم 28/10)<textarea id="eNote" maxlength="600"></textarea></label>
     <div class="row"><button class="btn primary" type="submit">احفظ</button><button class="btn" type="button" id="eCancel">إلغاء</button><span class="note" id="eMsg" role="status"></span></div>

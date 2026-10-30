@@ -14,10 +14,13 @@ import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
 import { labelHtml } from './labels.js';
+import { planOf, hasFeature } from './plans.js';
+import { answerLocally, runTool, toolSpecs, EXAMPLES } from './assistant.js';
+import { overview, monthlySeries, categoryPerformance, trending, profitClasses, supplierPerformance, healthScore, forecast, stockoutPlan, anomalies, alerts, recommendations } from './insights.js';
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
-import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue } from './inventory.js';
+import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue, itemHistory } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 // A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
@@ -114,6 +117,7 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
+  ['insights', 'الملخص', [['overview', 'نظرة عامة'], ['analysis', 'التحليلات'], ['health', 'صحة الصيدلية'], ['alerts', 'التنبيهات'], ['assistant', 'اسأل صيدليتي'], ['tasks', 'المهام']]],
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
@@ -137,7 +141,7 @@ function showView(v) {
   document.body.dataset.view = v;
   if (v === 'tools') { $('viewTitle').textContent = 'الإعدادات والأدوات'; for (const b of $('sections').querySelectorAll('.sec')) b.setAttribute('aria-pressed', 'false'); }
 }
-const NEEDS_DATA = new Set(['reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
+const NEEDS_DATA = new Set(['overview', 'analysis', 'health', 'reorder', 'expiry', 'dead', 'offers', 'books', 'morning', 'movers', 'partners', 'calc', 'changes']);
 
 function taxNote(A, s) {
   if (s.taxMode === 'simplified') {
@@ -233,7 +237,13 @@ function render(background = false) {
   else if (TAB === 'prices') html = renderPrices(A);
   else if (TAB === 'changes' && has) html = renderPriceChanges();
   else if (TAB === 'patients') html = renderPatients();
+  else if (TAB === 'alerts') html = renderAlerts(A);
+  else if (TAB === 'assistant') html = hasFeature(PLAN, 'ai') ? renderAssistant() : notInPlan('«اسأل صيدليتي»');
+  else if (TAB === 'tasks') html = renderTasks();
   else if (!has && NEEDS_DATA.has(TAB)) html = emptyState();
+  else if (TAB === 'overview') html = renderOverview(A);
+  else if (TAB === 'analysis') html = hasFeature(PLAN, 'analytics') ? renderAnalysis(A) : notInPlan('التحليلات');
+  else if (TAB === 'health') html = hasFeature(PLAN, 'analytics') ? renderHealth(A) : notInPlan('صحة الصيدلية');
   else if (TAB === 'reorder') {
     html = renderReorder(A, s);
   } else if (TAB === 'expiry') {
@@ -519,6 +529,7 @@ async function saveShared(patch) {
   sync();
 }
 
+let LAST_ORDERS = []; // the supplier orders on screen (for «لما توصل: افتحها كطلبية»)
 function renderReorder(A, s) {
   const sup = SUPPLIERS();
   const chosen = CHOSEN();
@@ -535,10 +546,11 @@ function renderReorder(A, s) {
     return `<td>${egp(full * (1 - p.pct / 100))} <span class="muted strike n">${fmt(full)}</span></td>`;
   };
   const head = ['الصنف', 'في الرف', 'بيتسحب في الشهر', 'هيخلص بعد', 'اطلب', ...(sup.length ? ['المورد'] : []), 'التكلفة'];
-  const body = A.reorder.map((r) => `<tr>${nameCell(r, SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '')}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td>${supCell(r)}${costCell(r)}</tr>`);
+  const body = A.reorder.map((r) => `<tr>${nameCell(r, (SHORT_CODES.has(r.code) ? '<span class="pill crit">ناقص في السوق</span>' : '') + (r.belowMin ? ` <span class="pill warn">تحت الحد الأدنى (${fmt(r.min)})</span>` : ''))}<td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.monthly, 1)}</td><td><span class="pill ${r.daysCover <= s.lead ? 'crit' : 'warn'}">${r.daysCover < 1 ? 'خلص تقريباً' : `${fmt(r.daysCover)} يوم`}</span></td><td class="n"><b>${fmt(r.order)}</b></td>${supCell(r)}${costCell(r)}</tr>`);
   let orders = '';
   if (A.reorder.length) {
     const groups = ordersBySupplier(A.reorder, sup, chosen);
+    LAST_ORDERS = groups;
     const bname = multi() && BRANCH !== 'all' ? branchName(BRANCH) : '';
     orders = `<h3>الطلبيات${sup.length ? ' حسب المورد' : ''}</h3><div class="orders">${groups.map((g, i) => {
       const msg = orderMessage(g, { pharmacyName: SESS.pharmacy?.name || 'الصيدلية', branchName: bname });
@@ -548,7 +560,7 @@ function renderReorder(A, s) {
           // A long order is kept folded: drawing thousands of lines is slow on an older PC. Copy and WhatsApp still send all of it.
           ? `<details class="orderfold"><summary>شوف الرسالة كلها (${fmt(g.lines.length)} سطر)</summary><textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea></details>`
           : `<textarea readonly id="orderMsg${i}" aria-label="رسالة الطلبية">${esc(msg)}</textarea>`}
-        <div class="row"><button class="btn primary" type="button" data-wa="${i}" data-phone="${esc(g.supplier?.phone || '')}">ابعتها على واتساب</button><button class="btn" type="button" data-copyorder="${i}">انسخ</button><span class="note" id="orderNote${i}"></span></div></div>`;
+        <div class="row"><button class="btn primary" type="button" data-wa="${i}" data-phone="${esc(g.supplier?.phone || '')}">ابعتها على واتساب</button><button class="btn" type="button" data-copyorder="${i}">انسخ</button>${isOwner() && INV_READY ? `<button class="btn" type="button" data-todraft="${i}" title="مسودة في «طلبية وصلت»: لما البضاعة توصل راجع الكميات والأسعار وسجّلها">لما توصل: افتحها كطلبية</button>` : ''}<span class="note" id="orderNote${i}"></span></div></div>`;
     }).join('')}</div>`;
   }
   const hint = !sup.length ? `<p class="note">${isOwner() ? 'ضيف الموردين وخصم كل واحد تحت، والبرنامج هيختارلك أرخص مورد لكل صنف ويقسم الطلبية عليهم.' : 'صاحب الصيدلية لسه مضافش موردين.'}</p>` : '';
@@ -816,7 +828,7 @@ function renderShifts() {
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
-const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف' };
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة' };
 const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
@@ -847,7 +859,7 @@ let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
 const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
   customers: () => CUSTOMERS, customer_payments: () => CUST_PAYMENTS,
-  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES };
+  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -1218,7 +1230,8 @@ const expText = (d) => (d ? d.toLocaleDateString('ar-EG', { month: 'short', year
 async function loadInventory() {
   try {
     [CATALOG, PURCHASES, MOVES] = await Promise.all([
-      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')
+      loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')
+        .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at') : Promise.reject(e)))
         .catch((e) => (e.missing ? loadTable('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at') : Promise.reject(e))),
       loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, kind, created_at', 'received_on')
         .catch((e) => (e.missing ? loadTable('purchases', 'id, branch_id, supplier_id, supplier_name, invoice_no, received_on, lines, total, paid, note, created_at', 'received_on') : Promise.reject(e))),
@@ -1278,6 +1291,8 @@ function itemForm() {
       <label>عدد الشرايط في العلبة (للبيع بالشريط)<input id="itStrips" type="number" min="1" max="1000" step="1" inputmode="numeric" value="${esc(f.strips ?? '')}" placeholder="مثلاً 3"></label>
       <label>عدد الحبايات في العلبة (للبيع بالحباية)<input id="itPills" type="number" min="1" max="10000" step="1" inputmode="numeric" value="${esc(f.pills ?? '')}" placeholder="اختياري"></label>
       <label>المادة الفعالة (عشان البدائل)<input id="itGeneric" maxlength="160" value="${esc(f.generic ?? '')}" placeholder="مثلاً: paracetamol"></label>
+      <label>الشركة المصنّعة<input id="itMaker" maxlength="120" value="${esc(f.maker ?? '')}"></label>
+      <label>الحد الأدنى في الرف (علب)<input id="itMin" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.min ?? '')}" placeholder="تحته يبقى «ناقص»"></label>
       ${editing || f.forReceive ? '' : `<label>الكمية اللي عندك دلوقتي (اختياري)<input id="itQty" type="number" min="0" step="1" inputmode="numeric"></label>
       <label>الصلاحية (اختياري)<input id="itExp" type="month"></label>`}
     </div>
@@ -1288,8 +1303,18 @@ function itemForm() {
       : '<p class="note">عشان تعدّل الرصيد والصلاحية، اختار الفرع من فوق.</p>') : ''}
     <div class="row"><button class="btn primary" type="submit">${editing ? 'احفظ' : f.forReceive ? 'ضيفه وكمّل الطلبية' : 'ضيف الصنف'}</button><button class="btn" type="button" id="itemCancel">إلغاء</button><span class="note" id="itemMsg" role="status"></span></div>
     ${editing ? `<div class="row"><b>ملصقات باركود:</b><input id="lbCount" class="disc n" type="number" min="1" max="200" step="1" value="1" aria-label="عدد الملصقات"><button class="btn" type="button" id="printLabels">اطبع ملصقات</button>
-      <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>` : ''}
+      <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>
+      <details class="help"><summary>حركة الصنف</summary>${historyTable(f.code)}</details>` : ''}
   </form>`;
+}
+// Everything that moved one item in the branch on screen (last 200 entries).
+function historyTable(code) {
+  const b = BRANCH === 'all' ? BRANCHES[0] : BRANCHES.find((x) => key(x.id) === BRANCH);
+  const snap = SNAP.get(key(b?.id ?? null))?.data;
+  const here = inBranch(b);
+  const rows = itemHistory(code, { baseSales: snap?.sales || [], basePurchases: snap?.purchases || [], purchases: PURCHASES.filter(here), moves: MOVES.filter(here), sales: POS_SALES.filter(here) }).slice(0, 200);
+  if (!rows.length) return '<p class="empty">مفيش حركة متسجلة للصنف ده.</p>';
+  return `<div class="tablebox"><table><thead><tr><th>اليوم</th><th>الحركة</th><th>الكمية</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="n">${esc(String(r.at).slice(0, 16).replace('T', ' '))}</td><td>${esc(r.note)}</td><td class="n"><b class="${r.qty < 0 ? 'neg' : ''}">${r.qty > 0 ? '+' : ''}${fmt(r.qty)}</b></td></tr>`).join('')}</tbody></table></div>`;
 }
 function batchRows() {
   return ITEM_FORM.batches.map((b, i) => `<tr><td><input class="disc n" type="number" min="0" step="1" data-bq="${i}" value="${esc(b.qty)}" aria-label="الكمية"></td>
@@ -1326,7 +1351,8 @@ async function saveItem(e) {
   if (!f.code && DATA.items.some((i) => i.name.trim() === name)) return msg('فيه صنف بنفس الاسم. دوّر عليه وعدّله بدل ما تضيفه تاني.');
   const int = (id) => ($(id).value === '' ? null : Math.max(1, Math.round(+$(id).value || 1)));
   const fields = { name, category: $('itCat').value, price, ...(cost !== null ? { cost } : {}), barcode: barcode || null,
-    strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null };
+    strips: int('itStrips'), pills: int('itPills'), generic: $('itGeneric').value.trim() || null,
+    maker: $('itMaker').value.trim() || null, min_qty: $('itMin').value === '' ? null : Math.max(0, +$('itMin').value || 0) };
   const qty = +($('itQty')?.value || 0), exp = $('itExp')?.value;
   if (f.batches?.some((b) => b.qty !== '' && (!(+b.qty >= 0)))) return msg('الكمية لازم تبقى صفر أو أكتر.');
   const moves = f.batches ? stockEdits(f.orig, f.batches.filter((b) => +b.qty > 0).map((b) => ({ qty: +b.qty, expiry: b.expiry || null }))) : [];
@@ -1336,7 +1362,8 @@ async function saveItem(e) {
     const row = CATALOG.find((c) => c.code === code);
     const it = DATA.items.find((i) => i.code === code);
     const changed = !it || it.name !== name || it.category !== fields.category || it.price !== price || (cost !== null && it.cost !== cost) || (row?.barcode || null) !== (barcode || null)
-      || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic;
+      || (it.strips || null) !== (fields.strips > 1 ? fields.strips : null) || (it.pills || null) !== (fields.pills > 1 ? fields.pills : null) || (it.generic || null) !== fields.generic
+      || (it.maker || null) !== fields.maker || (it.min || null) !== (fields.min_qty > 0 ? fields.min_qty : null);
     if (row && changed) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
     else if (!row && changed) await localInsert('catalog_items', { code, ...fields });
     const t0 = Date.now();
@@ -1393,6 +1420,7 @@ function renderReceive() {
       <label>اتاستلمت يوم<input id="rcvDate" type="date" max="${isoDay(TODAY)}" value="${esc(RCV.date)}"></label>
       ${multi() ? `<label>الفرع اللي استلم<select id="rcvBranch">${BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === RCV.branch ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>` : ''}
     </div>
+    ${RCV.kind !== 'return' ? `<div class="row"><label class="btn" for="rcvPhoto">اقرا فاتورة المورد من صورة أو PDF<input id="rcvPhoto" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" hidden></label><span class="note">${AI_ON ? 'البرنامج بيقرا الأصناف والكميات والأسعار، وانت تراجعها قبل ما تسجّل.' : 'محتاجة إعداد الذكاء الاصطناعي على السيرفر.'}</span></div>` : ''}
     <div class="pos-search"><input id="rcvQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه… (Enter)" aria-label="ضيف صنف للطلبية"><div id="rcvResults" class="results" role="listbox" hidden></div></div>
     <div class="tablebox cart"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>بونص</th><th>سعر الشراء للعلبة</th><th>سعر البيع</th><th>الصلاحية</th><th>الإجمالي</th><th></th></tr></thead>
       <tbody id="rcvLines">${receiveLinesHtml()}</tbody></table>${RCV.lines.length ? '' : '<p class="empty">امسح أول صنف في الطلبية.</p>'}</div>
@@ -1464,6 +1492,32 @@ async function saveReceive(e) {
   const n = lines.length;
   RCV = blankReceive(); saveDraft();
   RCV_NOTE = ret ? `اتسجل المرتجع (${n} صنف بـ ${fmt(total, 2)} ج): خرج من الرصيد واتخصم من حساب «${supName}».` : editing ? `اتعدلت الفاتورة (${n} صنف بـ ${fmt(total, 2)} ج).` : `اتسجلت الطلبية (${n} صنف بـ ${fmt(total, 2)} ج)، والرصيد زاد.${paid < total ? ` الباقي للمورد ${fmt(total - paid, 2)} ج.` : ''}${isOnline() ? '' : ' هتترفع أول ما النت يرجع.'}`;
+  render();
+}
+
+// A supplier's invoice read from a photo (server: /api/ai/invoice): the lines are matched to items by
+// name and put in the form; nothing is saved until the owner checks it and presses «سجّل».
+async function readInvoicePhoto(file) {
+  const say = (t) => { RCV_NOTE = t; const m = $('rcvMsg'); if (m) m.textContent = t; };
+  if (!SESS.client?.aiInvoice || !AI_ON) return say('قراية الفواتير محتاجة إعداد الذكاء الاصطناعي على السيرفر.');
+  if (file.size > 5 * 1024 * 1024) return say('الملف أكبر من 5 ميجا. صوّر الفاتورة بجودة أقل.');
+  say('بقرا الفاتورة…');
+  const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = bad; r.readAsDataURL(file); });
+  const res = await SESS.client.aiInvoice({ pharmacy: SESS.pharmacy.id, media_type: file.type, data });
+  if (res.error) return say(`ما قدرتش أقرا الفاتورة: ${arabicError(res.error).message}`);
+  const inv = res.data;
+  const missed = [];
+  const lines = [];
+  for (const l of inv.lines) {
+    const r = lookup(l.name, DATA.items);
+    const it = r.item || r.matches[0];
+    if (!it) { missed.push(l.name); continue; }
+    lines.push({ code: it.code, name: it.name, qty: l.qty ?? 1, bonus: l.bonus ?? 0, cost: l.cost ?? (it.cost || ''), price: l.price ?? (it.price || ''), expiry: l.expiry || '', read: l.name });
+  }
+  const sup = inv.supplier ? SUPPLIERS().find((x) => normalize(x.name).includes(normalize(inv.supplier)) || normalize(inv.supplier).includes(normalize(x.name))) : null;
+  RCV = { ...RCV, supplier: sup?.id || RCV.supplier, invoice: inv.invoice_no || RCV.invoice, date: inv.date && inv.date <= isoDay(TODAY) ? inv.date : RCV.date, lines: [...RCV.lines, ...lines] };
+  saveDraft();
+  RCV_NOTE = `اتقرا ${lines.length} صنف${missed.length ? `، و${missed.length} ملقتهمش (ضيفهم بإيدك): ${missed.slice(0, 8).join('، ')}` : ''}. راجع كل سطر قبل ما تسجّل.${inv.total ? ` إجمالي الفاتورة المكتوب ${fmt(inv.total, 2)} ج.` : ''}`;
   render();
 }
 
@@ -1683,8 +1737,38 @@ $('panel').addEventListener('keydown', (e) => {
   if (e.target.dataset?.count !== undefined) { e.preventDefault(); const all = [...document.querySelectorAll('[data-count]')]; all[all.indexOf(e.target) + 1]?.focus(); }
 });
 $('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); });
-$('panel').addEventListener('click', (e) => {
+$('panel').addEventListener('click', async (e) => {
   if (e.target.id === 'logReload') { LOG_ROWS = null; render(); }
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  // The summary: go to a tab, mark alerts read, turn alerts and recommendations into tasks.
+  if (t('gotab')) { TAB = t('gotab'); render(); scrollTo({ top: 0 }); return; }
+  // A supplier's order from «اطلب إيه» → a draft in «طلبية وصلت», recorded only when the owner saves it.
+  if (t('todraft') !== undefined) {
+    const g = LAST_ORDERS[+t('todraft')];
+    if (g && (!RCV.lines.length || confirm('فيه طلبية بتكتبها في «طلبية وصلت». تبدّلها بالمسودة دي؟'))) {
+      RCV = { ...blankReceive(), supplier: g.supplier?.id || '', lines: g.lines.map((l) => { const it = DATA.items.find((x) => x.code === l.code); return { code: l.code, name: l.name, qty: l.qty, bonus: 0, cost: it?.cost || '', price: it?.price || '', expiry: '' }; }) };
+      saveDraft(); RCV_NOTE = 'دي مسودة من «اطلب إيه». راجع الكميات والأسعار والصلاحية لما البضاعة توصل، وبعدين سجّلها.'; TAB = 'receive'; render(); scrollTo({ top: 0 });
+    }
+    return;
+  }
+  if (t('ask')) { ask(t('ask')); return; }
+  if (e.target.id === 'chatClear') { CHAT = []; render(true); return; }
+  if (e.target.id === 'alertsRead') { for (const a of currentAlerts(ANALYSIS.full)) ALERTS_READ.add(a.key); store.set(READ_KEY, [...ALERTS_READ].slice(-500)); render(); return; }
+  if (t('alerttask')) {
+    const a = currentAlerts(ANALYSIS.full).find((x) => x.key === t('alerttask'));
+    if (a) { await addTask({ title: a.title, note: a.detail, priority: a.level === 'crit' ? 'high' : a.level === 'warn' ? 'medium' : 'low', ref: `alert:${a.key}` }); ALERTS_READ.add(a.key); store.set(READ_KEY, [...ALERTS_READ].slice(-500)); }
+    return;
+  }
+  if (t('rectask') || t('recno')) {
+    const key = t('rectask') || t('recno');
+    const r = currentRecs(ANALYSIS.full).find((x) => x.key === key);
+    if (r && t('rectask')) await addTask({ title: r.title, note: `${r.action}. ${r.data}`, priority: r.priority, ref: `rec:${r.key}` });
+    REC_DISMISSED.add(key); store.set(REC_KEY, [...REC_DISMISSED].slice(-300)); render();
+    return;
+  }
+  if (t('taskdone')) { await localUpdate('tasks', t('taskdone'), { status: 'done', done_at: new Date().toISOString() }); return; }
+  if (t('taskopen')) { await localUpdate('tasks', t('taskopen'), { status: 'open', done_at: null }); return; }
+  if (t('taskdel') && confirm('تمسح المهمة دي؟')) await localDelete('tasks', t('taskdel'));
 });
 $('panel').addEventListener('click', async (e) => {
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
@@ -1718,6 +1802,7 @@ $('panel').addEventListener('input', (e) => {
   if (f) { RCV[f] = t.value; if (f === 'paid') receiveTotals(); saveDraft(); }
 });
 $('panel').addEventListener('change', (e) => {
+  if (e.target.id === 'rcvPhoto') { const f = e.target.files[0]; e.target.value = ''; if (f) readInvoicePhoto(f); return; }
   if (e.target.id === 'rcvReturn') { RCV.kind = e.target.checked ? 'return' : 'buy'; saveDraft(); render(); return; }
   if (e.target.id === 'rcvSup') { RCV.supplier = e.target.value; saveDraft(); $('rcvSupNameWrap').hidden = RCV.supplier !== '__new'; if (!$('rcvSupNameWrap').hidden) $('rcvSupName').focus(); }
   if (e.target.id === 'rcvBranch') { RCV.branch = e.target.value; saveDraft(); }
@@ -1732,6 +1817,13 @@ $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'itemForm') saveItem(e);
   if (e.target.id === 'rcvForm') saveReceive(e);
   if (e.target.id === 'payForm') savePayment(e);
+  if (e.target.id === 'askForm') { e.preventDefault(); ask($('askQ').value); return; }
+  if (e.target.id === 'taskForm') {
+    e.preventDefault();
+    const title = $('tkTitle').value.trim();
+    if (!title) { $('tkMsg').textContent = 'اكتب المهمة.'; return; }
+    addTask({ title, note: $('tkNote').value.trim(), assignee: $('tkWho').value.trim(), due_on: $('tkDue').value || null, priority: $('tkPrio').value });
+  }
 });
 $('panel').addEventListener('click', (e) => {
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
@@ -1740,7 +1832,7 @@ $('panel').addEventListener('click', (e) => {
     const i = DATA.items.find((x) => x.code === t('edititem')); const c = CATALOG.find((x) => x.code === i?.code);
     if (i) {
       const batches = needBranch() ? null : editableBatches(i);
-      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
+      ITEM_FORM = { code: i.code, name: i.name, category: i.category, price: i.price, cost: i.cost, barcode: c?.barcode || '', strips: i.strips || '', pills: i.pills || '', generic: i.generic || '', maker: i.maker || '', min: i.min || '', batches, orig: batches ? batches.map((b) => ({ qty: b.qty, expiry: b.expiry || null })) : null };
       ITEM_NOTE = ''; render(); $('itemForm')?.scrollIntoView({ block: 'center' });
     }
   }
@@ -1879,6 +1971,203 @@ function renderClaims() {
 }
 
 // ---------- Profit by day and by month ----------
+// ---------- The summary: overview, analysis, health, alerts, tasks (src/insights.js) ----------
+const pctPill = (g) => (g === null || g === undefined ? '<span class="muted">—</span>' : `<span class="pill ${g >= 0 ? 'ok' : 'warn'}"><span class="n">${g > 0 ? '+' : ''}${fmt(g, 1)}%</span></span>`);
+const branchArg = () => (BRANCH === 'all' ? 'all' : BRANCH_ID());
+// A simple grouped bar chart (SVG, no library): series [{ key, label, values }], labels under the bars.
+function barChart(labels, series, { height = 180 } = {}) {
+  const all = series.flatMap((s) => s.values);
+  const max = Math.max(1, ...all.map((v) => Math.abs(v)));
+  const hasNeg = all.some((v) => v < 0);
+  const w = 640, top = 10, base = hasNeg ? height * 0.62 : height - 24, scale = (base - top) / max;
+  const gw = w / labels.length, bw = Math.max(3, (gw - 8) / series.length);
+  let bars = '';
+  labels.forEach((lab, i) => {
+    series.forEach((s, k) => {
+      const v = s.values[i] || 0, h = Math.abs(v) * scale, x = i * gw + 4 + k * bw;
+      bars += `<rect class="b${k}" x="${x.toFixed(1)}" y="${(v >= 0 ? base - h : base).toFixed(1)}" width="${(bw - 1).toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}"><title>${esc(lab)} · ${esc(s.label)}: ${fmt(v)}</title></rect>`;
+    });
+    bars += `<text x="${(i * gw + gw / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  return `<figure class="chart"><svg viewBox="0 0 ${w} ${height}" role="img" aria-label="${esc(series.map((s) => s.label).join('، '))}"><line x1="0" x2="${w}" y1="${base}" y2="${base}" class="axis"/>${bars}</svg>
+    <figcaption>${series.map((s, k) => `<span class="key"><i class="b${k}"></i>${esc(s.label)}</span>`).join('')}</figcaption></figure>`;
+}
+
+// Recommendations: computed from the data; «اعملها» turns one into a task, «مش دلوقتي» hides it on this
+// device until its reason changes (its key is built from the items it is about).
+const REC_KEY = 'saydaliti-recs-dismissed-v1';
+let REC_DISMISSED = new Set(store.get(REC_KEY, []));
+function currentRecs(A) {
+  const from = addDays(TODAY, -89), to = addDays(TODAY, 1);
+  const h = healthScore({ rows: A.rows, data: DATA, today: TODAY, expenses: EXP_READY ? EXPENSES : [], branchId: branchArg() });
+  return recommendations({ A, classes: profitClasses(DATA, from, to), trend: trending(DATA, TODAY), health: h });
+}
+function recsHtml(A) {
+  const done = new Set(TASKS.map((t) => t.ref));
+  const list = currentRecs(A).filter((r) => !REC_DISMISSED.has(r.key) && !done.has(`rec:${r.key}`));
+  if (!list.length) return '';
+  const P = { high: ['مهم', 'crit'], medium: ['متوسط', 'warn'], low: ['ممكن', 'ok'] };
+  return `<h3>اقتراحات</h3><div class="stack">${list.slice(0, 6).map((r) => `<div class="card rec"><div class="row" style="justify-content:space-between"><b>${esc(r.title)}</b><span class="pill ${P[r.priority][1]}">${P[r.priority][0]}</span></div>
+    <p class="note"><b>البيانات:</b> ${esc(r.data)}</p>
+    <p class="note"><b>الفايدة:</b> ${esc(r.benefit)} · <b>الثقة:</b> ${esc(r.confidence)} · <b>الخطر:</b> ${esc(r.risk)}</p>
+    <div class="row"><button class="btn" type="button" data-gotab="${r.tab}">${esc(r.action)}</button>${isOwner() && TASKS_READY ? `<button class="btn primary" type="button" data-rectask="${esc(r.key)}">اعملها (مهمة)</button>` : ''}<button class="btn" type="button" data-recno="${esc(r.key)}">مش دلوقتي</button></div></div>`).join('')}</div>`;
+}
+
+function renderOverview(A) {
+  const o = overview(DATA, { receipts: POS_SALES.filter((x) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(x)), expenses: EXP_READY ? EXPENSES : [], today: TODAY, branchId: branchArg() });
+  const m = monthlySeries(DATA, EXP_READY ? EXPENSES : [], TODAY, 12, branchArg());
+  const monthStart = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+  const cats = categoryPerformance(DATA, addDays(TODAY, -89), addDays(TODAY, 1));
+  const card = (title, t) => `<div class="tile"><span class="k">${title}</span><span class="v">${fmt(t.sales)}</span><span class="s">مكسب ${fmt(t.gross)} · ${pctPill(t.growth)} عن اللي قبلها</span></div>`;
+  return `<p class="note">كل الأرقام من سجلات الصيدلية (المبيعات من برنامج الصيدلية + الكاشير، والمصروفات المتسجلة). النمو = مقارنة بنفس المدة اللي قبلها مباشرة؛ الشهر بنفس أيام الشهر اللي فات.</p>
+  <section class="tiles">${card('النهارده', o.today)}${card('الأسبوع ده', o.week)}${card('الشهر ده', o.month)}${card('السنة دي', o.year)}</section>
+  ${hasFeature(PLAN, 'analytics') ? recsHtml(A) : ''}
+  <div class="calc"><div class="card"><h3>الشهر ده</h3><div class="ledger">
+    <div><span>المبيعات (بعد الخصم)</span><span class="n">${fmt(o.month.sales, 2)}</span></div>
+    <div><span>تكلفة اللي اتباع</span><span class="n">${fmt(o.month.cogs, 2)}</span></div>
+    <div><span>مجمل الربح</span><span class="n">${fmt(o.month.gross, 2)}</span></div>
+    <div><span>المصروفات</span><span class="n">${EXP_READY ? fmt(o.expenses, 2) : '—'}</span></div>
+    <div class="tot"><span>صافي الربح</span><span class="n">${fmt(o.net, 2)}</span></div>
+    <div><span>فواتير الكاشير</span><span class="n">${fmt(o.receipts.month)}</span></div>
+    <div><span>متوسط الفاتورة</span><span class="n">${o.receipts.avg === null ? '—' : fmt(o.receipts.avg, 2)}</span></div></div></div>
+  <div class="card"><h3>المخزون</h3><div class="ledger">
+    <div><span>قيمته بسعر الشراء</span><span class="n">${fmt(o.stock)}</span></div>
+    <div><span>الأصناف (فيها رصيد)</span><span class="n">${fmt(o.items)} (${fmt(o.inStock)})</span></div>
+    <div><span>بيلف في السنة</span><span class="n">${o.turnover === null ? '—' : `${fmt(o.turnover, 1)} مرة`}</span></div>
+    <div><span>يكفي حوالي</span><span class="n">${o.daysOfStock === null ? '—' : `${fmt(o.daysOfStock)} يوم`}</span></div>
+    <div><span>قرب ينتهي (فلوس معرضة)</span><span class="n">${fmt(A.expiring.reduce((a, r) => a + r.riskValue, 0))}</span></div>
+    <div><span>راكد</span><span class="n">${fmt(A.deadStock.reduce((a, r) => a + r.value, 0))}</span></div></div>
+    <p class="note">الدوران وأيام التغطية محسوبين من تكلفة مبيعات آخر ${fmt(o.basisDays)} يوم وقيمة المخزون دلوقتي.</p></div></div>
+  <div class="card"><h3>آخر 12 شهر</h3>${barChart(m.map((x) => x.key.slice(5)), [{ label: 'المبيعات', values: m.map((x) => x.sales) }, { label: 'مجمل الربح', values: m.map((x) => x.gross) }, { label: 'المصروفات', values: m.map((x) => x.expenses) }, { label: 'الصافي', values: m.map((x) => x.net) }])}</div>
+  ${cats.length ? `<h3>الفئات (آخر 90 يوم)</h3>${table(['الفئة', 'المبيعات', 'مجمل الربح', 'الهامش', 'أصناف'], cats.map((c) => `<tr><td>${esc(c.category)}</td><td>${egp(c.sales)}</td><td>${egp(c.gross)}</td><td class="n">${fmt(c.margin, 1)}%</td><td class="n">${fmt(c.items)}</td></tr>`))}` : ''}
+  <p class="note">من أول الشهر (${dayText(isoDay(monthStart))}).</p>`;
+}
+
+function renderAnalysis(A) {
+  const from = addDays(TODAY, -89), to = addDays(TODAY, 1);
+  const t = trending(DATA, TODAY);
+  const c = profitClasses(DATA, from, to);
+  const sup = supplierPerformance(PURCHASES.filter((p) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(p)));
+  const an = anomalies({ receipts: POS_SALES, shifts: Array.isArray(SHIFT_ROWS) ? SHIFT_ROWS : [], priceChanges: PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items) : [], expenses: EXP_READY ? EXPENSES : [], today: TODAY });
+  if (SHIFT_ROWS === null) loadLatest('pos_shifts', 'id, branch_id, employee_name, opened_at, opening_cash, closed_at, expected_cash, counted_cash, totals, note', 'opened_at', 500).then((r) => { SHIFT_ROWS = r || []; if (TAB === 'analysis') render(true); });
+  const trendRows = (list) => list.map((r) => `<tr><td class="name">${esc(r.name)}</td><td class="n">${fmt(r.before)}</td><td class="n"><b>${fmt(r.now)}</b></td><td>${r.change === null ? '<span class="pill ok">جديد</span>' : pctPill(r.change)}</td></tr>`);
+  const cls = (title, list, note) => (list.length ? `<details class="help"><summary><b>${title}</b> (${fmt(list.length)}) — ${note}</summary>${table(['الصنف', 'علب', 'المبيعات', 'المكسب', 'الهامش'], list.slice(0, 50).map((r) => `<tr><td class="name">${esc(r.name)}</td><td class="n">${fmt(r.qty)}</td><td>${egp(r.sales)}</td><td>${egp(r.gross)}</td><td class="n">${fmt(r.margin, 1)}%</td></tr>`))}</details>` : '');
+  return `<h3>حاجات تستاهل نظرة</h3>
+  ${an.length ? `<div class="stack">${an.slice(0, 30).map((x) => `<div class="card alert ${x.level}"><b>${esc(x.title)}</b><p class="note">${esc(x.evidence)}</p></div>`).join('')}</div><p class="note">دي أرقام بس، مش اتهام لحد: مثلاً كاشير الوردية الزحمة طبيعي يبقى عنده مرتجعات أكتر. راجع وقرر بنفسك.</p>` : '<p class="muted">مفيش حاجة غريبة في آخر 30 يوم.</p>'}
+  <h3>الطلب زاد (آخر 30 يوم مقابل الـ 30 اللي قبلهم)</h3>${t.up.length ? table(['الصنف', 'قبل', 'دلوقتي', 'التغيير'], trendRows(t.up)) : '<p class="muted">مفيش أصناف زاد الطلب عليها بشكل واضح.</p>'}
+  <h3>الطلب قلّ</h3>${t.down.length ? table(['الصنف', 'قبل', 'دلوقتي', 'التغيير'], trendRows(t.down)) : '<p class="muted">مفيش أصناف قلّ الطلب عليها بشكل واضح.</p>'}
+  <h3>ذكاء الربح (آخر 90 يوم)</h3>
+  <p class="note">«كتير» و«هامش كويس» = أعلى من النص (الوسيط) بين الأصناف اللي اتباعت: ${fmt(c.medianQty)} علبة و ${fmt(c.medianMargin, 1)}%. الكمية مش هي المكسب: صنف بيتباع كتير بهامش ضعيف ممكن يكسب أقل من صنف قليل بهامش كويس.</p>
+  ${cls('بتتباع بخسارة', c.losing, 'سعر البيع أقل من سعر الشراء المتسجل')}${cls('النجوم', c.stars, 'بتتباع كتير وهامشها كويس: متخلّصهاش')}${cls('كمية بهامش ضعيف', c.volume, 'اتفاوض مع المورد عليها')}${cls('قليلة بهامش كويس', c.niche, 'اعرضها أكتر')}${cls('قليلة وهامشها ضعيف', c.weak, 'راجع لزومها')}
+  <h3>الموردين</h3>${sup.length ? table(['المورد', 'فواتير', 'القيمة', 'أصناف', 'مرتجع', 'تغيّر الأسعار', 'آخر طلبية'], sup.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${fmt(x.invoices)}</td><td>${egp(x.value)}</td><td class="n">${fmt(x.items)}</td><td class="n">${fmt(x.returnedPct, 1)}%</td><td>${x.priceChangePct === null ? '—' : pctPill(x.priceChangePct)}</td><td>${x.last ? dayText(x.last) : '—'}</td></tr>`)) : '<p class="muted">لسه مفيش طلبيات متسجلة هنا.</p>'}
+  <p class="note">تغيّر الأسعار = متوسط الفرق بين أول وآخر سعر شراء للأصناف اللي اتطلبت من المورد أكتر من مرة. مدة التوصيل مش بتتسجل لسه.</p>`;
+}
+
+function renderHealth(A) {
+  const h = healthScore({ rows: A.rows, data: DATA, today: TODAY, expenses: EXP_READY ? EXPENSES : [], branchId: branchArg() });
+  const lvl = (v) => (v === null ? '' : v >= 75 ? 'ok' : v >= 50 ? 'warn' : 'crit');
+  return `<div class="card health"><div class="score ${lvl(h.score)}"><span class="n">${h.score ?? '—'}</span><span>/100</span></div>
+    <p>مؤشر استرشادي بيجمع 6 حاجات بأوزان ثابتة. مش قياس علمي ومش تقييم رسمي: هو طريقة سريعة تعرف فين نقط الضعف.${h.missing.length ? ` مش محسوب فيه (مفيش بيانات): ${esc(h.missing.join('، '))}.` : ''}</p></div>
+  ${table(['الجزء', 'الوزن', 'الدرجة', 'بيتحسب إزاي'], h.parts.map((p) => `<tr><td><b>${esc(p.label)}</b></td><td class="n">${p.weight}%</td><td>${p.value === null ? '<span class="muted">—</span>' : `<span class="pill ${lvl(p.value)}"><span class="n">${p.value}</span></span>`}</td><td class="name">${esc(p.rule)}</td></tr>`))}`;
+}
+
+// Alerts read on this device (an alert's key changes when its numbers change, so it shows again).
+const READ_KEY = 'saydaliti-alerts-read-v1';
+let ALERTS_READ = new Set(store.get(READ_KEY, []));
+function currentAlerts(A) {
+  const o = overview(DATA, { today: TODAY });
+  const an = anomalies({ receipts: POS_SALES, shifts: Array.isArray(SHIFT_ROWS) ? SHIFT_ROWS : [], priceChanges: PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items) : [], expenses: EXP_READY ? EXPENSES : [], today: TODAY });
+  return alerts({ A, overviewData: o, anomaliesList: an, pending: OUTBOX_COUNT.pending, stuck: OUTBOX_COUNT.stuck, today: TODAY });
+}
+let OUTBOX_COUNT = { pending: 0, stuck: 0 };
+function renderAlerts(A) {
+  const list = currentAlerts(A);
+  const unread = list.filter((x) => !ALERTS_READ.has(x.key));
+  const done = new Set(TASKS.map((t) => t.ref));
+  return `<div class="row"><span class="muted">${fmt(unread.length)} جديد من ${fmt(list.length)}</span>${unread.length ? '<button class="btn" type="button" id="alertsRead">علّم الكل اتقرا</button>' : ''}</div>
+  ${list.length ? `<div class="stack">${list.map((x) => `<div class="card alert ${x.level}${ALERTS_READ.has(x.key) ? ' read' : ''}"><b>${esc(x.title)}</b>${x.detail ? `<p class="note">${esc(x.detail)}</p>` : ''}
+    <div class="row">${x.tab ? `<button class="btn" type="button" data-gotab="${x.tab}">افتح</button>` : ''}${isOwner() && !done.has(`alert:${x.key}`) ? `<button class="btn" type="button" data-alerttask="${esc(x.key)}">حوّلها لمهمة</button>` : ''}</div></div>`).join('')}</div>` : '<div class="card emptybox"><p>مفيش تنبيهات دلوقتي.</p></div>'}
+  <p class="note">التنبيهات بتتحسب من البيانات كل مرة بتفتح اللوحة، فلو المشكلة اتحلت بتختفي لوحدها.</p>`;
+}
+
+// ---------- «اسأل صيدليتي» (src/assistant.js) ----------
+// The conversation lives in memory on this page. Each answer shows the numbers it is based on, the
+// period and the source, with a link to the screen they come from.
+let CHAT = [], CHAT_BUSY = false, AI_ON = null;
+let PLAN = planOf(null, null); // what this pharmacy's plan includes (everything when it has none)
+const notInPlan = (what) => `<div class="card emptybox"><h3>${what} مش في باقتك</h3><p>كلّم دعم صيدليتي عشان تكبّر الباقة.</p></div>`;
+function assistantCtx() {
+  const here = (r) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(r);
+  return { data: DATA, A: ANALYSIS.full, receipts: POS_SALES.filter(here), expenses: EXP_READY ? EXPENSES : [], purchases: PURCHASES.filter(here), suppliers: SUPPLIERS(), chosen: CHOSEN(),
+    shifts: Array.isArray(SHIFT_ROWS) ? SHIFT_ROWS : [], today: TODAY, role: SESS.role, branchId: branchArg() };
+}
+const resultHtml = (r) => `${r.text ? `<p>${esc(r.text)}</p>` : ''}${r.table?.rows?.length ? `<div class="tablebox"><table><thead><tr>${r.table.head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${r.table.rows.slice(0, 50).map((row) => `<tr>${row.map((c) => `<td class="${typeof c === 'number' ? 'n' : 'name'}">${esc(typeof c === 'number' ? fmt(c, Number.isInteger(c) ? 0 : 2) : c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''}
+  <p class="muted small">${r.range ? `الفترة: <span class="n">${esc(r.range)}</span> · ` : ''}${r.source ? `المصدر: ${esc(r.source)}` : ''}${r.tab ? ` · <button class="linkbtn" type="button" data-gotab="${r.tab}">افتح الشاشة</button>` : ''}</p>`;
+function renderAssistant() {
+  if (AI_ON === null && SESS.client?.ai) { AI_ON = false; SESS.client.ai('status').then((r) => { AI_ON = !!r.data?.enabled; if (TAB === 'assistant') render(true); }); }
+  return `<p class="note">اسأل بالعربي أو بالإنجليزي عن المبيعات والأرباح والمخزون والصلاحية والموردين. كل رقم بيطلع من حسابات البرنامج على بيانات الصيدلية، ومعاه الفترة ومصدره${AI_ON ? '. (فيه نموذج ذكاء اصطناعي بيفهم السؤال ويصيغ الإجابة، والأرقام برضه من البرنامج)' : '.'} المساعد مش بيشخّص ولا بيوصف أدوية.</p>
+  <div class="chips">${EXAMPLES.map((q) => `<button class="btn" type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+  <div class="chat" id="chatLog">${CHAT.map((m) => (m.role === 'user' ? `<div class="msg me">${esc(m.text)}</div>` : `<div class="msg bot card">${m.results.map((r) => `<b>${esc(r.title)}</b>${resultHtml(r)}`).join('')}${m.text ? `<p>${esc(m.text)}</p>` : ''}</div>`)).join('')}${CHAT_BUSY ? '<div class="msg bot card"><p class="muted">بيحسب…</p></div>' : ''}</div>
+  <form id="askForm" class="row"><input id="askQ" autocomplete="off" maxlength="300" placeholder="مثلاً: كام مبيعات النهارده؟" style="flex:1;min-width:0" aria-label="سؤالك"><button class="btn primary" type="submit">اسأل</button>${CHAT.length ? '<button class="btn" type="button" id="chatClear">امسح</button>' : ''}</form>`;
+}
+async function ask(q) {
+  q = String(q || '').trim();
+  if (!q || CHAT_BUSY) return;
+  CHAT.push({ role: 'user', text: q });
+  const ctx = assistantCtx();
+  if (!AI_ON) { const r = answerLocally(q, ctx); CHAT.push({ role: 'bot', results: [r], text: '' }); render(true); $('askQ')?.focus(); return; }
+  // With the model: it picks tools, the tools run here, it words the answer (at most 4 rounds).
+  CHAT_BUSY = true; render(true);
+  const results = [];
+  let text = '';
+  try {
+    const messages = [{ role: 'user', content: q }];
+    for (let round = 0; round < 4; round++) {
+      const res = await SESS.client.ai({ pharmacy: SESS.pharmacy.id, messages, tools: toolSpecs(SESS.role) });
+      if (res.error) throw new Error(res.error.message);
+      const content = res.data.content || [];
+      text = content.filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
+      const uses = content.filter((c) => c.type === 'tool_use');
+      if (!uses.length) break;
+      messages.push({ role: 'assistant', content });
+      messages.push({ role: 'user', content: uses.map((u) => { const r = runTool(u.name, u.input, ctx); results.push(r); return { type: 'tool_result', tool_use_id: u.id, content: JSON.stringify({ title: r.title, text: r.text, range: r.range, table: r.table ? { head: r.table.head, rows: r.table.rows.slice(0, 30) } : null, error: !!r.error }) }; }) });
+    }
+  } catch (e) {
+    // The model is not reachable: answer the plain way.
+    const r = answerLocally(q, ctx); results.push(r); text = '';
+  }
+  CHAT_BUSY = false;
+  CHAT.push({ role: 'bot', results, text });
+  render(true); $('askQ')?.focus();
+}
+
+// ---------- Tasks (migration 0007) ----------
+let TASKS = [], TASKS_READY = false;
+async function loadTasks() {
+  try { TASKS = await loadTable('tasks', 'id, title, note, assignee, due_on, priority, status, ref, created_at, done_at'); TASKS_READY = true; } catch (e) { if (e.missing) TASKS_READY = false; }
+}
+const PRIO = { high: ['عاجلة', 'crit'], medium: ['متوسطة', 'warn'], low: ['عادية', 'ok'] };
+function renderTasks() {
+  if (!TASKS_READY) return '<div class="card emptybox"><h3>المهام محتاجة تحديث قاعدة البيانات 0007</h3></div>';
+  const open = TASKS.filter((t) => t.status !== 'done').sort((a, b) => (a.due_on || '9999').localeCompare(b.due_on || '9999'));
+  const done = TASKS.filter((t) => t.status === 'done').sort((a, b) => String(b.done_at).localeCompare(String(a.done_at))).slice(0, 30);
+  const row = (t) => `<div class="card task ${t.status}"><div class="row" style="justify-content:space-between"><b>${esc(t.title)}</b><span class="pill ${PRIO[t.priority]?.[1] || ''}">${PRIO[t.priority]?.[0] || ''}</span></div>
+    ${t.note ? `<p class="note">${esc(t.note)}</p>` : ''}<p class="muted">${t.assignee ? `لـ ${esc(t.assignee)} · ` : ''}${t.due_on ? `لحد ${dayText(t.due_on)}` : 'من غير ميعاد'}${t.status === 'done' && t.done_at ? ` · خلصت ${dayText(String(t.done_at).slice(0, 10))}` : ''}</p>
+    ${isOwner() ? `<div class="row">${t.status === 'done' ? `<button class="btn" type="button" data-taskopen="${esc(t.id)}">رجّعها</button>` : `<button class="btn primary" type="button" data-taskdone="${esc(t.id)}">خلصت</button>`}<button class="btn" type="button" data-taskdel="${esc(t.id)}">امسح</button></div>` : ''}</div>`;
+  return `${isOwner() ? `<form id="taskForm" class="card stack"><h3>مهمة جديدة</h3><div class="grid2">
+      <label>المهمة<input id="tkTitle" maxlength="200" required placeholder="مثلاً: رجّع الأصناف الراكدة لمخزن الأمل"></label>
+      <label>لمين (اختياري)<input id="tkWho" maxlength="120"></label>
+      <label>لحد يوم (اختياري)<input id="tkDue" type="date"></label>
+      <label>الأهمية<select id="tkPrio"><option value="high">عاجلة</option><option value="medium" selected>متوسطة</option><option value="low">عادية</option></select></label></div>
+      <label>تفاصيل (اختياري)<input id="tkNote" maxlength="1000"></label>
+      <div class="row"><button class="btn primary" type="submit">ضيف</button><span class="note" id="tkMsg" role="status"></span></div></form>` : ''}
+  <h3>مفتوحة (${fmt(open.length)})</h3>${open.length ? `<div class="stack">${open.map(row).join('')}</div>` : '<p class="muted">مفيش مهام مفتوحة.</p>'}
+  ${done.length ? `<details class="help"><summary>اللي خلص (${fmt(done.length)})</summary><div class="stack">${done.map(row).join('')}</div></details>` : ''}`;
+}
+async function addTask(fields) {
+  return localInsert('tasks', { title: fields.title, note: fields.note || null, assignee: fields.assignee || null, due_on: fields.due_on || null, priority: fields.priority || 'medium', status: 'open', ref: fields.ref || null });
+}
+
 function renderProfit() {
   const months = profitByPeriod(DATA, 'month', new Date(TODAY.getFullYear(), TODAY.getMonth() - 11, 1), addDays(TODAY, 1));
   const days = profitByPeriod(DATA, 'day', new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), addDays(TODAY, 1));
@@ -1936,15 +2225,18 @@ async function loadSubscription() {
   const k = `sub:${SESS.pharmacy.id}`;
   let got = await kvGet(k, null);
   if (isOnline()) {
+    // plan / plans arrived with database update 0008; an older database is read without them.
+    const pick = async (table, cols, base, q) => { const r = await q(SESS.client.from(table).select(cols)); return r.error && !/fetch|network/i.test(r.error.message) ? q(SESS.client.from(table).select(base)) : r; };
     const [a, b] = await Promise.all([
-      SESS.client.from('subscriptions').select('status, trial_ends, paid_until, price_month').eq('pharmacy_id', SESS.pharmacy.id).limit(1),
-      SESS.client.from('app_config').select('trial_days, grace_days, price_month, price_branch, pay_note, support_phone').limit(1),
+      pick('subscriptions', 'status, trial_ends, paid_until, price_month, plan', 'status, trial_ends, paid_until, price_month', (x) => x.eq('pharmacy_id', SESS.pharmacy.id).limit(1)),
+      pick('app_config', 'trial_days, grace_days, price_month, price_branch, pay_note, support_phone, plans', 'trial_days, grace_days, price_month, price_branch, pay_note, support_phone', (x) => x.limit(1)),
     ]);
     if (!a.error && !b.error) { got = { sub: a.data[0] || null, cfg: b.data[0] || {} }; await kvSet(k, got); }
     const adm = await SESS.client.rpc('is_app_admin');
     $('adminLink').hidden = adm.error || !adm.data;
   }
   SUB = got?.sub ?? null; APPCFG = got?.cfg ?? {};
+  PLAN = planOf(SUB, APPCFG.plans);
   renderSubBanner();
   // A gentle reminder to keep a copy of everything, every two weeks.
   const last = store.get(`saydaliti-cloud-backup-${SESS.pharmacy.id}`, 0);
@@ -2399,7 +2691,9 @@ async function boot() {
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription()]);
+  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription(), SESS.role !== 'device' ? loadTasks() : null]);
+  OUTBOX_COUNT = { pending: (await pending()).length, stuck: (await stuck()).length };
+  if (AI_ON === null && SESS.client?.ai && isOnline()) SESS.client.ai('status').then((r) => { AI_ON = !!r.data?.enabled; }).catch(() => {});
   renderBranches(); setView(); render();
   sync();
 }

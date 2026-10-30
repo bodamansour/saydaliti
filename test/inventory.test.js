@@ -242,3 +242,15 @@ test('a return to the supplier takes the boxes out and comes off what is owed', 
   const [c] = supplierBalances([buy, { ...ret, paid: 48 }], []);
   assert.equal(c.due, 120, 'paid back in cash: still owe for all that was kept and the cash');
 });
+
+test("an item's history: deliveries, returns to the supplier, counts and cashier sales, newest first", async () => {
+  const { itemHistory } = await import('../src/inventory.js');
+  const h = itemHistory('Z0', {
+    baseSales: [{ code: 'Z0', date: new Date('2026-10-10T00:00:00Z'), qty: 2 }],
+    purchases: [{ id: 'p', received_on: '2026-10-21', supplier_name: 'مخزن الأمل', lines: [{ code: 'Z0', qty: 10, bonus: 2 }] },
+      { id: 'r', kind: 'return', received_on: '2026-10-22', supplier_name: 'مخزن الأمل', lines: [{ code: 'Z0', qty: 4 }] }],
+    moves: [{ id: 'm', code: 'Z0', qty: -1, kind: 'damaged', happened_at: '2026-10-23T09:00:00Z' }],
+    sales: [{ id: 's', kind: 'sale', number: 'K1-1', sold_at: '2026-10-24T10:00:00Z', lines: [{ code: 'Z0', qty: 1, per: 2 }] }],
+  });
+  assert.deepEqual(h.map((r) => [r.kind, r.qty]), [['pos-sale', -0.5], ['move-damaged', -1], ['supplier-return', -4], ['buy', 12], ['program-sale', -2]]);
+});
