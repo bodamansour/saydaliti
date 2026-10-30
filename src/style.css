@@ -485,3 +485,6 @@ tr.sale-lines .ledger { max-width: 560px; }
 .chat .msg.me { align-self: flex-start; background: var(--accent-soft); padding: 8px 12px; border-radius: 12px; font-weight: 600; }
 .chat .msg.bot p { margin: 4px 0; }
 .small { font-size: .82em; }
+.card.rec .btn, .card.alert .btn, .card.task .btn { white-space: normal; text-align: start; max-width: 100%; }
+.card.rec .row, .card.alert .row, .card.task .row { flex-wrap: wrap; }
+.tiles .tile .s { overflow-wrap: anywhere; }
