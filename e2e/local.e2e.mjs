@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { captureDownload } from './download.js';
 
 // Settings, backups, export and linking live in their own view («الإعدادات والأدوات»).
 const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
@@ -20,7 +21,7 @@ const errors = [];
 
 before(async () => {
   server = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '');
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '').replaceAll('\\', '/');
     if (path === 'api/config') { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ configured: true, local: true })); return; }
     const file = join(ROOT, path === '' ? 'index.html' : path);
     if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
@@ -151,9 +152,8 @@ test('backup to a file and back', async () => {
   await page.waitForSelector('#app:not([hidden])');
   await openTools(page);
   await page.click('#localBox summary');
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#backupBtn')]);
-  const path = await dl.path();
-  const dump = JSON.parse(await readFile(path, 'utf8'));
+  const download = await captureDownload(page, '#backupBtn');
+  const dump = JSON.parse(download.text);
   assert.equal(dump.app, 'saydaliti');
   assert.ok(dump.tables.pos_sales.length === 2 && dump.tables.purchases.length === 1);
   // Restore an older copy: the return made after it disappears.
@@ -255,8 +255,8 @@ test('fixes made here become a correction file for United', async () => {
   await page.click('#itemForm button[type=submit]');
   await openTools(page);
   await page.click('#exportBox summary');
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#geniusFix')]);
-  const fix = JSON.parse(await readFile(await dl.path(), 'utf8'));
+  const download = await captureDownload(page, '#geniusFix');
+  const fix = JSON.parse(download.text);
   assert.equal(fix.kind, 'genius-corrections');
   const k = fix.items.find((x) => x.code === '5002');
   assert.deepEqual([k.price, k.oldPrice], [450, 420]);

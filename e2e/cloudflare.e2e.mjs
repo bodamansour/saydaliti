@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { captureDownload } from './download.js';
 
 // Settings, backups, export and linking live in their own view («الإعدادات والأدوات»).
 const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
@@ -249,8 +250,7 @@ test('moving: a full backup goes into a new, empty pharmacy', { skip }, async ()
   await owner.waitForSelector('#app:not([hidden])');
   await openTools(owner);
   await owner.click('#cloudBackupBox summary');
-  const [dl] = await Promise.all([owner.waitForEvent('download'), owner.click('#cloudBackupBtn')]);
-  const file = await dl.path();
+  const backup = await captureDownload(owner, '#cloudBackupBtn');
   const m = await newPage();
   await signUp(m, `mover-${rnd}@test.local`);
   await m.waitForSelector('#phNameNew');
@@ -259,7 +259,7 @@ test('moving: a full backup goes into a new, empty pharmacy', { skip }, async ()
   await m.waitForSelector('#app:not([hidden])');
   await openTools(m);
   await m.click('#cloudBackupBox summary');
-  await m.setInputFiles('#cloudImportFile', file);
+  await m.setInputFiles('#cloudImportFile', { name: backup.filename, mimeType: 'application/json', buffer: Buffer.from(backup.bytes) });
   const reloaded = m.waitForEvent('load', { timeout: 30000 });
   assert.ok(await until(m, async () => /اتنقل/.test(await text(m, '#cloudBackupMsg')), 20000));
   await reloaded; // the page opens again with the moved data

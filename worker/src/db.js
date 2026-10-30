@@ -79,6 +79,26 @@ function withDefaults(t, row) {
   return out;
 }
 
+function guardedReturnInsert(env, row, cols, ignoreDuplicates) {
+  const code = (line) => `CAST(json_extract(${line}.value, '$.code') AS TEXT)`;
+  const qty = (line) => `COALESCE(CAST(json_extract(${line}.value, '$.qty') AS REAL), 0) / CASE WHEN CAST(json_extract(${line}.value, '$.per') AS REAL) > 1 THEN CAST(json_extract(${line}.value, '$.per') AS REAL) ELSE 1 END`;
+  const sql = `WITH source_sale AS (
+      SELECT lines FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'
+    ), sold AS (
+      SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM source_sale sale, json_each(sale.lines) line GROUP BY code
+    ), returned AS (
+      SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM pos_sales p, json_each(p.lines) line
+      WHERE p.kind = 'return' AND p.return_of = ? AND p.pharmacy_id = ? AND p.id <> ? GROUP BY code
+    ), requested AS (
+      SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM json_each(?) line GROUP BY code
+    )
+    INSERT INTO pos_sales (${cols.join(', ')})
+    SELECT ${cols.map((c) => c === 'id' ? 'CASE WHEN EXISTS (SELECT 1 FROM source_sale) AND NOT EXISTS (SELECT 1 FROM requested r LEFT JOIN sold s ON s.code IS r.code LEFT JOIN returned b ON b.code IS r.code WHERE r.qty > COALESCE(s.qty, 0) - COALESCE(b.qty, 0) + 0.0001) THEN ? ELSE NULL END' : '?').join(', ')}
+    ${ignoreDuplicates ? 'ON CONFLICT(id) DO NOTHING' : ''}`;
+  const values = cols.map((c) => c === 'id' ? row.id : toDb(TABLES.pos_sales.cols[c][0], row[c]));
+  return env.DB.prepare(sql).bind(row.return_of, row.pharmacy_id, row.return_of, row.pharmacy_id, row.id, JSON.stringify(row.lines), ...values);
+}
+
 // ---------- Who may do what ----------
 // ctx: { user: { id } | null, roles: Map(pharmacyId → role), admin }
 const pharmaciesWith = (ctx, roles) => [...ctx.roles].filter(([, r]) => roles.includes(r)).map(([p]) => p);
@@ -194,6 +214,7 @@ export async function insert(ctx, env, q, hooks = {}) {
   const list = Array.isArray(q.rows) ? q.rows : [q.rows];
   if (!list.length || list.length > 500) throw new ApiError('bad rows');
   const stmts = [];
+  let guardedReturn = false;
   for (const raw of list) {
     if (!raw || typeof raw !== 'object') throw new ApiError('bad row');
     for (const k of Object.keys(raw)) colSpec(t, table, k);
@@ -205,11 +226,19 @@ export async function insert(ctx, env, q, hooks = {}) {
     await checkRefs(env, t, row);
     if (hooks.beforeInsert) await hooks.beforeInsert(table, row);
     const cols = Object.keys(row).filter((c) => row[c] !== undefined && t.cols[c][0] !== 'serial');
-    stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${q.ignoreDuplicates && t.pk ? ` ON CONFLICT(${t.pk}) DO NOTHING` : ''}`)
+    if (table === 'pos_sales' && row.kind === 'return' && row.return_of) {
+      guardedReturn = true;
+      stmts.push(guardedReturnInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk)));
+    } else stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${q.ignoreDuplicates && t.pk ? ` ON CONFLICT(${t.pk}) DO NOTHING` : ''}`)
       .bind(...cols.map((c) => toDb(t.cols[c][0], row[c]))));
     if (t.audit) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
   }
-  if (stmts.length) await runBatch(env, stmts);
+  if (stmts.length) {
+    try { await runBatch(env, stmts); } catch (e) {
+      if (guardedReturn && /NOT NULL constraint failed: pos_sales\.id/i.test(String(e?.message))) throw new ApiError('return more than sold');
+      throw e;
+    }
+  }
   return { rows: null };
 }
 

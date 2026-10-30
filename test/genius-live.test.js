@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GeniusDb, geniusToExport } from '../src/genius.js';
 import { backup } from './fixtures/genius-backup.js';
 
@@ -118,7 +119,7 @@ const PWSH = ['pwsh', '/opt/pwsh/pwsh'].find((p) => { try { execFileSync(p, ['-N
 test('genius-live.ps1 writes a table the way genius-live.js reads it', { skip: !PWSH && 'PowerShell not installed' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gl-'));
   const out = join(dir, 'out.txt');
-  const script = new URL('../desktop/genius-live.ps1', import.meta.url).pathname;
+  const script = fileURLToPath(new URL('../desktop/genius-live.ps1', import.meta.url));
   await writeFile(join(dir, 't.ps1'), `
 . '${script}'
 $t = New-Object System.Data.DataTable
