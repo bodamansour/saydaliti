@@ -100,7 +100,7 @@ function Write-Block($w, [string]$name, $reader) {
 # The Genius tables and columns the sync reads (only items, stock, sales and purchases; no customers).
 # DATE = rows from -From on (and rows with no date).
 $SPECS = @(
-  @('Item_Catalog', 'itm_id,itm_name_ar,itm_name_en,itm_name]en,itm_ismedicine,itm_def_pharm_price,itm_def_sell_price,itm_active,itm_unit1_unit2,itm_unit1_unit3,itm_code,itm_code2,itm_int_code', ''),
+  @('Item_Catalog', 'itm_id,itm_name_ar,itm_name^en,itm_name_en,itm_effictive,itm_ismedicine,itm_def_pharm_price,itm_def_sell_price,itm_active,itm_unit1_unit2,itm_unit1_unit3,itm_code,itm_code2,itm_int_code', ''),
   @('Item_Objects', 'io_itm_id,io_itm_int', ''),
   @('Item_Class_Store', 'itm_id,itm_qty,itm_expiry_date,pharm_price,sell_price', 'itm_qty > 0'),
   @('Item_Daily_Stock', 'ids_day,ids_itm_id,ids_qty,ids_purchasePrice,ids_sellPrice', 'ids_day = (SELECT MAX(ids_day) FROM dbo.Item_Daily_Stock WITH (NOLOCK) WHERE ids_day BETWEEN 20180101 AND 20301231)'),
@@ -122,8 +122,6 @@ function Read-Genius($w) {
       if ($have.Count -eq 0) { $w.WriteLine('@@' + $table); $w.WriteLine("@t"); continue }
       $cols = New-Object System.Collections.ArrayList
       foreach ($want in $s[1].Split(',')) { foreach ($h in $have) { if ($h -ieq $want) { [void]$cols.Add((Br $h)); break } } }
-      # The scientific name (for alternatives) is named differently between versions of the program.
-      if ($table -eq 'Item_Catalog') { foreach ($h in $have) { if ($h -match 'sci|generic|effect|ingredient|material|substance' -and -not $cols.Contains((Br $h))) { [void]$cols.Add((Br $h)) } } }
       if ($cols.Count -eq 0) { $w.WriteLine('@@' + $table); $w.WriteLine("@t"); continue }
       $where = $s[2]
       if ($where -eq 'DATE') {

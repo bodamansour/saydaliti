@@ -2,11 +2,11 @@
 // App files: network first (so updates arrive right away), falling back to the saved copy.
 // Libraries and fonts from CDNs: saved copy first. Database and /api calls are never cached here —
 // the app keeps its own copy of the data and queues changes until the connection is back.
-const VERSION = 'saydaliti-v29';
+const VERSION = 'saydaliti-v31';
 const SHELL = [
   './', './index.html', './cashier.html', './attendance.html', './manifest.webmanifest',
   './src/style.css', './src/app.js', './src/core.js', './src/branches-expenses.js', './src/features.js', './src/ordering.js', './src/pos.js', './src/inventory.js', './src/accounts.js', './src/genius.js', './src/local-db.js', './src/cashier.js', './src/session.js',
-  './src/supabase-store.js', './src/offline.js', './src/report.js', './src/mapping.js', './src/shifts.js', './src/subscription.js', './src/errors.js', './src/genius-sync.js', './src/genius-live-ui.js', './src/sales-report.js', './src/cf-client.js',
+  './src/supabase-store.js', './src/offline.js', './src/report.js', './src/mapping.js', './src/shifts.js', './src/subscription.js', './src/errors.js', './src/genius-sync.js', './src/genius-live-ui.js', './src/sales-report.js', './src/cf-client.js', './src/labels.js', './src/qrcode.js',
   './src/attendance.js', './src/attendance-app.js', './src/attendance-store.js',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
 ];

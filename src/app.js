@@ -13,6 +13,7 @@ import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck,
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
+import { labelHtml } from './labels.js';
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
@@ -636,7 +637,8 @@ function renderPriceChanges() {
     <td class="n">${fmt(c.qty)}</td>
     <td><span class="pill ${c.newMargin < 0 ? 'crit' : c.newMargin < c.oldMargin ? 'warn' : 'ok'}"><span class="n">${fmt(c.oldMargin, 2)}</span> ← <span class="n">${fmt(c.newMargin, 2)}</span></span></td></tr>`);
   return `<p>الأصناف اللي سعر بيعها أو سعر شرائها اتغير بين آخر ملفين اترفعوا (${prevAt ? when(prevAt) : '—'} و${curAt ? when(curAt) : '—'}).</p>
-    <p class="note">اتأكد إن سعر البيع في برنامج الصيدلية مطابق للسعر المكتوب على العلبة اللي بتبيعها، وراجع سعر العروض على الأصناف دي.</p>`
+    <p class="note">اتأكد إن سعر البيع في برنامج الصيدلية مطابق للسعر المكتوب على العلبة اللي بتبيعها، وراجع سعر العروض على الأصناف دي.</p>
+    ${ch.some((c) => c.priceMoved && c.qty > 0) ? '<div class="row"><button class="btn" type="button" id="printChanged">اطبع ملصقات بالسعر الجديد</button><span class="note">ملصق لكل علبة في الرف.</span></div>' : ''}`
     + (rows.length ? `<div class="tablebox"><table><thead><tr><th>الصنف</th><th>سعر البيع</th><th>سعر الشراء</th><th>في الرف</th><th>مكسب العلبة</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
       : '<div class="tablebox"><p class="empty">مفيش أسعار اتغيرت بين آخر ملفين.</p></div>');
 }
@@ -669,7 +671,9 @@ function posLines(x) {
   return `<tr class="sale-lines"><td colspan="${multi() ? 9 : 8}"><div class="ledger">
     ${(x.lines || []).map((l) => `<div><span>${esc(l.name)} <span class="muted n">${fmt(l.qty)}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price, 2)}${l.discount ? ` − ${fmt(l.discount, 2)}` : ''}</span></span><span class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</span></div>`).join('')}
     ${+x.discount > (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0) + 0.004 ? `<div><span>خصم على الفاتورة</span><span class="n">−${fmt(+x.discount - (x.lines || []).reduce((a, l) => a + (+l.discount || 0), 0), 2)}</span></div>` : ''}
+    ${x.delivery_fee ? `<div><span>التوصيل</span><span class="n">${fmt(x.delivery_fee, 2)}</span></div>` : ''}
     <div class="tot"><span>${x.kind === 'return' ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
+    ${x.delivery_to ? `<div><span>توصيل لـ</span><span>${esc(x.delivery_to)}</span></div>` : ''}
     ${x.customer_id ? `<div><span>العميل</span><span>${esc(custName(x.customer_id))}${x.claim_no ? ` · موافقة <span class="n">${esc(x.claim_no)}</span>` : ''}</span></div>` : ''}
     ${x.credit ? `<div><span>على الحساب</span><span class="n">${fmt(Math.abs(x.credit), 2)}</span></div>` : ''}
     ${x.note ? `<div><span>ملاحظة</span><span>${esc(x.note)}</span></div>` : ''}
@@ -695,6 +699,7 @@ function renderPosSales() {
       <div><span>فواتير</span><span class="n">${fmt(sum.receipts)}</span></div>
       <div><span>مبيعات</span><span class="n">${fmt(sum.sales, 2)}</span></div>
       ${sum.returns ? `<div><span>مرتجعات (${fmt(sum.returns)})</span><span class="n">${fmt(sum.returned, 2)}</span></div>` : ''}
+      ${R.delivery?.count ? `<div><span>توصيل (${fmt(R.delivery.count)} طلب)</span><span class="n">${fmt(R.delivery.fees, 2)}</span></div>` : ''}
       <div><span>خصومات</span><span class="n">${fmt(sum.discount, 2)}</span></div>
       ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(payName(k))}</span><span class="n">${fmt(v, 2)}</span></div>`).join('')}
       <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div>
@@ -710,8 +715,11 @@ function renderPosSales() {
   const invoices = `<h3>الفواتير (${fmt(list.length)}${POS_Q ? ` من ${fmt(all.length)}` : ''})</h3>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>علب</th><th>الإجمالي</th><th>الدفع</th><th>العميل</th><th>الكاشير</th></tr></thead><tbody>${rows.join('')}</tbody></table>${list.length > rows.length ? `<div class="more"><span class="muted">ظاهر أول ${fmt(rows.length)} من ${fmt(list.length)}. دوّر برقم الفاتورة أو الصنف عشان توصلها أسرع.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`
     : `<div class="card emptybox"><p>${POS_Q ? 'مفيش فاتورة بالبحث ده.' : 'مفيش فواتير في الفترة دي.'}</p></div>`);
+  // Per cashier (only when more than one person sold): who sold how much, the discounts and returns.
+  const staff = R.employees.length > 1 || (R.employees[0] && R.employees[0].name !== 'من غير اسم') ? `<h3>أداء الكاشيرز</h3>` + table(['الكاشير', 'فواتير', 'المبيعات', 'متوسط الفاتورة', 'خصومات', 'مرتجعات'],
+    R.employees.map((e) => `<tr><td class="name">${esc(e.name)}</td><td class="n">${fmt(e.receipts)}</td><td>${egp(e.sales)}</td><td>${egp(e.avg)}</td><td>${egp(e.discount)}</td><td class="n">${e.returns ? `${fmt(e.returns)} · ${fmt(e.returned, 2)}` : '—'}</td></tr>`)) : '';
   return `${controls}<p class="note">دوس على أي فاتورة عشان تشوف أصنافها وتطبعها تاني. الفواتير دي من شاشة الكاشير.</p>
-  <div class="calc">${summary}${hours}</div>${invoices}${items}`;
+  <div class="calc">${summary}${hours}</div>${invoices}${items}${staff}`;
 }
 // The report on paper (or PDF): the totals, the hours and what sold.
 function printPosReport() {
@@ -751,6 +759,34 @@ function printDoc(html) {
   document.body.append(f);
   f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
   setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } finally { setTimeout(() => f.remove(), 1000); } }, 50);
+}
+
+// Barcode labels for an item: its own barcode (set here, learned at the cashier, or from the pharmacy
+// program), or its code when it has none (the cashier finds an item by its code too).
+function itemBarcode(code) {
+  const own = CATALOG.find((c) => c.code === code)?.barcode;
+  if (own) return own;
+  for (const [b, c] of barcodeMap()) if (c === code) return b;
+  return String(code);
+}
+// list: [{ code, count }] — at most 300 labels in one go.
+function printLabels(list) {
+  let left = 300;
+  const parts = [];
+  for (const { code, count } of list) {
+    const it = DATA.items.find((i) => i.code === code);
+    if (!it || left <= 0) continue;
+    const n = Math.min(left, Math.max(1, Math.round(count)));
+    left -= n;
+    parts.push(labelHtml({ pharmacy: SESS.pharmacy?.name || '', name: it.name, price: it.price ? fmt(it.price, 2) : '', barcode: itemBarcode(code) }).repeat(n));
+  }
+  if (!parts.length) return;
+  printDoc(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ملصقات</title><style>
+    @page { size: 38mm 25mm; margin: 0 } body { margin: 0; font-family: system-ui, Tahoma, sans-serif }
+    .label { width: 38mm; height: 25mm; box-sizing: border-box; padding: 1mm 1.5mm; page-break-after: always; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between }
+    .lb-ph { font-size: 6pt; color: #444; white-space: nowrap; overflow: hidden } .lb-name { font-size: 7.5pt; font-weight: 700; line-height: 1.1; max-height: 2.2em; overflow: hidden }
+    .lb-bc svg { width: 100%; height: 9mm; display: block } .lb-row { display: flex; justify-content: space-between; font-size: 7pt } .n { font-variant-numeric: tabular-nums; direction: ltr }
+  </style></head><body>${parts.join('')}</body></html>`);
 }
 
 // ---------- Cashier shifts and the log of changes (database update 013) ----------
@@ -860,7 +896,7 @@ async function loadFeatures() {
     // an older database is read without them.
     const base = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
     POS_READY = false;
-    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
+    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
       try { POS_SALES = await loadTable('pos_sales', base + extra, 'sold_at'); POS_READY = true; break; } catch (e) { if (!e.missing) break; }
     }
     if (isOwner()) {
@@ -1250,6 +1286,8 @@ function itemForm() {
       <div class="row"><button class="btn" type="button" id="addBatch">+ تشغيلة</button><span class="muted">الإجمالي: <b class="n" id="batchTotal">${fmt(f.batches.reduce((a, b) => a + (+b.qty || 0), 0))}</b></span></div></div>`
       : '<p class="note">عشان تعدّل الرصيد والصلاحية، اختار الفرع من فوق.</p>') : ''}
     <div class="row"><button class="btn primary" type="submit">${editing ? 'احفظ' : f.forReceive ? 'ضيفه وكمّل الطلبية' : 'ضيف الصنف'}</button><button class="btn" type="button" id="itemCancel">إلغاء</button><span class="note" id="itemMsg" role="status"></span></div>
+    ${editing ? `<div class="row"><b>ملصقات باركود:</b><input id="lbCount" class="disc n" type="number" min="1" max="200" step="1" value="1" aria-label="عدد الملصقات"><button class="btn" type="button" id="printLabels">اطبع ملصقات</button>
+      <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>` : ''}
   </form>`;
 }
 function batchRows() {
@@ -1705,6 +1743,8 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.id === 'addBatch') { ITEM_FORM.batches.push({ qty: '', expiry: '' }); $('batchRows').innerHTML = batchRows(); $('batchRows').querySelector('tr:last-child input')?.focus(); }
   if (t('bdel') !== undefined) { ITEM_FORM.batches[+t('bdel')].qty = 0; ITEM_FORM.batches.splice(+t('bdel'), 1); $('batchRows').innerHTML = batchRows(); $('batchTotal').textContent = fmt(ITEM_FORM.batches.reduce((a, b) => a + (+b.qty || 0), 0)); }
   if (e.target.id === 'itemCancel') { ITEM_FORM = null; render(); }
+  if (e.target.id === 'printLabels' && ITEM_FORM?.code) printLabels([{ code: ITEM_FORM.code, count: +$('lbCount').value || 1 }]);
+  if (e.target.id === 'printChanged') printLabels(PREV_DATA ? priceChanges(PREV_DATA.items, DATA.items).filter((c) => c.priceMoved && c.qty > 0).map((c) => ({ code: c.code, count: Math.ceil(c.qty) })) : []);
   if (t('rcvpick')) { $('rcvQ').value = ''; $('rcvResults').hidden = true; addReceiveLine(DATA.items.find((i) => i.code === t('rcvpick'))); }
   if (t('rcvnew')) { const q = $('rcvQ').value.trim(); const digits = /^\d{6,}$/.test(q); ITEM_FORM = { forReceive: true, name: digits ? '' : q, barcode: digits ? q : '' }; render(); $(digits ? 'itName' : 'itPrice')?.focus(); }
   if (t('rcvdel') !== undefined) { RCV.lines.splice(+t('rcvdel'), 1); rerenderReceiveLines(); }

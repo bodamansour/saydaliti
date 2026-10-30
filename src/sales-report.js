@@ -7,7 +7,7 @@ export function matchSale(sale, q, customerName = '') {
   const n = normalize(q);
   if (!n) return true;
   if (String(sale.number || '').toLowerCase().includes(n)) return true;
-  const hay = [customerName, sale.employee_name, sale.claim_no, ...(sale.lines || []).map((l) => `${l.name} ${l.code}`)].map(normalize).join(' | ');
+  const hay = [customerName, sale.employee_name, sale.claim_no, sale.delivery_to, ...(sale.lines || []).map((l) => `${l.name} ${l.code}`)].map(normalize).join(' | ');
   return n.split(' ').every((w) => hay.includes(w));
 }
 
@@ -57,12 +57,27 @@ export function byHour(sales) {
   return [...h.values()].sort((a, b) => a.hour - b.hour).map((o) => ({ hour: o.hour, receipts: o.receipts, net: toEgp(o.netPt) }));
 }
 
+// Per cashier: receipts, money, discounts given, returns, and the average receipt.
+export function byEmployee(sales) {
+  const m = new Map();
+  for (const s of sales) {
+    const k = s.employee_name || 'من غير اسم';
+    const o = m.get(k) || { name: k, receipts: 0, salesPt: 0, discountPt: 0, returns: 0, returnedPt: 0 };
+    if (s.kind === 'return') { o.returns += 1; o.returnedPt += -toPt(s.total); } else { o.receipts += 1; o.salesPt += toPt(s.total); o.discountPt += toPt(s.discount); }
+    m.set(k, o);
+  }
+  return [...m.values()].map((o) => ({ name: o.name, receipts: o.receipts, sales: toEgp(o.salesPt), discount: toEgp(o.discountPt), returns: o.returns, returned: toEgp(o.returnedPt), avg: o.receipts ? toEgp(Math.round(o.salesPt / o.receipts)) : 0 }))
+    .sort((a, b) => b.sales - a.sales);
+}
+
 // The whole report: totals by payment, the items, the hours, and the profit when costs are known.
 export function salesReport(sales, costOf) {
   const items = itemsSold(sales, costOf);
   const known = items.filter((i) => i.cost !== null);
   const profit = known.length ? Math.round(known.reduce((a, i) => a + i.profit, 0) * 100) / 100 : null;
-  return { summary: daySummary(sales), items, hours: byHour(sales), profit, costMissing: items.length - known.length };
+  const deliveries = sales.filter((s) => s.kind !== 'return' && (+s.delivery_fee || s.delivery_to));
+  return { summary: daySummary(sales), items, hours: byHour(sales), employees: byEmployee(sales), profit, costMissing: items.length - known.length,
+    delivery: { count: deliveries.length, fees: Math.round(deliveries.reduce((a, s) => a + (+s.delivery_fee || 0), 0) * 100) / 100 } };
 }
 
 // "10 ص" / "3 م" for an hour of the day.

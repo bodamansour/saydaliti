@@ -116,8 +116,20 @@ test('the cashier sells by the strip', { skip }, async () => {
   await owner.press('#q', 'Enter');
   await owner.selectOption('[data-unit="0"]', 'strip');
   assert.ok(await until(owner, async () => /25\.5/.test(await text(owner, '#tTotal'))), 'half the box price');
+  // Delivery on top, and the pharmacy's WhatsApp as a QR on the receipt.
+  await owner.click('#delBox summary');
+  await owner.fill('#delFee', '10');
+  await owner.fill('#delTo', 'شارع النصر');
+  assert.ok(await until(owner, async () => /35\.5/.test(await text(owner, '#tTotal'))), 'with the delivery fee');
+  await owner.evaluate(() => { const d = document.querySelector('#rcPhone').closest('details'); if (d) d.open = true; });
+  await owner.fill('#rcPhone', '01001234567');
+  await owner.check('#rcQr');
   await owner.keyboard.press('F2');
   assert.ok(await until(owner, async () => /الفاتورة اتسجلت/.test(await text(owner, '#posMsg'))));
+  const rc = await owner.locator('#receipt').innerHTML();
+  assert.match(rc, /شريط/);
+  assert.match(rc, /التوصيل/);
+  assert.match(rc, /<svg[^>]*aria-label="QR"/);
 });
 
 test('a partner joins with a code and sees the numbers, not the customers', { skip }, async () => {
