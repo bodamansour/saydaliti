@@ -45,6 +45,8 @@ test('sign up, wrong password, and a pharmacy with a main branch and a free tria
   assert.equal(m.data[0].role, 'owner');
   assert.equal(m.data[0].pharmacies.branches.length, 1);
   B = m.data[0].pharmacies.branches[0].id;
+  assert.equal(m.data[0].pharmacies.main_branch_id, B);
+  assert.equal(m.data[0].pharmacies.branch_scope_version, 1);
   const sub = await owner.select('subscriptions', 'status, trial_ends', [['pharmacy_id', 'eq', P]]);
   assert.equal(sub.data[0].status, 'trial');
 });
@@ -79,6 +81,37 @@ test('each pharmacy sees only its own data', { skip }, async () => {
   assert.equal((await other.rpc('create_invite', { p_pharmacy: P, p_role: 'partner' })).status, 403);
   // A receipt can't point at another pharmacy's branch.
   assert.match((await other.insert('pos_sales', { id: uuid(), pharmacy_id: P2, branch_id: B, number: 'X1', sold_at: new Date().toISOString(), kind: 'sale', lines: [{ code: 'A', qty: 1, price: 1 }], total: 1 })).error.message, /unknown branch/);
+});
+
+test('staff data, writes, invitations and returns stay inside assigned branches', { skip }, async () => {
+  const B2 = (await owner.rpc('add_branch', { p_pharmacy: P, p_name: 'فرع تاني' })).data;
+  const staff = user(); await staff.signUp();
+  const badInvite = await owner.rpc('create_invite', { p_pharmacy: P, p_role: 'device', p_branch_ids: [uuid()] });
+  assert.equal(badInvite.status, 400, 'an invitation cannot name another pharmacy branch');
+  const invite = (await owner.rpc('create_invite', { p_pharmacy: P, p_role: 'device', p_branch_ids: [B2] })).data;
+  assert.equal((await staff.rpc('join_pharmacy', { p_code: invite })).data, P);
+
+  const mainSale = { id: uuid(), pharmacy_id: P, branch_id: B, number: 'MAIN-BRANCH', sold_at: new Date().toISOString(), kind: 'sale', lines: [{ code: 'A1', qty: 1, price: 50 }], total: 50 };
+  const branchSale = { ...mainSale, id: uuid(), branch_id: B2, number: 'SECOND-BRANCH' };
+  assert.equal((await owner.insert('pos_sales', [mainSale, branchSale])).error, null);
+  assert.deepEqual((await staff.select('branches', 'id')).data.map((x) => x.id), [B2]);
+  assert.deepEqual((await staff.select('pos_sales', 'id')).data.map((x) => x.id), [branchSale.id]);
+  assert.equal((await owner.select('pos_sales', 'id', [['pharmacy_id', 'eq', P]])).data.length, 2);
+  assert.equal((await partner.select('branches', 'id')).data.length, 2);
+  assert.equal((await staff.insert('pos_sales', { ...mainSale, id: uuid(), number: 'DENIED-MAIN' })).status, 403);
+  assert.equal((await staff.insert('pos_sales', { ...branchSale, id: uuid(), number: 'ALLOWED-BRANCH', branch_id: null })).status, 403, 'NULL belongs to the main branch');
+  assert.equal((await staff.insert('pos_sales', { ...branchSale, id: uuid(), number: 'ALLOWED-BRANCH' })).error, null);
+  assert.equal((await staff.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B2, number: 'CROSS-RETURN', sold_at: new Date().toISOString(), kind: 'return', return_of: mainSale.id, lines: [{ code: 'A1', qty: 1, price: 50 }], total: -50 })).status, 403);
+
+  const members = (await owner.rpc('list_branch_members', { p_pharmacy: P })).data;
+  assert.deepEqual(members.find((m) => m.user_id === staff.id).branch_ids, [B2]);
+  assert.equal((await owner.rpc('set_member_branches', { p_pharmacy: P, p_user_id: staff.id, p_branch_ids: [uuid()] })).status, 400);
+  assert.equal((await owner.rpc('set_member_branches', { p_pharmacy: P, p_user_id: staff.id, p_branch_ids: [B] })).error, null);
+  assert.deepEqual((await staff.select('branches', 'id')).data.map((x) => x.id), [B]);
+  assert.equal((await owner.rpc('set_member_branches', { p_pharmacy: P, p_user_id: staff.id, p_branch_ids: [B, B2] })).error, null);
+  assert.equal((await staff.insert('pos_sales', { id: uuid(), pharmacy_id: P, branch_id: B2, number: 'CROSS-RETURN-ASSIGNED', sold_at: new Date().toISOString(), kind: 'return', return_of: mainSale.id, lines: [{ code: 'A1', qty: 1, price: 50 }], total: -50 })).status, 403, 'a return must stay in the sale branch even when both branches are assigned');
+  assert.equal((await owner.rpc('set_member_branches', { p_pharmacy: P, p_user_id: staff.id, p_branch_ids: [] })).error, null);
+  assert.equal((await staff.select('branches', 'id')).data.length, 0);
 });
 
 test('roles: the partner reads numbers only, the device sells, only the owner buys and edits', { skip }, async () => {
