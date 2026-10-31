@@ -1,5 +1,6 @@
 import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved, expiryBands, inBand } from './core.js';
+import { backupFingerprint, verifyLocalBackup } from './local-db.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
 import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
@@ -2453,15 +2454,23 @@ $('cloudImportFile').addEventListener('change', async (e) => {
 
 // ---------- Offline desktop version: no accounts, backups to a file ----------
 const desktop = () => window.saydalitiDesktop; // provided by the Windows app
+let backupRunning = false;
+let backupTimer = null;
 function setupLocal() {
   for (const id of ['inviteBox', 'connectorBox']) { const el = $(id); if (el) el.hidden = true; }
   localModeButton($('logout'));
   $('localBox').hidden = false;
   updateNet();
   $('backupWhere').textContent = desktop() ? 'البرنامج بيعمل نسخة احتياطية لوحده كل يوم في فولدر «Saydaliti» جوه «Documents». احتفظ بنسخة كمان على فلاشة أو على الموبايل.' : 'نزّل نسخة احتياطية كل فترة واحتفظ بيها على فلاشة.';
-  autoBackup();
+  void autoBackup();
+  clearInterval(backupTimer);
+  backupTimer = setInterval(() => void autoBackup(), 20 * 3600 * 1000);
 }
-async function backupJson() { return JSON.stringify(await SESS.client.exportAll()); }
+async function backupJson() {
+  const dump = await SESS.client.exportAll();
+  dump.fingerprint = await backupFingerprint(dump.tables);
+  return JSON.stringify(dump);
+}
 async function saveBackup(manual) {
   const json = await backupJson();
   const name = `saydaliti-backup-${isoDay(new Date())}.json`;
@@ -2474,10 +2483,42 @@ async function saveBackup(manual) {
   return name;
 }
 async function autoBackup() {
-  if (!desktop()?.saveBackup) return;
-  const last = store.get('saydaliti-last-backup', 0);
-  if (Date.now() - last < 20 * 3600 * 1000) return;
-  try { await saveBackup(false); store.set('saydaliti-last-backup', Date.now()); } catch { /* try again next time */ }
+  if (!desktop()?.saveBackup || !desktop()?.readLatestBackup || backupRunning) return;
+  backupRunning = true;
+  let damaged = false, legacy = false;
+  try {
+    let latest = await desktop().readLatestBackup();
+    if (latest) {
+      try { legacy = !(await verifyLocalBackup(JSON.parse(latest.json))).fingerprinted; }
+      catch { damaged = true; }
+    }
+    const last = store.get('saydaliti-last-backup', 0);
+    if (!latest || damaged || legacy || Date.now() - last >= 20 * 3600 * 1000) {
+      await saveBackup(false);
+      store.set('saydaliti-last-backup', Date.now());
+      latest = await desktop().readLatestBackup();
+    }
+    if (!latest) throw new Error('ملقتش نسخة احتياطية محفوظة.');
+    const result = await verifyLocalBackup(JSON.parse(latest.json));
+    if (!result.fingerprinted) throw new Error('النسخة الجديدة مفيهاش بصمة سلامة.');
+    $('backupMsg').textContent = damaged
+      ? `تنبيه: النسخة السابقة كانت تالفة. اتحفظت نسخة جديدة وفحص استعادتها نجح (${fmt(result.rows)} سطر).`
+      : legacy
+        ? `فحصنا النسخة القديمة وحفظنا نسخة جديدة ببصمة سلامة (${fmt(result.rows)} سطر).`
+        : `فحص استعادة آخر نسخة نجح (${fmt(result.rows)} سطر).`;
+    if (damaged) {
+      $('fileMsg').innerHTML = '<span class="err">لقينا نسخة احتياطية تالفة؛ اتحفظت نسخة جديدة وفحصنا استعادتها. راجع «الإعدادات والأدوات».</span>';
+      $('fileMsg').dataset.backupError = 'true';
+    } else if ($('fileMsg').dataset.backupError === 'true') {
+      $('fileMsg').textContent = '';
+      delete $('fileMsg').dataset.backupError;
+    }
+  } catch (e) {
+    const message = `تحذير: تعذر فحص استعادة النسخة الاحتياطية. ${e?.message || e}`;
+    $('backupMsg').textContent = message;
+    $('fileMsg').innerHTML = `<span class="err">${esc(message)}</span>`;
+    $('fileMsg').dataset.backupError = 'true';
+  } finally { backupRunning = false; }
 }
 $('backupBtn').addEventListener('click', async () => {
   $('backupMsg').textContent = 'لحظة…';

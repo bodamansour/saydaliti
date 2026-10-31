@@ -133,6 +133,13 @@ ipcMain.handle('backup:save', async (_e, name, json, manual) => {
   for (const old of all.slice(0, Math.max(0, all.length - 30))) await fs.rm(join(dir, old), { force: true });
   return file;
 });
+ipcMain.handle('backup:latest', async () => {
+  const dir = await backupDir();
+  const names = (await fs.readdir(dir)).filter((f) => /^saydaliti-backup-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+  if (!names.length) return null;
+  const name = names.at(-1);
+  return { name, json: await fs.readFile(join(dir, name), 'utf8') };
+});
 ipcMain.handle('mode:set', async (e, mode) => {
   if (!['online', 'local'].includes(mode) || !e.senderFrame?.url?.startsWith('app://')) return null; // only the start page
   MODE = mode;

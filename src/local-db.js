@@ -9,9 +9,9 @@ const err = (message) => ({ data: null, error: { message } });
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
-function openDb() {
+function openDb(name = DB_NAME) {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB_NAME, 1);
+    const r = indexedDB.open(name, 1);
     r.onupgradeneeded = () => {
       const s = r.result.createObjectStore('rows', { keyPath: 'k' });
       s.createIndex('t', 't');
@@ -26,8 +26,8 @@ async function hashPin(pin) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function createLocalClient() {
-  const idb = await openDb();
+export async function createLocalClient(name = DB_NAME) {
+  const idb = await openDb(name);
   const T = {}; // table -> Map(id -> row)
   await new Promise((resolve, reject) => {
     const q = idb.transaction('rows').objectStore('rows').getAll();
@@ -210,6 +210,7 @@ export async function createLocalClient() {
 
   return {
     local: true,
+    close() { idb.close(); },
     from,
     async rpc(name, params = {}) { return RPC[name] ? RPC[name](params) : err(`مش متاح في النسخة المحلية: ${name}`); },
     auth: {
@@ -253,3 +254,43 @@ export async function createLocalClient() {
     },
   };
 }
+
+function removeDb(name) {
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.deleteDatabase(name);
+    r.onsuccess = resolve;
+    r.onerror = () => reject(r.error);
+    r.onblocked = () => reject(new Error('مش قادر أقفل قاعدة الفحص المؤقتة.'));
+  });
+}
+
+export async function backupFingerprint(tables) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(tables)));
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
+export async function verifyLocalBackup(dump) {
+  const fingerprinted = dump?.fingerprint != null;
+  if (fingerprinted && (typeof dump.fingerprint !== 'string' || dump.fingerprint !== await backupFingerprint(dump.tables))) throw new Error('بصمة النسخة الاحتياطية غير مطابقة.');
+  const name = `saydaliti-backup-check-${crypto.randomUUID()}`;
+  const client = await createLocalClient(name);
+  try {
+    await client.importAll(dump);
+    const restored = (await client.exportAll()).tables;
+    const tables = [...new Set([...Object.keys(restored), ...Object.keys(dump.tables)])];
+    const signature = (rows) => JSON.stringify(rows.map(canonical).sort());
+    const mismatches = tables.filter((table) => signature(restored[table] || []) !== signature(dump.tables[table] || []));
+    if (mismatches.length) throw Object.assign(new Error('البيانات بعد الاستعادة التجريبية مش مطابقة للنسخة.'), { tables: mismatches });
+    return { rows: Object.values(restored).reduce((n, rows) => n + rows.length, 0), fingerprinted };
+  } finally {
+    client.close();
+    await removeDb(name);
+  }
+}
+
