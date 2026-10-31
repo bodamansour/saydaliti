@@ -156,6 +156,16 @@ test('backup to a file and back', async () => {
   const dump = JSON.parse(download.text);
   assert.equal(dump.app, 'saydaliti');
   assert.ok(dump.tables.pos_sales.length === 2 && dump.tables.purchases.length === 1);
+  assert.ok(await page.evaluate(async (backup) => {
+    const { verifyLocalBackup } = await import('./src/local-db.js');
+    return (await verifyLocalBackup(backup)).rows > 0;
+  }, dump), 'the automatic verification restores the backup in a temporary database');
+  const invalid = structuredClone(dump);
+  invalid.tables.pharmacies = [];
+  assert.equal(await page.evaluate(async (backup) => {
+    const { verifyLocalBackup } = await import('./src/local-db.js');
+    try { await verifyLocalBackup(backup); return false; } catch { return true; }
+  }, invalid), true, 'an invalid backup must fail its restore check');
   // Restore an older copy: the return made after it disappears.
   dump.tables.pos_sales = dump.tables.pos_sales.filter((x) => x.kind === 'sale');
   const { writeFile, mkdtemp } = await import('node:fs/promises');
