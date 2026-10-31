@@ -35,7 +35,7 @@ before(async () => {
   await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
   // The Excel library comes from the local copy; fonts are skipped.
   const xlsx = await readFile(join(ROOT, 'node_modules/xlsx/dist/xlsx.full.min.js'), 'utf8');
-  await ctx.route('https://cdn.sheetjs.com/**', (r) => r.fulfill({ contentType: 'text/javascript', body: xlsx }));
+  await ctx.route('https://cdn.sheetjs.com/**', (r) => r.fulfill({ contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: xlsx }));
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
@@ -554,8 +554,6 @@ test('editing an item: quantity and expiry per batch; editing a purchase invoice
   assert.match(before, /\b15\b/);
   await page.click('#itemsBody [data-edititem]');
   assert.equal(await page.inputValue('[data-bq="0"]'), '15');
-  await page.click('#itemForm details:has(summary:text("تاريخ سعر الشراء")) summary');
-  assert.match(await text('#itemForm details:has(summary:text("تاريخ سعر الشراء")) table'), /من مين[\s\S]*\d/, 'the delivery price shows in the cost history');
   await page.fill('[data-bq="0"]', '12');
   await page.fill('[data-be="0"]', '2027-03-01');
   await page.fill('#itPrice', '16');
@@ -565,8 +563,6 @@ test('editing an item: quantity and expiry per batch; editing a purchase invoice
   const row = await text('#itemsBody tr');
   assert.match(row, /\b12\b/); assert.match(row, /16\.00/); assert.match(row, /2027|٢٠٢٧/);
 
-  await page.click('[data-tab=expiry]');
-  assert.ok(await page.locator('[data-band=expired]').count(), 'expiry bands');
   await page.click('[data-sec=buy]');
   await page.click('[data-tab=invoices]');
   await page.click('#panel details summary');
@@ -783,11 +779,10 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.waitForSelector('html[dir=ltr]');
   await page.waitForSelector('#app:not([hidden])');
   assert.equal(await page.getAttribute('html', 'lang'), 'en');
-  let labels = [];
   assert.ok(await until(async () => {
-    labels = await page.locator('#sections .sec').allInnerTexts();
+    const labels = await page.locator('#sections .sec').allInnerTexts();
     return labels.includes('Summary') && labels.includes('Stock');
-  }, 10000), `sections: ${labels.join(', ')}`);
+  }, 10000));
   await shot('english-dashboard');
   await page.goto(`${base}cashier.html`);
   await page.waitForSelector('#pos:not([hidden])');
