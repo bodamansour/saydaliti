@@ -283,8 +283,10 @@ export async function verifyLocalBackup(dump) {
   try {
     await client.importAll(dump);
     const restored = (await client.exportAll()).tables;
-    const normalize = (tables) => JSON.stringify(Object.fromEntries(Object.entries(tables).sort(([a], [b]) => a.localeCompare(b)).map(([table, rows]) => [table, rows.map(canonical).sort()])));
-    if (normalize(restored) !== normalize(dump.tables)) throw new Error('البيانات بعد الاستعادة التجريبية مش مطابقة للنسخة.');
+    const tables = [...new Set([...Object.keys(restored), ...Object.keys(dump.tables)])];
+    const signature = (rows) => JSON.stringify(rows.map(canonical).sort());
+    const mismatches = tables.filter((table) => signature(restored[table] || []) !== signature(dump.tables[table] || []));
+    if (mismatches.length) throw Object.assign(new Error('البيانات بعد الاستعادة التجريبية مش مطابقة للنسخة.'), { tables: mismatches });
     return { rows: Object.values(restored).reduce((n, rows) => n + rows.length, 0), fingerprinted };
   } finally {
     client.close();
