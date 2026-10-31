@@ -164,6 +164,23 @@ export function analyze(data, settings = {}, today = startOfDay()) {
   };
 }
 
+// The expiring list split by how soon: already expired, then up to 30 / 60 / 90 / 180 days, cut at
+// the alert window (a window of 120 gives …, 61–90, 91–120). Each band: items, boxes and money at risk.
+const BAND_EDGES = [30, 60, 90, 180];
+export function expiryBands(expiring, window = DEFAULT_SETTINGS.expWin) {
+  const edges = [...BAND_EDGES.filter((e) => e < window), window];
+  const bands = [{ key: 'expired', label: 'منتهي', from: -Infinity, upto: 0 }];
+  let from = 1;
+  for (const upto of edges) { bands.push({ key: String(upto), label: from === 1 ? `خلال ${upto} يوم` : `${from}–${upto} يوم`, from, upto }); from = upto + 1; }
+  for (const x of bands) Object.assign(x, { items: 0, atRisk: 0, value: 0 });
+  for (const r of expiring) {
+    const b = bands.find((x) => inBand(x, r));
+    if (b) { b.items += 1; b.atRisk += r.atRisk || 0; b.value += r.riskValue || 0; }
+  }
+  return bands;
+}
+export const inBand = (band, r) => (r.expDays ?? Infinity) >= band.from && (r.expDays ?? Infinity) <= band.upto;
+
 // ---------- Connector export (data.json) → analyze() input ----------
 // { items:[{code,name,category,cost,price,owner,qty,expiry}], batches:[{code,qty,expiry}], sales:[{code,date,qty,amount}] }
 export function fromExport(json) {
