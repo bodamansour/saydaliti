@@ -9,9 +9,9 @@ const err = (message) => ({ data: null, error: { message } });
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
-function openDb() {
+function openDb(name = DB_NAME) {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB_NAME, 1);
+    const r = indexedDB.open(name, 1);
     r.onupgradeneeded = () => {
       const s = r.result.createObjectStore('rows', { keyPath: 'k' });
       s.createIndex('t', 't');
@@ -26,8 +26,8 @@ async function hashPin(pin) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function createLocalClient() {
-  const idb = await openDb();
+export async function createLocalClient(name = DB_NAME) {
+  const idb = await openDb(name);
   const T = {}; // table -> Map(id -> row)
   await new Promise((resolve, reject) => {
     const q = idb.transaction('rows').objectStore('rows').getAll();
@@ -210,6 +210,7 @@ export async function createLocalClient() {
 
   return {
     local: true,
+    close() { idb.close(); },
     from,
     async rpc(name, params = {}) { return RPC[name] ? RPC[name](params) : err(`مش متاح في النسخة المحلية: ${name}`); },
     auth: {
@@ -252,4 +253,28 @@ export async function createLocalClient() {
       for (const [t, r] of rows) table(t).set(String(r.id), r);
     },
   };
+}
+
+function removeDb(name) {
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.deleteDatabase(name);
+    r.onsuccess = resolve;
+    r.onerror = () => reject(r.error);
+    r.onblocked = () => reject(new Error('مش قادر أقفل قاعدة الفحص المؤقتة.'));
+  });
+}
+
+export async function verifyLocalBackup(dump) {
+  const name = `saydaliti-backup-check-${crypto.randomUUID()}`;
+  const client = await createLocalClient(name);
+  try {
+    await client.importAll(dump);
+    const restored = (await client.exportAll()).tables;
+    const normalize = (tables) => JSON.stringify(Object.fromEntries(Object.entries(tables).sort(([a], [b]) => a.localeCompare(b)).map(([table, rows]) => [table, rows.map((row) => [String(row.id), JSON.stringify(row)]).sort(([a], [b]) => a.localeCompare(b))])));
+    if (normalize(restored) !== normalize(dump.tables)) throw new Error('البيانات بعد الاستعادة التجريبية مش مطابقة للنسخة.');
+    return { rows: Object.values(restored).reduce((n, rows) => n + rows.length, 0) };
+  } finally {
+    client.close();
+    await removeDb(name);
+  }
 }
