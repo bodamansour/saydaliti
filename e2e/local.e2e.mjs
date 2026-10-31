@@ -160,9 +160,9 @@ test('backup to a file and back', async () => {
   const restoreCheck = await page.evaluate(async (backup) => {
     const { verifyLocalBackup } = await import('./src/local-db.js');
     try { return { ...(await verifyLocalBackup(backup)), ok: true }; }
-    catch (e) { return { ok: false, tables: e.tables || [] }; }
+    catch (e) { return { ok: false, message: e.message, tables: Array.from(e.tables || []) }; }
   }, dump);
-  assert.ok(restoreCheck.ok && restoreCheck.rows > 0, `the automatic verification restores the backup in a temporary database: ${restoreCheck.tables.join(', ')}`);
+  assert.ok(restoreCheck.ok && restoreCheck.rows > 0, `the automatic verification restores the backup in a temporary database: ${JSON.stringify(restoreCheck)}`);
   const invalid = structuredClone(dump);
   delete invalid.tables.purchases;
   assert.equal(await page.evaluate(async (backup) => {
