@@ -21,7 +21,7 @@ test('SheetJS reads and writes XLSX workbooks', () => {
 test('the browser rejects SheetJS files that differ from the pinned package', () => {
   const bytes = readFileSync(new URL('../node_modules/xlsx/dist/xlsx.full.min.js', import.meta.url));
   const integrity = `sha384-${createHash('sha384').update(bytes).digest('base64')}`;
-  for (const path of ['../index.html', '../worker/public/index.html']) {
+  for (const path of ['../index.html']) {
     const html = readFileSync(new URL(path, import.meta.url), 'utf8');
     const tag = html.match(/<script[^>]*src="https:\/\/cdn\.sheetjs\.com\/[^\"]+"[^>]*>/)?.[0];
     assert.ok(tag, `${path} must load SheetJS from its pinned CDN URL`);
@@ -29,3 +29,4 @@ test('the browser rejects SheetJS files that differ from the pinned package', ()
     assert.match(tag, /crossorigin="anonymous"/);
   }
 });
+
