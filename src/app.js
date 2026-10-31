@@ -1,5 +1,5 @@
 import { watchErrors } from './errors.js';
-import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
+import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved, expiryBands, inBand } from './core.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
 import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
@@ -20,7 +20,7 @@ import { overview, monthlySeries, categoryPerformance, trending, profitClasses, 
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
-import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue, itemHistory } from './inventory.js';
+import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue, itemHistory, costHistory } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 // A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
@@ -97,6 +97,7 @@ let DATA = EMPTY();              // what the dashboard shows (one branch, or all
 let EXPENSES = [];               // recorded expenses (server + not yet uploaded)
 let EXP_READY = true;            // false until the expenses table exists in the database
 let CALC_CODE = null;
+let EXP_BAND = ""; // the expiry band picked on the expiring tab ("" = all)
 let TAB = store.get('saydaliti-tab-v1', 'reorder');
 let OWNER = 'all';
 let PERIOD = 'thisMonth';
@@ -252,9 +253,12 @@ function render(background = false) {
   else if (TAB === 'reorder') {
     html = renderReorder(A, s);
   } else if (TAB === 'expiry') {
-    html = '<p>الكمية اللي غالباً مش هتتباع قبل الصلاحية على حسب سرعة السحب. اعمل عليها عرض، أو رجّعها للمخزن لو ينفع.</p>' + table(
+    const bands = expiryBands(A.expiring, s.expWin);
+    const band = bands.find((b) => b.key === EXP_BAND);
+    const chips = `<div class="chips" role="group" aria-label="فترات الصلاحية"><button class="btn${band ? '' : ' primary'}" type="button" data-band="">الكل <span class="n">(${fmt(A.expiring.length)})</span></button>${bands.map((b) => `<button class="btn${band === b ? ' primary' : ''}" type="button" data-band="${b.key}" ${b.items ? '' : 'disabled'}>${esc(b.label)} <span class="n">(${fmt(b.items)} · ${fmt(b.value)} ج)</span></button>`).join('')}</div>`;
+    html = '<p>الكمية اللي غالباً مش هتتباع قبل الصلاحية على حسب سرعة السحب. اعمل عليها عرض، أو رجّعها للمخزن لو ينفع.</p>' + chips + table(
       ['الصنف', 'الصلاحية', 'في الرف', 'متوقع يتباع', 'في خطر', 'قيمتها', ''],
-      A.expiring.map((r) => `<tr>${nameCell(r)}<td><span class="pill ${r.expDays <= 30 ? 'crit' : 'warn'}">${r.expDays <= 0 ? 'منتهي' : `بعد ${fmt(r.expDays)} يوم`}</span></td><td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.qty - r.atRisk)}</td><td class="n"><b>${fmt(r.atRisk)}</b></td><td>${egp(r.riskValue)}</td><td><button class="btn" data-calc="${esc(r.code)}">احسب عرض</button></td></tr>`));
+      A.expiring.filter((r) => !band || inBand(band, r)).map((r) => `<tr>${nameCell(r)}<td><span class="pill ${r.expDays <= 30 ? 'crit' : 'warn'}">${r.expDays <= 0 ? 'منتهي' : `بعد ${fmt(r.expDays)} يوم`}</span></td><td class="n">${fmt(r.qty)}</td><td class="n">${fmt(r.qty - r.atRisk)}</td><td class="n"><b>${fmt(r.atRisk)}</b></td><td>${egp(r.riskValue)}</td><td><button class="btn" data-calc="${esc(r.code)}">احسب عرض</button></td></tr>`));
   } else if (TAB === 'dead') {
     html = '<p>أصناف متباعتش من 45 يوم أو أكتر. متطلبش منها تاني، وفكّر في عرض عليها.</p>' + table(
       ['الصنف', 'آخر بيع', 'في الرف', 'فلوس واقفة', ''],
@@ -1355,7 +1359,8 @@ function itemForm() {
     <div class="row"><button class="btn primary" type="submit">${editing ? 'احفظ' : f.forReceive ? 'ضيفه وكمّل الطلبية' : 'ضيف الصنف'}</button><button class="btn" type="button" id="itemCancel">إلغاء</button><span class="note" id="itemMsg" role="status"></span></div>
     ${editing ? `<div class="row"><b>ملصقات باركود:</b><input id="lbCount" class="disc n" type="number" min="1" max="200" step="1" value="1" aria-label="عدد الملصقات"><button class="btn" type="button" id="printLabels">اطبع ملصقات</button>
       <span class="note">بباركود الصنف، أو بكوده لو مالوش باركود (الكاشير بيقراه برضه).</span></div>
-      <details class="help"><summary>حركة الصنف</summary>${historyTable(f.code)}</details>` : ''}
+      <details class="help"><summary>حركة الصنف</summary>${historyTable(f.code)}</details>
+      <details class="help"><summary>تاريخ سعر الشراء</summary>${costTable(f.code)}</details>` : ''}
     ${editing && SESS.client?.itemImage ? `<div class="row itemimg"><img id="itImg" alt="" hidden><label class="btn" for="itImgFile">${f.image ? 'غيّر الصورة' : 'ضيف صورة للصنف'}<input id="itImgFile" type="file" accept="image/*" hidden></label>${f.image ? '<button class="btn" type="button" id="itImgDel">شيل الصورة</button>' : ''}<span class="note" id="itImgMsg" role="status"></span></div>` : ''}
   </form>`;
 }
@@ -1397,6 +1402,15 @@ function historyTable(code) {
   const rows = itemHistory(code, { baseSales: snap?.sales || [], basePurchases: snap?.purchases || [], purchases: PURCHASES.filter(here), moves: MOVES.filter(here), sales: POS_SALES.filter(here) }).slice(0, 200);
   if (!rows.length) return '<p class="empty">مفيش حركة متسجلة للصنف ده.</p>';
   return `<div class="tablebox"><table><thead><tr><th>اليوم</th><th>الحركة</th><th>الكمية</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="n">${esc(String(r.at).slice(0, 16).replace('T', ' '))}</td><td>${esc(r.note)}</td><td class="n"><b class="${r.qty < 0 ? 'neg' : ''}">${r.qty > 0 ? '+' : ''}${fmt(r.qty)}</b></td></tr>`).join('')}</tbody></table></div>`;
+}
+// Every price the item was bought at in the branch on screen, and how it moved.
+function costTable(code) {
+  const b = BRANCH === 'all' ? BRANCHES[0] : BRANCHES.find((x) => key(x.id) === BRANCH);
+  const snap = SNAP.get(key(b?.id ?? null))?.data;
+  const rows = costHistory(code, { basePurchases: snap?.purchases || [], purchases: PURCHASES.filter(inBranch(b)) }).slice(0, 100);
+  if (!rows.length) return '<p class="empty">مفيش سعر شراء متسجل للصنف ده.</p>';
+  const move = (r) => (r.change === null ? '' : r.change === 0 ? '<span class="muted">زي اللي قبله</span>' : `<span class="pill ${r.change > 0 ? 'crit' : 'ok'}">${r.change > 0 ? '+' : ''}${fmt(r.change)} ج (${r.pct > 0 ? '+' : ''}${fmt(r.pct)}%)</span>`);
+  return `<div class="tablebox"><table><thead><tr><th>اليوم</th><th>من مين</th><th>سعر العلبة</th><th>بعد البونص</th><th>الكمية</th><th>التغيير</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="n">${esc(r.at)}</td><td>${esc(r.source === 'program' ? 'برنامج الصيدلية' : [r.supplier || 'مورد', r.invoice ? `فاتورة ${r.invoice}` : ''].filter(Boolean).join(' · '))}</td><td class="n">${fmt(r.cost)}</td><td class="n"><b>${fmt(r.box)}</b></td><td class="n">${fmt(r.qty)}</td><td>${move(r)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function batchRows() {
   return ITEM_FORM.batches.map((b, i) => `<tr><td><input class="disc n" type="number" min="0" step="1" data-bq="${i}" value="${esc(b.qty)}" aria-label="الكمية"></td>
@@ -2819,6 +2833,7 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.id === 'posPrint') { printPosReport(); return; }
   const sr = e.target.closest('tr[data-sale]'); if (sr) { const id = sr.dataset.sale; if (POS_OPEN.has(id)) POS_OPEN.delete(id); else POS_OPEN.add(id); render(); return; }
   const c = e.target.closest('[data-calc]'); if (c) { CALC_CODE = c.dataset.calc; TAB = 'calc'; render(); }
+  const eb = e.target.closest('[data-band]'); if (eb) { EXP_BAND = eb.dataset.band; render(); }
   const d = e.target.closest('[data-delexp]'); if (d) deleteExpense(d.dataset.delexp);
   const ed = e.target.closest('[data-editexp]'); if (ed) { EDIT_EXP = ed.dataset.editexp; render(); $('expForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   if (e.target.id === 'expCancel') { EDIT_EXP = null; render(); }
