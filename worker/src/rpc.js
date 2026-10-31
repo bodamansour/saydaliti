@@ -2,7 +2,7 @@
 // pharmacies and branches, employees and attendance, invites, uploads, the cashier's PIN and
 // returns, subscriptions and the admin page, and error reports.
 import { planOf, readPlans } from '../../src/plans.js';
-import { ApiError, requireRole, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
+import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
 
@@ -12,6 +12,11 @@ const needAdmin = async (env, ctx) => { if (!(await isAdmin(env, ctx))) throw ne
 const all = async (env, sql, ...args) => (await env.DB.prepare(sql).bind(...args).all()).results;
 const one = (env, sql, ...args) => env.DB.prepare(sql).bind(...args).first();
 const recent = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+async function branchIdsOf(env, pharmacyId, ids) {
+  if (!Array.isArray(ids) || ids.length > 1000 || ids.some((x) => typeof x !== 'string') || new Set(ids).size !== ids.length) throw new ApiError('bad branches');
+  if (ids.length && (await one(env, 'SELECT count(*) AS n FROM branches WHERE pharmacy_id = ? AND id IN (SELECT value FROM json_each(?))', pharmacyId, JSON.stringify(ids))).n !== ids.length) throw new ApiError('unknown branch');
+  return ids;
+}
 const audit = (env, ctx, table, op, before, after) => {
   const r = after || before; const strip = (x) => { if (!x) return null; const { pin_hash, ...rest } = x; return JSON.stringify(rest); };
   return env.DB.prepare('INSERT INTO audit_log (pharmacy_id, at, user_id, table_name, op, row_id, old_row, new_row) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -25,7 +30,7 @@ async function planFor(env, p) {
   return planOf(s, c?.plans);
 }
 export { planFor };
-async function mainBranch(env, p) { return (await one(env, 'SELECT id FROM branches WHERE pharmacy_id = ? ORDER BY created_at LIMIT 1', p))?.id ?? null; }
+async function mainBranch(env, p) { return (await one(env, 'SELECT id FROM branches WHERE pharmacy_id = ? ORDER BY created_at, id LIMIT 1', p))?.id ?? null; }
 async function branchOf(env, p, b) {
   if (!b) return mainBranch(env, p);
   if (!(await one(env, 'SELECT 1 FROM branches WHERE id = ? AND pharmacy_id = ?', b, p))) throw new ApiError('unknown branch');
@@ -119,13 +124,16 @@ export const RPC = {
   },
 
   // ---------- Invites ----------
-  async create_invite(env, ctx, { p_pharmacy, p_role }) {
+  async create_invite(env, ctx, { p_pharmacy, p_role, p_branch_ids }) {
     requireRole(ctx, p_pharmacy, ['owner']);
     if (!['partner', 'device', 'pharmacist', 'accountant', 'stock'].includes(p_role)) throw new ApiError('bad role');
+    const branches = p_role === 'partner' ? [] : await branchIdsOf(env, p_pharmacy,
+      p_branch_ids === undefined ? [await mainBranch(env, p_pharmacy)].filter(Boolean) : p_branch_ids);
+    if (p_role !== 'partner' && !branches.length) throw new ApiError('choose at least one branch');
     let c;
     do c = inviteCode(); while (await one(env, 'SELECT 1 FROM invites WHERE code = ?', c));
-    await env.DB.prepare('INSERT INTO invites (code, pharmacy_id, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
-      .bind(c, p_pharmacy, p_role, nowIso(), new Date(Date.now() + 3 * 86400000).toISOString()).run();
+    await env.DB.prepare('INSERT INTO invites (code, pharmacy_id, role, branch_ids, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(c, p_pharmacy, p_role, JSON.stringify(branches), nowIso(), new Date(Date.now() + 3 * 86400000).toISOString()).run();
     return `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}`;
   },
   // A wrong code returns nothing and is counted: 10 wrong in an hour and the account waits.
@@ -133,7 +141,7 @@ export const RPC = {
     signedIn(ctx);
     if ((await one(env, 'SELECT count(*) AS n FROM invite_attempts WHERE user_id = ? AND at > ?', ctx.user.id, recent(60))).n >= 10) throw new ApiError('too many attempts');
     const c = String(p_code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const i = await one(env, 'SELECT code, pharmacy_id, role FROM invites WHERE code = ? AND used_by IS NULL AND expires_at > ?', c, nowIso());
+    const i = await one(env, 'SELECT code, pharmacy_id, role, branch_ids FROM invites WHERE code = ? AND used_by IS NULL AND expires_at > ?', c, nowIso());
     if (!i) {
       await env.DB.batch([
         env.DB.prepare('INSERT INTO invite_attempts (user_id, at) VALUES (?, ?)').bind(ctx.user.id, nowIso()),
@@ -144,10 +152,29 @@ export const RPC = {
     const plan = await planFor(env, i.pharmacy_id);
     if ((await one(env, 'SELECT count(*) AS n FROM members WHERE pharmacy_id = ?', i.pharmacy_id)).n >= plan.max_users) throw new ApiError('plan limit: users');
     await env.DB.batch([
-      env.DB.prepare('INSERT INTO members (pharmacy_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').bind(i.pharmacy_id, ctx.user.id, i.role),
+      env.DB.prepare('INSERT INTO members (pharmacy_id, user_id, role, branch_ids) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING').bind(i.pharmacy_id, ctx.user.id, i.role, i.branch_ids || '[]'),
       env.DB.prepare('UPDATE invites SET used_by = ?, used_at = ? WHERE code = ? AND used_by IS NULL').bind(ctx.user.id, nowIso(), i.code),
     ]);
     return i.pharmacy_id;
+  },
+  async list_branch_members(env, ctx, { p_pharmacy }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    return all(env, `SELECT m.user_id, u.email, m.role, m.branch_ids FROM members m JOIN users u ON u.id = m.user_id
+      WHERE m.pharmacy_id = ? AND m.role NOT IN ('owner', 'partner') ORDER BY u.email`, p_pharmacy)
+      .then((rows) => rows.map((r) => { try { return { ...r, branch_ids: JSON.parse(r.branch_ids || '[]') }; } catch { return { ...r, branch_ids: [] }; } }));
+  },
+  async set_member_branches(env, ctx, { p_pharmacy, p_user_id, p_branch_ids }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    const ids = await branchIdsOf(env, p_pharmacy, p_branch_ids);
+    const member = await one(env, "SELECT role, branch_ids FROM members WHERE pharmacy_id = ? AND user_id = ?", p_pharmacy, p_user_id);
+    if (!member || ['owner', 'partner'].includes(member.role)) throw new ApiError('member not found', '42501', 403);
+    let old = []; try { old = JSON.parse(member.branch_ids || '[]'); } catch { /* fail closed */ }
+    await runBatch(env, [
+      env.DB.prepare('UPDATE members SET branch_ids = ? WHERE pharmacy_id = ? AND user_id = ?').bind(JSON.stringify(ids), p_pharmacy, p_user_id),
+      audit(env, ctx, 'members', 'update', { id: p_user_id, pharmacy_id: p_pharmacy, user_id: p_user_id, role: member.role, branch_ids: old },
+        { id: p_user_id, pharmacy_id: p_pharmacy, user_id: p_user_id, role: member.role, branch_ids: ids }),
+    ]);
+    return null;
   },
 
   // ---------- Employees and attendance ----------
@@ -353,11 +380,12 @@ export async function markRemindersSent(env, items) {
 
 // ---------- Rules on cashier receipts (were database triggers) ----------
 // A return names its sale receipt and can't take back more than that receipt sold.
-export async function checkPosSale(env, row) {
+export async function checkPosSale(ctx, env, row) {
   if (row.kind !== 'return') { if (row.return_of) throw new ApiError('return_of is only for returns'); return; }
   if (!row.return_of) return;
-  const o = await one(env, "SELECT lines FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
+  const o = await one(env, "SELECT lines, branch_id FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
   if (!o) throw new ApiError('receipt not found');
+  if (requireBranch(ctx, row.pharmacy_id, o.branch_id) !== requireBranch(ctx, row.pharmacy_id, row.branch_id)) throw new ApiError('receipt belongs to another branch', '42501', 403);
   // In boxes: a line sold by the strip or pill has qty of them and per = how many in a box.
   const sum = (lines) => { const m = new Map(); for (const l of lines || []) m.set(String(l.code), (m.get(String(l.code)) || 0) + (+l.qty || 0) / (+l.per > 1 ? +l.per : 1)); return m; };
   const sold = sum(JSON.parse(o.lines));

@@ -107,13 +107,36 @@ export function requireRole(ctx, pharmacyId, roles) {
   if (!roles.includes(ctx.roles.get(String(pharmacyId)))) throw new ApiError('not allowed', '42501', 403);
 }
 
-function readScope(ctx, table, t) {
+function readScope(ctx, table, t, allowedIds = null) {
   if (t.read === 'public') return { sql: '', args: [] };
   if (!ctx.user) throw new ApiError('not signed in', '42501', 401);
   if (t.read === 'self') return { sql: 'user_id = ?', args: [ctx.user.id] };
-  const ids = pharmaciesWith(ctx, t.read || []);
+  const ids = allowedIds || pharmaciesWith(ctx, t.read || []);
   if (!ids.length) return { sql: '0', args: [] };
-  return { sql: `${t.tenant || 'pharmacy_id'} IN (${ids.map(() => '?').join(', ')})`, args: ids };
+  const tenant = t.tenant || 'pharmacy_id';
+  const branchCol = table === 'branches' ? 'id' : t.cols.branch_id ? 'branch_id' : null;
+  if (!branchCol) return { sql: `${tenant} IN (${ids.map(() => '?').join(', ')})`, args: ids };
+  const parts = [], args = [];
+  for (const p of ids) {
+    const role = ctx.roles.get(p);
+    if (role === 'owner' || role === 'partner') { parts.push(`${tenant} = ?`); args.push(p); continue; }
+    const assigned = (ctx.branchScopes.get(p) || []).filter((x) => typeof x === 'string');
+    if (!assigned.length) continue;
+    const branch = table === 'branches'
+      ? `${branchCol} IN (SELECT value FROM json_each(?))`
+      : `(${branchCol} IN (SELECT value FROM json_each(?))${assigned.includes(ctx.mainBranches.get(p)) ? ` OR ${branchCol} IS NULL` : ''})`;
+    parts.push(`(${tenant} = ? AND ${branch})`);
+    args.push(p, JSON.stringify(assigned));
+  }
+  return parts.length ? { sql: `(${parts.join(' OR ')})`, args } : { sql: '0', args: [] };
+}
+
+export function requireBranch(ctx, pharmacyId, branchId) {
+  const p = String(pharmacyId), role = ctx.roles.get(p);
+  if (role === 'owner' || role === 'partner') return branchId ?? ctx.mainBranches?.get(p) ?? null;
+  const branch = branchId ?? ctx.mainBranches?.get(p) ?? null;
+  if (!branch || !(ctx.branchScopes?.get(p) || []).includes(branch)) throw new ApiError('branch access denied', '42501', 403);
+  return branch;
 }
 
 function whereOf(t, table, filters = []) {
@@ -180,8 +203,17 @@ async function selectMembers(ctx, env, q) {
   const withBranches = /branches/.test(String(q.cols));
   const out = [];
   for (const r of res.results) {
-    const ph = { id: r.id, name: r.name, settings: JSON.parse(r.settings || '{}') };
-    if (withBranches) ph.branches = (await env.DB.prepare('SELECT id, name, created_at FROM branches WHERE pharmacy_id = ? ORDER BY created_at').bind(r.id).all()).results;
+    const role = r.role;
+    const main = await env.DB.prepare('SELECT id FROM branches WHERE pharmacy_id = ? ORDER BY created_at, id LIMIT 1').bind(r.id).first();
+    const ph = { id: r.id, name: r.name, settings: JSON.parse(r.settings || '{}'), main_branch_id: main?.id ?? null, branch_scope_version: 1 };
+    if (withBranches) {
+      let branches = (await env.DB.prepare('SELECT id, name, created_at FROM branches WHERE pharmacy_id = ? ORDER BY created_at, id').bind(r.id).all()).results;
+      if (!['owner', 'partner'].includes(role)) {
+        const allowed = new Set(ctx.branchScopes?.get(r.id) || []);
+        branches = branches.filter((b) => allowed.has(b.id));
+      }
+      ph.branches = branches;
+    }
     out.push({ role: r.role, pharmacies: ph });
   }
   return { rows: out };
@@ -221,6 +253,7 @@ export async function insert(ctx, env, q, hooks = {}) {
     const row = withDefaults(t, raw);
     if ('created_by' in t.cols) row.created_by = ctx.user?.id ?? null;
     requireRole(ctx, row.pharmacy_id, t.insert);
+    if (t.cols.branch_id) requireBranch(ctx, row.pharmacy_id, row.branch_id);
     for (const [col, spec] of Object.entries(t.cols)) checkValue(table, col, spec, row[col]);
     if (q.ignoreDuplicates && t.pk && row[t.pk] != null && await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
     await checkRefs(env, t, row);
@@ -259,9 +292,11 @@ export async function update(ctx, env, q) {
   const w = whereOf(t, table, q.filters);
   if (!w.parts.length) throw new ApiError('UPDATE requires a WHERE clause', '21000');
   if (!ids.length) return { rows: null };
-  const where = [`pharmacy_id IN (${ids.map(() => '?').join(', ')})`, ...w.parts, ...(t.updWhenNull ? [`${t.updWhenNull} IS NULL`] : [])].join(' AND ');
-  const before = (await env.DB.prepare(`SELECT * FROM ${table} WHERE ${where}`).bind(...ids, ...w.args).all()).results;
+  const scope = readScope(ctx, table, t, ids);
+  const where = [scope.sql, ...w.parts, ...(t.updWhenNull ? [`${t.updWhenNull} IS NULL`] : [])].join(' AND ');
+  const before = (await env.DB.prepare(`SELECT * FROM ${table} WHERE ${where}`).bind(...scope.args, ...w.args).all()).results;
   if (!before.length) return { rows: null };
+  if (t.cols.branch_id && 'branch_id' in patch) for (const r of before) requireBranch(ctx, r.pharmacy_id, patch.branch_id);
   const stmts = [env.DB.prepare(`UPDATE ${table} SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE ${t.pk} IN (${before.map(() => '?').join(', ')})`)
     .bind(...keys.map((k) => toDb(t.cols[k][0], patch[k])), ...before.map((r) => r[t.pk]))];
   if (t.audit) for (const b of before) { const old = fromDb(t, b); stmts.push(auditStmt(env, auditRow(ctx, table, 'update', old, { ...old, ...patch }))); }
