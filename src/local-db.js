@@ -269,6 +269,12 @@ export async function backupFingerprint(tables) {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
 export async function verifyLocalBackup(dump) {
   const fingerprinted = dump?.fingerprint != null;
   if (fingerprinted && (typeof dump.fingerprint !== 'string' || dump.fingerprint !== await backupFingerprint(dump.tables))) throw new Error('بصمة النسخة الاحتياطية غير مطابقة.');
@@ -277,7 +283,7 @@ export async function verifyLocalBackup(dump) {
   try {
     await client.importAll(dump);
     const restored = (await client.exportAll()).tables;
-    const normalize = (tables) => JSON.stringify(Object.fromEntries(Object.entries(tables).sort(([a], [b]) => a.localeCompare(b)).map(([table, rows]) => [table, rows.map((row) => [String(row.id), JSON.stringify(row)]).sort(([a], [b]) => a.localeCompare(b))])));
+    const normalize = (tables) => JSON.stringify(Object.fromEntries(Object.entries(tables).sort(([a], [b]) => a.localeCompare(b)).map(([table, rows]) => [table, rows.map(canonical).sort()])));
     if (normalize(restored) !== normalize(dump.tables)) throw new Error('البيانات بعد الاستعادة التجريبية مش مطابقة للنسخة.');
     return { rows: Object.values(restored).reduce((n, rows) => n + rows.length, 0), fingerprinted };
   } finally {
@@ -285,3 +291,4 @@ export async function verifyLocalBackup(dump) {
     await removeDb(name);
   }
 }
+
