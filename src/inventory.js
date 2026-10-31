@@ -312,3 +312,26 @@ export function itemHistory(code, { baseSales = [], basePurchases = [], purchase
   }
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
+
+// What one item cost each time it was bought: invoice price per box, the real cost per box after
+// the bonus, who sold it, and how much it moved from the time before. Newest first.
+// basePurchases come from the pharmacy software's file (date, qty, cost); purchases are deliveries
+// recorded here (the supplier and the invoice are known).
+export function costHistory(code, { basePurchases = [], purchases = [] } = {}) {
+  const c = String(code);
+  const day = (d) => (d instanceof Date ? d.toISOString() : String(d || '')).slice(0, 10);
+  const out = [];
+  for (const p of basePurchases) if (String(p.code) === c && +p.cost > 0) out.push({ at: day(p.date), cost: +p.cost, box: +p.cost, qty: +p.qty || 0, supplier: '', source: 'program' });
+  for (const p of purchases) {
+    if (p.kind === 'return') continue;
+    for (const l of p.lines || []) {
+      if (String(l.code) !== c || !(+l.cost > 0)) continue;
+      const qty = +l.qty || 0, bonus = +l.bonus || 0;
+      out.push({ at: day(p.received_on || p.created_at), cost: +l.cost, box: qty + bonus > 0 ? round2((+l.cost * qty) / (qty + bonus)) : +l.cost, qty: qty + bonus, bonus, supplier: p.supplier_name || '', invoice: p.invoice_no || '', source: 'here', ref: p.id });
+    }
+  }
+  out.sort((a, b) => a.at.localeCompare(b.at));
+  let prev = null;
+  for (const r of out) { r.change = prev ? round2(r.box - prev) : null; r.pct = prev ? Math.round(((r.box - prev) / prev) * 1000) / 10 : null; prev = r.box; }
+  return out.reverse();
+}
