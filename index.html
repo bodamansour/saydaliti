@@ -111,9 +111,19 @@
             <li><b>مسؤول مخزن:</b> بيسجّل الطلبيات والمرتجعات والجرد، وبيعدّل الأصناف.</li>
             <li><b>جهاز الصيدلية:</b> للكاشير والحضور على جهاز الصيدلية.</li>
           </ul>
+          <fieldset id="inviteBranchOptions" class="stack">
+            <legend>فروع الموظف</legend>
+            <div id="inviteBranchChoices" class="row"></div>
+            <p class="note">اختار فرع واحد أو أكتر. الشريك بيشوف كل الفروع.</p>
+          </fieldset>
           <div class="row"><button class="btn" type="button" data-invite="partner">كود لشريك</button><button class="btn" type="button" data-invite="pharmacist">كود لصيدلي</button><button class="btn" type="button" data-invite="accountant">كود لمحاسب</button><button class="btn" type="button" data-invite="stock">كود لمسؤول مخزن</button><button class="btn" type="button" data-invite="device">كود لجهاز الصيدلية</button></div>
           <div class="row" id="inviteOut" role="status" hidden><span id="inviteText"></span><button class="btn" type="button" id="inviteShare">ابعته على واتساب</button></div>
         </div>
+        <details id="memberBranches" class="help" hidden>
+          <summary>فروع حسابات الموظفين</summary>
+          <p class="note">اختار الفروع اللي كل حساب يقدر يفتحها. إزالة كل الاختيارات توقف وصوله لبيانات الفروع لحد ما تعيّن له فرع تاني.</p>
+          <div id="memberBranchList"></div>
+        </details>
       </details>
 
       <details class="help" id="localBox" hidden>
