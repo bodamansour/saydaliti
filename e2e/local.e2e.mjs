@@ -157,10 +157,12 @@ test('backup to a file and back', async () => {
   assert.equal(dump.app, 'saydaliti');
   assert.match(dump.fingerprint, /^[a-f0-9]{64}$/);
   assert.ok(dump.tables.pos_sales.length === 2 && dump.tables.purchases.length === 1);
-  assert.ok(await page.evaluate(async (backup) => {
+  const restoreCheck = await page.evaluate(async (backup) => {
     const { verifyLocalBackup } = await import('./src/local-db.js');
-    return (await verifyLocalBackup(backup)).rows > 0;
-  }, dump), 'the automatic verification restores the backup in a temporary database');
+    try { return { ...(await verifyLocalBackup(backup)), ok: true }; }
+    catch (e) { return { ok: false, tables: e.tables || [] }; }
+  }, dump);
+  assert.ok(restoreCheck.ok && restoreCheck.rows > 0, `the automatic verification restores the backup in a temporary database: ${restoreCheck.tables.join(', ')}`);
   const invalid = structuredClone(dump);
   delete invalid.tables.purchases;
   assert.equal(await page.evaluate(async (backup) => {
@@ -277,3 +279,4 @@ test('fixes made here become a correction file for United', async () => {
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });
+
