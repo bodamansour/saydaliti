@@ -30,8 +30,15 @@ const fail = (e) => {
 async function contextOf(env, req) {
   const user = await userOf(env, req);
   const roles = new Map();
-  if (user) for (const m of (await env.DB.prepare('SELECT pharmacy_id, role FROM members WHERE user_id = ?').bind(user.id).all()).results) roles.set(m.pharmacy_id, m.role);
-  return { user, roles };
+  const branchScopes = new Map(), mainBranches = new Map();
+  if (user) for (const m of (await env.DB.prepare(`SELECT pharmacy_id, role, branch_ids,
+    (SELECT id FROM branches WHERE pharmacy_id = members.pharmacy_id ORDER BY created_at, id LIMIT 1) AS main_branch_id
+    FROM members WHERE user_id = ?`).bind(user.id).all()).results) {
+    roles.set(m.pharmacy_id, m.role);
+    try { const ids = JSON.parse(m.branch_ids || '[]'); branchScopes.set(m.pharmacy_id, Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : []); } catch { branchScopes.set(m.pharmacy_id, []); }
+    mainBranches.set(m.pharmacy_id, m.main_branch_id ?? null);
+  }
+  return { user, roles, branchScopes, mainBranches };
 }
 async function body(req, max = 25 * 1024 * 1024) {
   const n = +(req.headers.get('Content-Length') || 0);
@@ -96,7 +103,7 @@ async function api(req, env, url) {
     if (q.op === 'select') { const r = await select(ctx, env, q); return json(rowsJson(r.rows, r.blob)); }
     if (q.op === 'insert' || q.op === 'upsert') {
       await insert(ctx, env, q, { beforeInsert: async (table, row) => {
-        if (table === 'pos_sales') await checkPosSale(env, row);
+        if (table === 'pos_sales') await checkPosSale(ctx, env, row);
         // The cashier device records only money taken out of the drawer; other expenses are the owner's.
         if (table === 'expenses' && !['owner', 'accountant'].includes(ctx.roles.get(row.pharmacy_id)) && row.kind !== 'withdrawal') throw new ApiError('not allowed', '42501', 403);
       } });
