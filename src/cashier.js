@@ -3,7 +3,7 @@
 import { watchErrors } from './errors.js';
 import { fromExport, startOfDay } from './core.js';
 import { qrSvg, whatsappLink } from './labels.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
+import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
@@ -49,6 +49,8 @@ let CASHIER = null;         // who is selling now: { id, name }
 let SHIFTS = {};            // open shifts on this PC, by employee id
 
 const bkey = () => BRANCH ?? 'main';
+const branchAllowed = (row) => !SESS.client?.cloudflare || ['owner', 'partner'].includes(SESS.role)
+  || (SESS.branches || []).some((b) => (b.id ?? SESS.mainBranchId) === (row.branch_id ?? SESS.mainBranchId));
 const K = { staff: () => `pos-staff:${SESS.pharmacy.id}`, shifts: () => `pos-shifts:${SESS.pharmacy.id}:${dev.id}`, items: () => `pos-items:${SESS.pharmacy.id}:${bkey()}`, codes: () => `pos-codes:${SESS.pharmacy.id}`, sales: () => `pos-sales:${SESS.pharmacy.id}`, stock: () => `pos-stock:${SESS.pharmacy.id}`, cust: () => `pos-cust:${SESS.pharmacy.id}` };
 const msg = (t, err = false) => { $('posMsg').innerHTML = err ? `<span class="err">${esc(t)}</span>` : esc(t); };
 const today = () => startOfDay();
@@ -74,7 +76,8 @@ async function loadItems() {
 // Rows entered in Saydaliti: items added, deliveries received, stock adjustments. Missing tables
 // (database update 010 not applied yet) just mean there is nothing to add.
 async function loadStock() {
-  const cached = await kvGet(K.stock(), { catalog: [], purchases: [], moves: [] });
+  const raw = await kvGet(K.stock(), { catalog: [], purchases: [], moves: [] });
+  const cached = { ...raw, purchases: raw.purchases.filter(branchAllowed), moves: raw.moves.filter(branchAllowed) };
   if (!isOnline()) { STOCK = mergePendingItems(cached); return; }
   const get = async (table, cols) => {
     const rows = [];
@@ -99,7 +102,7 @@ function mergePendingItems(next, prev = next) {
   const local = prev.catalog.filter((c) => c.pending && !next.catalog.some((x) => x.id === c.id));
   return { ...next, catalog: [...next.catalog, ...local] };
 }
-const mine = (r) => (r.branch_id ?? BRANCHES[0]?.id ?? null) === BRANCH;
+const mine = (r) => (r.branch_id ?? SESS.mainBranchId ?? BRANCHES[0]?.id ?? null) === BRANCH;
 function refreshItems() {
   ITEMS = liveData(BASE, UPLOADED_AT, { catalog: STOCK.catalog, purchases: STOCK.purchases.filter(mine), sales: branchSales(), moves: STOCK.moves.filter(mine) }).items;
   for (const c of STOCK.catalog) if (c.barcode && !BARCODES.has(c.barcode)) BARCODES.set(c.barcode, c.code);
@@ -126,14 +129,14 @@ async function loadCustomers() {
       all(() => SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
       all(() => SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
       // Every bill on account, however old (not just those since the last upload), for the balance.
-      all(() => SESS.client.from('pos_sales').select('id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true })),
+      all(() => SESS.client.from('pos_sales').select('id, branch_id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true })),
     ]);
-    const credit = cr.error ? null : cr.data;
+    const credit = cr.error ? null : cr.data.filter(branchAllowed);
     if (!c.error && !p.error) next = { customers: c.data, payments: p.data, credit: credit ?? cached.credit ?? [], ready: true };
     else if (c.error && !/fetch|network/i.test(c.error.message)) next = { customers: [], payments: [], ready: false };
   }
   const local = cached.customers.filter((x) => x.pending && !next.customers.some((y) => y.id === x.id));
-  next = { ...next, customers: [...next.customers, ...local] };
+  next = { ...next, credit: (next.credit || []).filter(branchAllowed), customers: [...next.customers, ...local] };
   CUSTOMERS = next.customers; CUST_PAYMENTS = next.payments; CREDIT_SALES = next.credit || []; CUST_READY = next.ready || local.length > 0;
   await kvSet(K.cust(), next);
 }
@@ -163,7 +166,7 @@ async function loadBarcodes() {
 const SALE_COLS = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
 const SALE_EXTRA = ['customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', 'customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', 'customer_id, credit, claim_no, return_of, note']; // newest database first
 async function loadSales() {
-  const cached = await kvGet(K.sales(), []);
+  const cached = (await kvGet(K.sales(), [])).filter(branchAllowed);
   // With no upload, the stock is made only of what was entered here, so every receipt counts.
   const since = UPLOADED_AT ? new Date(Math.min(today().getTime(), new Date(UPLOADED_AT).getTime()) - 86400000).toISOString() : '2000-01-01T00:00:00Z';
   let server = null;
@@ -182,13 +185,13 @@ async function loadSales() {
     }
   }
   // Receipts made on this device and not uploaded yet — including any made while this was loading.
-  const local = [...SALES, ...cached].filter((x, i, all) => x.pending && all.findIndex((y) => y.id === x.id) === i);
-  const base = server ?? cached.filter((x) => !x.pending);
+  const local = [...SALES, ...cached].filter((x, i, all) => x.pending && branchAllowed(x) && all.findIndex((y) => y.id === x.id) === i);
+  const base = (server ?? cached.filter((x) => !x.pending)).filter(branchAllowed);
   SALES = [...local.filter((l) => !base.some((x) => x.id === l.id)), ...base].sort((a, b) => String(b.sold_at).localeCompare(String(a.sold_at)));
   await kvSet(K.sales(), SALES);
 }
 
-const branchSales = () => SALES.filter((s) => (s.branch_id ?? null) === BRANCH);
+const branchSales = () => SALES.filter((s) => (s.branch_id ?? SESS.mainBranchId ?? null) === BRANCH);
 
 // ---------- Cart ----------
 function addItem(it) {
@@ -488,7 +491,7 @@ async function linkBarcode(itemCode) {
 // ---------- Cashier PIN and shifts ----------
 async function loadStaff() {
   STAFF = await kvGet(K.staff(), { count: 0, list: [] });
-  SHIFTS = await kvGet(K.shifts(), {});
+  SHIFTS = Object.fromEntries(Object.entries(await kvGet(K.shifts(), {})).filter(([, s]) => branchAllowed(s)));
   if (isOnline()) {
     const { data, error } = await SESS.client.rpc('cashier_staff', { p_pharmacy: SESS.pharmacy.id });
     if (!error) { STAFF.count = +data || 0; await kvSet(K.staff(), STAFF); }
@@ -777,7 +780,10 @@ async function sync() {
   updateNet();
 }
 onOutboxChange(updateNet);
-addEventListener('online', sync);
+async function reconnect() { if (await branchAccessChanged(SESS)) location.reload(); else sync(); }
+addEventListener('online', reconnect);
+addEventListener('focus', async () => { if (await branchAccessChanged(SESS)) location.reload(); });
+setInterval(async () => { if (await branchAccessChanged(SESS)) location.reload(); }, 60000);
 addEventListener('offline', updateNet);
 
 // ---------- Boot ----------
@@ -791,6 +797,9 @@ async function boot() {
   if (SESS.mode === 'local') { $('auth').innerHTML = '<p>البرنامج مش متوصل بقاعدة البيانات.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
+  if (SESS.client?.cloudflare && (SESS.branchScopeVersion !== 1 || (!['owner', 'partner'].includes(SESS.role) && !SESS.branches.length))) {
+    $('auth').innerHTML = '<p class="note">حسابك مش مربوط بفرع مسموح للكاشير. اتصل بالإنترنت واطلب من صاحب الصيدلية تحديث تعيين الفروع.</p>'; return;
+  }
   if (!['owner', 'device', 'pharmacist'].includes(SESS.role)) {
     $('auth').innerHTML = `<p>حساب ${ROLE_LABEL[SESS.role] || ''} مبيبيعش. الكاشير بيشتغل بحساب صاحب الصيدلية أو الصيدلي أو جهاز الصيدلية.</p><a class="btn primary" href="./index.html">افتح اللوحة</a>`;
     return;
@@ -801,7 +810,8 @@ async function boot() {
   $('toDashboard').hidden = SESS.role === 'device';
   if (SESS.local) localModeButton($('logout')); else $('logout').hidden = false; // the desktop version has no accounts
   BRANCHES = SESS.branchesReady && SESS.branches.length ? SESS.branches.map(({ id, name }) => ({ id, name })) : [{ id: null, name: 'الفرع الرئيسي' }];
-  BRANCH = dev.branch && BRANCHES.some((b) => b.id === dev.branch) ? dev.branch : BRANCHES[0].id;
+  BRANCH = dev.branch && BRANCHES.some((b) => b.id === dev.branch) ? dev.branch
+    : BRANCHES.find((b) => b.id === SESS.mainBranchId)?.id ?? BRANCHES[0].id;
   $('posBranchWrap').hidden = BRANCHES.length < 2;
   $('posBranch').innerHTML = BRANCHES.map((b) => `<option value="${esc(b.id ?? '')}" ${b.id === BRANCH ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
   $('silentWrap').hidden = !window.saydalitiDesktop?.printSilent; $('silentPrint').checked = !!dev.silent; $('kioskNote').hidden = !!window.saydalitiDesktop;
