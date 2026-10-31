@@ -155,13 +155,14 @@ test('backup to a file and back', async () => {
   const download = await captureDownload(page, '#backupBtn');
   const dump = JSON.parse(download.text);
   assert.equal(dump.app, 'saydaliti');
+  assert.match(dump.fingerprint, /^[a-f0-9]{64}$/);
   assert.ok(dump.tables.pos_sales.length === 2 && dump.tables.purchases.length === 1);
   assert.ok(await page.evaluate(async (backup) => {
     const { verifyLocalBackup } = await import('./src/local-db.js');
     return (await verifyLocalBackup(backup)).rows > 0;
   }, dump), 'the automatic verification restores the backup in a temporary database');
   const invalid = structuredClone(dump);
-  invalid.tables.pharmacies = [];
+  delete invalid.tables.purchases;
   assert.equal(await page.evaluate(async (backup) => {
     const { verifyLocalBackup } = await import('./src/local-db.js');
     try { await verifyLocalBackup(backup); return false; } catch { return true; }

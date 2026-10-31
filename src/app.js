@@ -1,6 +1,6 @@
 import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
-import { verifyLocalBackup } from './local-db.js';
+import { backupFingerprint, verifyLocalBackup } from './local-db.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
 import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
@@ -2453,7 +2453,11 @@ function setupLocal() {
   clearInterval(backupTimer);
   backupTimer = setInterval(() => void autoBackup(), 20 * 3600 * 1000);
 }
-async function backupJson() { return JSON.stringify(await SESS.client.exportAll()); }
+async function backupJson() {
+  const dump = await SESS.client.exportAll();
+  dump.fingerprint = await backupFingerprint(dump.tables);
+  return JSON.stringify(dump);
+}
 async function saveBackup(manual) {
   const json = await backupJson();
   const name = `saydaliti-backup-${isoDay(new Date())}.json`;
@@ -2468,24 +2472,27 @@ async function saveBackup(manual) {
 async function autoBackup() {
   if (!desktop()?.saveBackup || !desktop()?.readLatestBackup || backupRunning) return;
   backupRunning = true;
-  let damaged = false;
+  let damaged = false, legacy = false;
   try {
     let latest = await desktop().readLatestBackup();
     if (latest) {
-      try { await verifyLocalBackup(JSON.parse(latest.json)); }
+      try { legacy = !(await verifyLocalBackup(JSON.parse(latest.json))).fingerprinted; }
       catch { damaged = true; }
     }
     const last = store.get('saydaliti-last-backup', 0);
-    if (!latest || damaged || Date.now() - last >= 20 * 3600 * 1000) {
+    if (!latest || damaged || legacy || Date.now() - last >= 20 * 3600 * 1000) {
       await saveBackup(false);
       store.set('saydaliti-last-backup', Date.now());
       latest = await desktop().readLatestBackup();
     }
     if (!latest) throw new Error('ملقتش نسخة احتياطية محفوظة.');
     const result = await verifyLocalBackup(JSON.parse(latest.json));
+    if (!result.fingerprinted) throw new Error('النسخة الجديدة مفيهاش بصمة سلامة.');
     $('backupMsg').textContent = damaged
       ? `تنبيه: النسخة السابقة كانت تالفة. اتحفظت نسخة جديدة وفحص استعادتها نجح (${fmt(result.rows)} سطر).`
-      : `فحص استعادة آخر نسخة نجح (${fmt(result.rows)} سطر).`;
+      : legacy
+        ? `فحصنا النسخة القديمة وحفظنا نسخة جديدة ببصمة سلامة (${fmt(result.rows)} سطر).`
+        : `فحص استعادة آخر نسخة نجح (${fmt(result.rows)} سطر).`;
     if (damaged) {
       $('fileMsg').innerHTML = '<span class="err">لقينا نسخة احتياطية تالفة؛ اتحفظت نسخة جديدة وفحصنا استعادتها. راجع «الإعدادات والأدوات».</span>';
       $('fileMsg').dataset.backupError = 'true';
