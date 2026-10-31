@@ -14,6 +14,7 @@ const cache = {
 const CFG = 'saydaliti-config-v1';
 const MEM = 'saydaliti-member-v1';
 const netError = (e) => e?.name === 'AuthRetryableFetchError' || /fetch|network|Load failed/i.test(String(e?.message ?? e));
+let scopeCheckedAt = 0;
 
 async function loadConfig() {
   try {
@@ -34,7 +35,8 @@ async function loadMembership(userId, email) {
   const m = [...mem].sort((a, b) => order[a.role] - order[b.role])[0];
   const ph = m.pharmacies;
   const branches = (ph.branches || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const out = { userId, email, role: m.role, pharmacy: { id: ph.id, name: ph.name, settings: ph.settings || {} }, branches, branchesReady: Array.isArray(ph.branches) };
+  const out = { userId, email, role: m.role, pharmacy: { id: ph.id, name: ph.name, settings: ph.settings || {} }, branches,
+    mainBranchId: ph.main_branch_id ?? branches[0]?.id ?? null, branchScopeVersion: ph.branch_scope_version ?? null, branchesReady: Array.isArray(ph.branches) };
   cache.set(MEM, out);
   return out;
 }
@@ -75,6 +77,16 @@ const withTimeout = (promise, ms, message) => Promise.race([promise, new Promise
 
 export function getSession() {
   return withTimeout(loadSession(), 20000, 'الدخول اتأخر أكتر من اللازم. اتأكد من النت ودوس «جرّب تاني». لو اتكررت، اقفل أي صفحة تانية مفتوحة للبرنامج.');
+}
+
+export async function branchAccessChanged(session) {
+  if (!session?.client?.cloudflare || !navigator.onLine || Date.now() - scopeCheckedAt < 30000) return false;
+  scopeCheckedAt = Date.now();
+  try {
+    const fresh = await getSession();
+    const signature = (s) => JSON.stringify([s.role, s.mainBranchId, s.branchScopeVersion, (s.branches || []).map((b) => [b.id, b.name])]);
+    return signature(fresh) !== signature(session);
+  } catch { return false; }
 }
 
 async function loadSession() {

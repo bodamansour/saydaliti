@@ -37,7 +37,8 @@ export const TABLES = {
     id: ['id', { nn: true, def: 'uuid' }], name: ['text', { nn: true, max: 120 }], timezone: ['text', { nn: true, def: 'Africa/Cairo' }],
     settings: ['json', { nn: true, def: {} }], created_at: ['ts', { nn: true, def: 'now' }] } },
   members: { pk: ['pharmacy_id', 'user_id'], read: 'self', cols: {
-    pharmacy_id: ['id', { nn: true }], user_id: ['id', { nn: true }], role: ['text', { nn: true, in: ROLES_ALL }] },
+    pharmacy_id: ['id', { nn: true }], user_id: ['id', { nn: true }], role: ['text', { nn: true, in: ROLES_ALL }],
+    branch_ids: ['json', { nn: true, def: [], added: 10 }] },
   index: [['user_id']] },
   branches: { pk: 'id', read: ROLES_ALL, update: OWNER, updCols: ['name'], cols: {
     id: ['id', { nn: true, def: 'uuid' }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 80, trim: true }],
@@ -55,7 +56,8 @@ export const TABLES = {
   index: [['employee_id', 'check_in'], ['pharmacy_id', 'check_in']] },
   invites: { pk: 'code', read: OWNER, cols: {
     code: ['text', { nn: true }], pharmacy_id: ['id', { nn: true }], role: ['text', { nn: true, in: ROLES.filter((r) => r !== 'owner') }],
-    created_at: ['ts', { nn: true, def: 'now' }], expires_at: ['ts', { nn: true }], used_by: ['id'], used_at: ['ts'] },
+    created_at: ['ts', { nn: true, def: 'now' }], expires_at: ['ts', { nn: true }], used_by: ['id'], used_at: ['ts'],
+    branch_ids: ['json', { nn: true, def: [], added: 10 }] },
   index: [['pharmacy_id']] },
   // The uploaded data itself is kept in R2 (it can be several MB); the row says where.
   snapshots: { pk: 'id', read: ROLES_ALL, blob: 'data', cols: {

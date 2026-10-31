@@ -1,6 +1,6 @@
 import { createLocalStore } from './attendance-store.js';
 import { createSupabaseStore } from './supabase-store.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
+import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { attendanceReport } from './attendance.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,6 +14,7 @@ const time = (d) => d.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-
 const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاتنين'], [2, 'التلات'], [3, 'الأربع'], [4, 'الخميس'], [5, 'الجمعة']];
 
 let store = null;
+let SESSION = null;
 let ROLE = 'owner'; // owner | partner | device
 const ALLOWED = { owner: ['kiosk', 'report', 'staff'], partner: ['report'], accountant: ['report'], device: ['kiosk'], pharmacist: ['kiosk'], stock: ['kiosk'] };
 let TAB = 'kiosk';
@@ -167,6 +168,7 @@ $('staff').addEventListener('click', async (e) => {
 async function boot() {
   let sess;
   try { sess = await getSession(); } catch (err) { $('auth').hidden = false; $('auth').textContent = err.message; return; }
+  SESSION = sess;
 
   if (sess.mode === 'local') {
     store = createLocalStore(); ROLE = 'owner';
@@ -178,6 +180,9 @@ async function boot() {
   if (sess.local) localModeButton($('logout')); else $('logout').hidden = sess.mode === 'signed-out';
   if (sess.mode === 'signed-out') { $('modeChip').textContent = 'مش مسجّل دخول'; return renderSignIn($('auth'), boot); }
   if (sess.mode === 'no-pharmacy') { $('modeChip').textContent = sess.user.email; return renderPharmacyChoice($('auth'), boot); }
+  if (sess.client?.cloudflare && (sess.branchScopeVersion !== 1 || (!['owner', 'partner'].includes(sess.role) && !sess.branches.length))) {
+    $('auth').hidden = false; $('auth').textContent = 'لازم صاحب الصيدلية يعيّن لك فرع، أو اتصل بالإنترنت لتحديث الصلاحيات.'; return;
+  }
 
   ROLE = sess.role;
   store = createSupabaseStore(sess.client, sess.pharmacy.id);
@@ -186,6 +191,10 @@ async function boot() {
   show(ALLOWED[ROLE]?.includes('kiosk') && ROLE !== 'owner' ? 'kiosk' : TAB);
 }
 $('logout').addEventListener('click', async () => { await signOut(); boot(); });
+async function refreshAccess() { if (await branchAccessChanged(SESSION)) location.reload(); }
+addEventListener('online', refreshAccess);
+addEventListener('focus', refreshAccess);
+setInterval(refreshAccess, 60000);
 
 // ---------- Start ----------
 tick(); setInterval(tick, 10000);

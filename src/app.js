@@ -2,7 +2,7 @@ import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved } from './core.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
-import { getSession, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
+import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
@@ -106,12 +106,13 @@ const OFFERS = new Map();
 const key = (id) => id ?? 'main';
 const branchName = (k) => BRANCHES.find((b) => key(b.id) === k)?.name ?? 'الفرع الرئيسي';
 const isOwner = () => SESS.role === 'owner';
+const isScopedMember = () => SESS.client?.cloudflare && !['owner', 'partner'].includes(SESS.role);
 // What each staff role may do (the server checks the same: worker/src/schema.js).
 const canBuy = () => ['owner', 'stock'].includes(SESS.role); // deliveries, returns to suppliers, counts, items
 const canPay = () => ['owner', 'accountant'].includes(SESS.role); // expenses, supplier and customer payments
 const canSell = () => ['owner', 'device', 'pharmacist'].includes(SESS.role);
 const ROLE_SECTIONS = { pharmacist: ['stock', 'sell'], stock: ['insights', 'stock', 'buy'], accountant: ['insights', 'money', 'buy', 'customers'] };
-const multi = () => BRANCHES.length > 1;
+const multi = () => BRANCHES.length > 1 || isScopedMember();
 
 function settings() {
   const s = settingsFromSaved(Object.fromEntries(fields.map((f) => [f, $(f).value])));
@@ -513,8 +514,8 @@ async function loadExpenses() {
     if (!error) server = data;
   }
   const cached = await kvGet(expCacheKey(), []);
-  const base = server ?? cached.filter((e) => !e.pending);
-  const local = cached.filter((e) => e.pending && pendingIds.has(e.id) && !base.some((b) => b.id === e.id));
+  const base = (server ?? cached.filter((e) => !e.pending)).filter(branchAllowed);
+  const local = cached.filter((e) => e.pending && pendingIds.has(e.id) && branchAllowed(e) && !base.some((b) => b.id === e.id));
   EXPENSES = [...base.filter((e) => !deleted.has(e.id)).map((e) => ({ ...e, pending: false })), ...local];
   EXP_READY = true;
   await saveExpenseCache();
@@ -854,11 +855,12 @@ function printLabels(list) {
 // Read when the tab is opened (the latest ones only), not with everything else.
 let SHIFT_ROWS = null, LOG_ROWS = null, LOG_FILTER = '';
 async function loadLatest(table, cols, order, n) {
-  if (!isOnline()) return (await kvGet(cacheKey(table), null));
+  if (!isOnline()) return (await kvGet(cacheKey(table), null))?.filter?.((r) => branchAllowed(r, table)) ?? null;
   const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).range(0, n - 1);
-  if (error) return /fetch|network/i.test(error.message) ? await kvGet(cacheKey(table), null) : 'missing';
-  await kvSet(cacheKey(table), data);
-  return data;
+  if (error) return /fetch|network/i.test(error.message) ? (await kvGet(cacheKey(table), null))?.filter?.((r) => branchAllowed(r, table)) ?? null : 'missing';
+  const scoped = data.filter((r) => branchAllowed(r, table));
+  await kvSet(cacheKey(table), scoped);
+  return scoped;
 }
 function renderShifts() {
   if (SHIFT_ROWS === null) { loadLatest('pos_shifts', 'id, branch_id, employee_name, opened_at, opening_cash, closed_at, expected_cash, counted_cash, totals, note', 'opened_at', 500).then((r) => { SHIFT_ROWS = r || []; render(true); }); return '<p class="note">لحظة…</p>'; }
@@ -923,7 +925,7 @@ function refreshDerived() {
 async function loadTable(table, cols, order = 'created_at') {
   const q = await pending();
   const mine = (t) => (e) => e.payload?.table === table && e.type === t;
-  const ins = q.filter(mine('insert')).map((e) => ({ ...e.payload.row, pending: true }));
+  const ins = q.filter(mine('insert')).map((e) => ({ ...e.payload.row, pending: true })).filter((r) => branchAllowed(r, table));
   const del = new Set(q.filter(mine('delete')).map((e) => e.payload.id));
   const upd = q.filter(mine('update'));
   let rows = null;
@@ -939,10 +941,12 @@ async function loadTable(table, cols, order = 'created_at') {
     if (error && !/fetch|network/i.test(error.message)) throw Object.assign(new Error(error.message), { missing: true });
     if (!error) rows = all;
   }
-  if (!rows) rows = (await kvGet(cacheKey(table), [])).filter((r) => !r.pending);
+  if (!rows) rows = (await kvGet(cacheKey(table), [])).filter((r) => !r.pending && branchAllowed(r, table));
+  else rows = rows.filter((r) => branchAllowed(r, table));
   rows = rows.filter((r) => !del.has(r.id));
   for (const r of ins) if (!rows.some((x) => x.id === r.id)) rows.push(r);
   for (const u of upd) { const r = rows.find((x) => x.id === u.payload.id); if (r) Object.assign(r, u.payload.patch); }
+  rows = rows.filter((r) => branchAllowed(r, table));
   await kvSet(cacheKey(table), rows);
   return rows;
 }
@@ -1261,7 +1265,10 @@ let INV_READY = true;
 const STOCK_TABLES = new Set(['catalog_items', 'purchases', 'stock_moves', 'pos_sales']);
 const needInv = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث <code>010</code> بيضيف الأصناف والطلبيات وحسابات الموردين. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const CATEGORIES = ['دواء', 'تجميل', 'مستلزمات', 'غير محدد'];
-const mainBranchId = () => BRANCHES[0]?.id ?? null;
+const mainBranchId = () => SESS.mainBranchId ?? BRANCHES[0]?.id ?? null;
+const branchAllowed = (row, table = null) => !isScopedMember() || (table === 'branches'
+  ? (SESS.branches || []).some((b) => b.id === row.id)
+  : !('branch_id' in row) || (SESS.branches || []).some((b) => (b.id ?? SESS.mainBranchId) === (row.branch_id ?? SESS.mainBranchId)));
 const inBranch = (b) => (r) => (r.branch_id ?? mainBranchId()) === (b?.id ?? null);
 const branchOfView = () => (BRANCH === 'all' ? mainBranchId() : BRANCH_ID());
 // Barcode → item code: barcodes saved on items here, and the ones the cashier learned.
@@ -2644,16 +2651,40 @@ async function loadSnapshots() {
   }
 }
 
+let BRANCH_MEMBERS = null;
+function renderMemberBranches() {
+  const box = $('memberBranches');
+  box.hidden = !isOwner() || !SESS.client?.cloudflare;
+  if (BRANCH_MEMBERS === null) { $('memberBranchList').innerHTML = '<p class="note">افتح القسم علشان تظهر حسابات الموظفين.</p>'; return; }
+  if (!BRANCH_MEMBERS.length) { $('memberBranchList').innerHTML = '<p class="note">مفيش حسابات موظفين مرتبطة بالصيدلية لحد دلوقتي.</p>'; return; }
+  $('memberBranchList').innerHTML = BRANCH_MEMBERS.map((m) => {
+    const assigned = new Set(m.branch_ids || []);
+    return `<section class="card" data-branch-member="${esc(m.user_id)}"><b>${esc(m.email)}</b> · ${esc(ROLE_LABEL[m.role] || m.role)}
+      <div class="row" style="margin-top:8px">${BRANCHES.map((b) => `<label><input type="checkbox" name="branchId" value="${esc(b.id)}" ${assigned.has(b.id) ? 'checked' : ''}> ${esc(b.name)}</label>`).join('')}</div>
+      <div class="row"><button class="btn" type="button" data-save-branches="${esc(m.user_id)}">احفظ الفروع</button><span class="note" role="status"></span></div></section>`;
+  }).join('');
+}
+async function loadBranchMembers() {
+  if (!isOwner() || !SESS.client?.cloudflare || !isOnline()) return;
+  const { data, error } = await SESS.client.rpc('list_branch_members', { p_pharmacy: SESS.pharmacy.id });
+  if (error) { $('branchMsg').textContent = arabicError(error).message; return; }
+  BRANCH_MEMBERS = Array.isArray(data) ? data : [];
+  renderMemberBranches();
+}
+
 function renderBranches() {
-  const opts = (multi() ? [['all', 'كل الفروع']] : []).concat(BRANCHES.map((b) => [key(b.id), b.name]));
+  const opts = (multi() && ['owner', 'partner'].includes(SESS.role) ? [['all', 'كل الفروع']] : []).concat(BRANCHES.map((b) => [key(b.id), b.name]));
   if (!opts.some(([v]) => v === BRANCH)) BRANCH = opts[0][0];
   $('branchSel').innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}" ${v === BRANCH ? 'selected' : ''}>${esc(t)}</option>`).join('');
   $('branchWrap').hidden = !multi();
   $('tokenBranch').innerHTML = BRANCHES.map((b) => `<option value="${esc(key(b.id))}" ${key(b.id) === BRANCH ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
   $('tokenBranch').closest('label').hidden = !multi();
   $('branchList').innerHTML = `<ul class="blist">${BRANCHES.map((b) => `<li>${esc(b.name)} <span class="muted">${SNAP.has(key(b.id)) ? `· ${fmt(SNAP.get(key(b.id)).data.items.length)} صنف` : '· لسه مفيش بيانات'}</span></li>`).join('')}</ul>`;
+  $('inviteBranchOptions').hidden = !SESS.client?.cloudflare;
+  $('inviteBranchChoices').innerHTML = BRANCHES.map((b) => `<label><input type="checkbox" name="inviteBranch" value="${esc(b.id)}" ${b.id === mainBranchId() ? 'checked' : ''}> ${esc(b.name)}</label>`).join('');
   $('branchForm').hidden = !isOwner() || !SESS.branchesReady;
   $('inviteBox').hidden = !isOwner();
+  renderMemberBranches();
   $('uploadBtn').hidden = !isOwner();
   $('uploadBtn').querySelector('span').textContent = multi() && BRANCH !== 'all' ? `ارفع بيانات «${branchName(BRANCH)}»` : 'ارفع البيانات';
   if (!SESS.branchesReady && isOwner()) $('branchMsg').textContent = 'إضافة فروع محتاجة تحديث قاعدة البيانات.';
@@ -2737,7 +2768,10 @@ $('stuckBox').addEventListener('click', async (e) => {
   }
 });
 onOutboxChange((q) => updateNet(q));
-addEventListener('online', sync);
+async function reconnect() { if (await branchAccessChanged(SESS)) location.reload(); else sync(); }
+addEventListener('online', reconnect);
+addEventListener('focus', async () => { if (await branchAccessChanged(SESS)) location.reload(); });
+setInterval(async () => { if (await branchAccessChanged(SESS)) location.reload(); }, 60000);
 addEventListener('offline', () => updateNet());
 
 // ---------- Boot: sign-in first, then the dashboard ----------
@@ -2754,6 +2788,12 @@ async function boot() {
   if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>البرنامج مش متوصل بقاعدة البيانات</h2><p class="note">لازم يتضاف <code>SUPABASE_URL</code> و<code>SUPABASE_PUBLISHABLE_KEY</code> في إعدادات Vercel، وبعدها تقدر تسجّل دخول.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
+  if (SESS.client?.cloudflare && SESS.branchScopeVersion !== 1) {
+    $('auth').innerHTML = '<h2>لازم تحديث صلاحيات الفروع</h2><p class="note">اتصل بالإنترنت وافتح البرنامج تاني علشان يحدّث قائمة الفروع المسموح لك تشوفها.</p>'; return;
+  }
+  if (SESS.client?.cloudflare && !['owner', 'partner'].includes(SESS.role) && !SESS.branches.length) {
+    $('auth').innerHTML = '<h2>مفيش فرع متعيّن للحساب</h2><p class="note">اطلب من صاحب الصيدلية يربط حسابك بفرع واحد على الأقل. مش هتظهر بيانات الصيدلية قبل التعيين.</p>'; return;
+  }
 
   showApp();
   $('phTitle').textContent = SESS.pharmacy.name;
@@ -2872,13 +2912,29 @@ $('inviteBox').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-invite]'); if (!b) return;
   const role = b.dataset.invite;
   if (!isOnline()) { $('branchMsg').textContent = 'كود الدعوة محتاج نت.'; return; }
+  const args = { p_pharmacy: SESS.pharmacy.id, p_role: role };
+  if (SESS.client?.cloudflare && role !== 'partner') {
+    args.p_branch_ids = [...document.querySelectorAll('input[name="inviteBranch"]:checked')].map((x) => x.value);
+    if (!args.p_branch_ids.length) { $('branchMsg').textContent = 'اختار فرع واحد على الأقل للموظف.'; return; }
+  }
   $('branchMsg').textContent = 'لحظة…';
-  const { data, error } = await SESS.client.rpc('create_invite', { p_pharmacy: SESS.pharmacy.id, p_role: role });
+  const { data, error } = await SESS.client.rpc('create_invite', args);
   if (error) { $('branchMsg').textContent = arabicError(error).message; return; }
   $('branchMsg').textContent = '';
   INVITE = { code: data, role };
   $('inviteText').innerHTML = `الكود: <b class="n" style="font-size:1.2rem">${esc(data)}</b> (${{ device: 'لجهاز الصيدلية', partner: 'لشريك', pharmacist: 'لصيدلي', accountant: 'لمحاسب', stock: 'لمسؤول مخزن' }[role] || ''})`;
   $('inviteOut').hidden = false;
+});
+$('memberBranches').addEventListener('toggle', () => { if ($('memberBranches').open) loadBranchMembers(); });
+$('memberBranchList').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-save-branches]'); if (!b) return;
+  const card = b.closest('[data-branch-member]'), status = card.querySelector('[role="status"]');
+  const p_branch_ids = [...card.querySelectorAll('input[name="branchId"]:checked')].map((x) => x.value);
+  b.disabled = true; status.textContent = 'بيحفظ…';
+  const { error } = await SESS.client.rpc('set_member_branches', { p_pharmacy: SESS.pharmacy.id, p_user_id: b.dataset.saveBranches, p_branch_ids });
+  status.textContent = error ? arabicError(error).message : 'اتحفظت الصلاحيات.';
+  b.disabled = false;
+  if (!error) await loadBranchMembers();
 });
 $('inviteShare').addEventListener('click', () => {
   if (!INVITE) return;
