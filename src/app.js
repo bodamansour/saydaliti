@@ -2482,6 +2482,10 @@ async function refreshServerBackups() {
   const ok = r.data.find((b) => b.status === 'ok'), failed = r.data.find((b) => b.status === 'failed');
   const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
   $('serverBackupState').textContent = ok ? `آخر نسخة: ${t(ok.created_at)}.` : 'لسه مفيش نسخة.';
+  // Older than 36 hours (the daily job should have made one): said in red.
+  const old = !ok || Date.now() - Date.parse(ok.created_at) > 36 * 3600000;
+  $('serverBackupState').className = old ? 'err' : 'note';
+  if (ok && old) $('serverBackupState').textContent += ' النسخة دي قديمة: النسخة اليومية ما اتعملتش.';
   if (failed && (!ok || failed.created_at > ok.created_at)) $('serverBackupState').textContent += ` آخر محاولة ما نجحتش (${t(failed.created_at)}).`;
 }
 $('cloudBackupBox').addEventListener('toggle', () => { if ($('cloudBackupBox').open) refreshServerBackups(); });
