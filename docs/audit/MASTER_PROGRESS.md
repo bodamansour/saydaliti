@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | Current phase | **Phase 1 follow-ups done; PR opened for CI; Phase 2 (M1 inventory, M2 backup) authorized for isolated implementation only.** |
-| Branch | `ccr-94719aa6-7k3i5e` (not merged) |
+| Branch | `ccr-94719aa6-7k3i5e` (not merged) · **Draft PR #51** (https://github.com/bodamansour/saydaliti/pull/51), opened for CI only — do not merge yet |
 | Base commit | `7d23b83` (= `main` at 2026-10-31) |
 | Production | **Not modified.** No deploy, no remote migration, no live database or Cloudflare account access, and no request to the production site. GitHub Actions run history was read (metadata only). |
 | Release decision | **NOT READY** (Phase 2 items: server-side stock, cloud backup with a restore drill) |
@@ -35,6 +35,22 @@
 |---|---|---|---|---|---|
 | F1 | Returns without a receipt need a manager's approval: the owner flags employees; the approver types their own PIN; the server keeps an immutable approval bound to that return (id, amount, reason, cashier, approver, account) | **Done** | migration `0012_return_approvals.sql`, `worker/src/rpc.js` (`approve_no_receipt_return`, `checkApproval`), `src/cashier.js` (approval dialog), `src/attendance-app.js` (owner checkbox), `src/local-db.js` | API test (refusals: no approval, flag not set, device can't set it, wrong PIN, same person, no cashier, no reason, positive amount, reuse, other amount/cashier; record + audit; owner-only writes); browser tests on the local Worker and on the stub; migration apply/rollback/re-apply on a local D1 (237 receipts, 19 employees preserved) | commit 28a5529 |
 | F2 | Delayed and offline receipts: inspected; reused id with other contents refused (409, kept on the device); odd times flagged, never refused; late-receipt policy **proposed, not enforced** | **Done** | `worker/src/db.js` (`sameReceipt`), `worker/src/rpc.js` (`timeFlags`), `src/app.js` (log labels), `docs/architecture/OFFLINE_SYNC.md` | API test for retries, conflicts, late-but-normal receipts and each flag | commit 9a33ad9 |
+
+## Pull request and CI
+
+| Item | Result |
+|---|---|
+| Pre-flight before opening PR #51 | Branch, history and working tree verified (clean, 9 commits on top of `main` `7d23b83`). Diff scanned for secrets, credentials, emails, phone numbers and data files: none. Workflows a PR can trigger: `test.yml` (no secrets, local D1 only), `desktop.yml` and `android.yml` (build only; publishing is gated to non-PR events; Android didn't trigger). `cloudflare.yml` can't run on a PR. |
+| Note | **Merging** would run `desktop.yml` on `main` and publish a new Windows installer to the public `desktop-latest` release. That isn't a server deploy, but it is a public release. |
+| CI on `8b70d70` | **Windows program: success** (installer build + smoke on Windows). **Tests: failure.** The `test` job failed (the stub test for no-receipt returns clicked return mode before the reload finished, and 11 tests cascaded from it). The Windows United/SQL Server job passed. Fixed in `ec2627b`; local 3/3. |
+| CI on later commits | See the Phase 2 report |
+
+## Phase 2 (authorized 2026-11-03: planning + isolated implementation; no production)
+
+| # | Milestone | Status | Location | Tests executed | Evidence |
+|---|---|---|---|---|---|
+| P2-M1 | Server-authoritative inventory: ledger in the same atomic batch as every movement, levels by trigger, reversals, openings with a watermark, optional oversell guard inside the receipt's INSERT, stale after upload, reconciliation | **Done (local)** | migration `0013_stock_ledger.sql`, `worker/src/stock.js`, `worker/src/db.js`, `worker/src/rpc.js` (`stock_status`, `open_stock`, `set_stock_policy`), `src/stock-reconcile.js`, `src/app.js`, `src/cashier.js`, `docs/architecture/INVENTORY_LEDGER.md` | `worker/test/stock.test.mjs` 8/8 (2 devices → 1 sale; 10 devices for 3 boxes → 3); mutation check (guard off → test fails); reconcile unit 3/3; browser flow; 0013 apply/rollback/re-apply on a copy (1,179 receipts, 113 purchases kept) | commit 2f69a2f |
+| P2-M2 | Backup and recovery | In progress | — | — | — |
 
 ## Final Phase 1 test results (this environment, 2026-11-03)
 
@@ -120,6 +136,9 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 - A return without a receipt now needs a connection and staff PINs set up (by design, F1). A pharmacy that has no employees can no longer make such returns until the owner adds staff and flags an approver.
 - New Arabic strings (approval dialog, log flags) have no English translation yet; they show in Arabic in English mode.
 - `local-db.js` (desktop offline mode) applies the approval rules, but only by code review: no automated test covers that path (it needs IndexedDB in a browser test).
+- Phase 2 M1: production D1 support for the `stock_ledger_apply` trigger is **untested** (local Miniflare only). Needs staging or the first release run.
+- Phase 2 M1: the oversell block works at the cashier only when it's online. An offline sale that oversells is refused on arrival and kept in the device's refused list (by design: never discarded).
+- Phase 2 M1: batches, expiry and FEFO are still computed in the app; the server keeps boxes per item and branch only.
 - Intermittent test: 1 failure in about 11 runs of the combined Worker + Cloudflare browser suite, at the item-file upload step of the first browser test (not changed in this phase); not reproduced in the next 8 runs; cause unknown.
 
 ## Architectural decisions
@@ -135,6 +154,8 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 | 2026-11-03 | Receipt uniqueness via a guarded INSERT plus a partial unique index on the new `receipt_device` column | Cannot fail on legacy duplicates; atomic under concurrency |
 | 2026-11-03 | The manager for a no-receipt return is an employee the owner flags (`can_approve_returns`), approving with their own PIN online (owner decision) | Uses the existing PIN check and roles; no PIN stored on devices |
 | 2026-11-03 | Late receipts: detect and flag, don't refuse, until the owner sets a policy from measured lags | Owner decision 2: no arbitrary threshold |
+| 2026-11-03 | Server stock = append-only ledger plus a trigger-kept level, written in the same D1 batch as the movement; selling below zero stays **allowed by default** (today's behaviour), and blocking is per branch, owner-set | Atomic, idempotent and auditable; no behaviour change until the owner opts in |
+| 2026-11-03 | Server levels start from an explicit opening of the app's numbers (with a watermark), not from parsing the uploaded file on the server | Free-plan CPU limits; keeps one stock algorithm (`liveData`) as the reference |
 
 ## UI/UX redesign progress
 
@@ -170,3 +191,4 @@ Restart `wrangler dev` after adding files under `src/` or changing `worker/publi
 - **2026-11-03 (Phase 0):** Audit. Ran every suite runnable on Linux, probed the sale API locally, captured screenshots of all 32 tabs plus the cashier and phone layouts. No application code changed.
 - **2026-11-03 (Phase 1):** Milestones M1–M5 above. Commits on `ccr-94719aa6-7k3i5e` after `0fc1522`. Production untouched.
 - **2026-11-03 (Phase 1 follow-ups):** F1 manager approval (`28a5529`), F2 offline receipts (`9a33ad9`). Production untouched.
+- **2026-11-03 (PR + Phase 2 M1):** Draft PR #51; CI fix `ec2627b`; M1 server stock (`2f69a2f`). Production untouched.
