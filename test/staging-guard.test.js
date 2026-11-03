@@ -2,8 +2,8 @@
 // remote staging check has passed. Pure checks only: no wrangler, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { checkConfig, checkWranglerArgs, STAGING, PRODUCTION } from '../worker/scripts/staging-guard.mjs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { checkConfig, checkWranglerArgs, verifyRemote, STAGING, PRODUCTION } from '../worker/scripts/staging-guard.mjs';
 
 const toml = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
 const staging = (fn) => toml.replace(/^\[env\.staging\][\s\S]*$/m, (part) => fn(part));
@@ -75,7 +75,55 @@ test('wrangler: production names, other environments, other configs and unlisted
     ['d1', 'execute', 'DB', '--remote', '--command', 'SELECT 1; DROP TABLE sales'],
     ['d1', 'execute', 'DB', '--remote', '--file', 'x.sql'],
     ['d1', 'execute', 'DB', '--remote', '--local', '--command', 'SELECT 1'],
+    // writes only in their exact reviewed form
+    ['deploy', '--route', 'pharmacy.example/*'],
+    ['deploy', '--routes=pharmacy.example/*'],
+    ['deploy', '--domain', 'pharmacy.example'],
+    ['deploy', '--var', 'SITE_URL:https://saydaliti.mosaedapp.workers.dev'],
+    ['deploy', '--triggers', '* * * * *'],
+    ['deploy', 'src/other.js'],
+    ['d1', 'migrations', 'apply', 'DB'],
+    ['d1', 'migrations', 'apply', 'DB', '--remote', '--persist-to', 'x'],
+    ['secret', 'put', 'BACKUP_KEY', '--name', 'saydaliti'],
+    ['secret', 'bulk', 'x.json'],
+    ['triggers', 'deploy'],
+    ['versions', 'deploy'],
+    ['deployments', 'list', '--name', 'saydaliti'],
     [],
   ];
   for (const args of refused) assert.throws(() => checkWranglerArgs(args, ok), undefined, args.join(' '));
+});
+
+test('remote proof: the token must be active, see exactly the staging account, and reach the staging D1 and R2', async () => {
+  const account = 'a'.repeat(32);
+  const good = {
+    '/user/tokens/verify': { ok: true, result: { status: 'active', expires_on: '2027-01-01T00:00:00Z' } },
+    '/accounts?per_page=50': { ok: true, result: [{ id: account }] },
+    [`/accounts/${account}/d1/database/${STAGING.dbId}`]: { ok: true, result: { uuid: STAGING.dbId, name: STAGING.dbName } },
+    [`/accounts/${account}/r2/buckets/${STAGING.bucket}`]: { ok: true, result: { name: STAGING.bucket } },
+  };
+  const fake = (over = {}) => async (path) => ({ status: 200, errors: [], ...((path in over ? over : good)[path] || { ok: false, status: 404 }) });
+  assert.equal(await verifyRemote(fake(), account), true);
+  const bad = {
+    'inactive token': { '/user/tokens/verify': { ok: true, result: { status: 'disabled' } } },
+    'token sees two accounts': { '/accounts?per_page=50': { ok: true, result: [{ id: account }, { id: 'b'.repeat(32) }] } },
+    'token sees another account': { '/accounts?per_page=50': { ok: true, result: [{ id: 'b'.repeat(32) }] } },
+    'accounts unreadable': { '/accounts?per_page=50': { ok: false, status: 403 } },
+    'staging D1 missing': { [`/accounts/${account}/d1/database/${STAGING.dbId}`]: { ok: false, status: 404 } },
+    'D1 renamed': { [`/accounts/${account}/d1/database/${STAGING.dbId}`]: { ok: true, result: { uuid: STAGING.dbId, name: 'saydaliti' } } },
+    'staging bucket missing': { [`/accounts/${account}/r2/buckets/${STAGING.bucket}`]: { ok: false, status: 404 } },
+  };
+  for (const [what, over] of Object.entries(bad)) await assert.rejects(verifyRemote(fake(over), account), undefined, what);
+  await assert.rejects(verifyRemote(fake(), 'b'.repeat(32)), undefined, 'a different configured account');
+});
+
+test('no script calls wrangler remotely except through the guard', () => {
+  const dir = new URL('../worker/scripts/', import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.mjs') && f !== 'staging-guard.mjs')) {
+    const src = readFileSync(new URL(f, dir), 'utf8');
+    for (const line of src.split('\n').filter((l) => /['"]wrangler['"]/.test(l) && /execFile|spawn|exec\(/.test(l))) {
+      assert.ok(/'--local'/.test(line) || /checkWranglerArgs\(/.test(line), `${f}: ${line.trim()}`);
+      assert.doesNotMatch(line, /'--remote'/, `${f}: ${line.trim()}`);
+    }
+  }
 });

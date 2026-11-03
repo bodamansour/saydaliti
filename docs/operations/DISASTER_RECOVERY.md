@@ -76,7 +76,7 @@ These timings come from a small test pharmacy on a local machine. They are **not
 
 ## 6. Before this goes to production (needs owner approval)
 
-1. Create the `BACKUP_KEY` Worker secret: a long random value, at least 32 characters. **Store a copy offline: without it the backups cannot be opened.** The release workflow warns if it is missing.
+1. Create the `BACKUP_KEY` Worker secret: at least 32 characters from a **cryptographic** generator (`openssl rand -base64 48`, or `RandomNumberGenerator` in PowerShell; never `Get-Random`). **Store a copy offline: without it the backups cannot be opened.** The release workflow warns if it is missing.
 2. Apply migration 0014 (with the release).
 3. Run the drill on **staging** with a realistic volume, then record RTO.
 4. Check the Worker CPU and memory limits of the current Cloudflare plan against the size of the largest pharmacy. The daily job reads the whole pharmacy and the uploaded files, so it may need the paid plan.

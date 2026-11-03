@@ -24,6 +24,7 @@ export const STAGING = Object.freeze({
   dbName: 'saydaliti-staging',
   dbId: '0ba7c0dd-645e-453e-9999-a316a828e175',
   bucket: 'saydaliti-files-staging',
+  cron: '*/30 * * * *',
   urlHost: /^https:\/\/saydaliti-staging\.[a-z0-9-]+\.workers\.dev$/,
 });
 // Production, fixed here on purpose (not only read from wrangler.toml, so editing the file can't move the target).
@@ -122,23 +123,27 @@ const READS = [
   ['r2', 'bucket', 'info'],
   ['deployments', 'list'],
 ];
+// Writes are allowed only in these exact forms (no extra options: e.g. `deploy --route …` or `--var …`
+// could change routes or bindings outside wrangler.toml).
 const WRITES = [
   ['deploy'],
-  ['d1', 'migrations', 'apply'],
-  ['secret', 'put'],
+  ['d1', 'migrations', 'apply', 'DB', '--remote'],
+  ['secret', 'put', 'BACKUP_KEY'],
+  ['secret', 'put', 'PIN_PEPPER'],
 ];
+const WRITE_VERBS = [['deploy'], ['d1', 'migrations', 'apply'], ['secret', 'put'], ['versions'], ['rollback'], ['delete'], ['triggers'], ['r2', 'object', 'put'], ['d1', 'create'], ['d1', 'delete'], ['r2', 'bucket', 'create'], ['r2', 'bucket', 'delete'], ['secret', 'delete'], ['secret', 'bulk']];
 const startsWith = (args, cmd) => cmd.every((c, i) => args[i] === c);
 
 export function checkWranglerArgs(args, { markerOk = false } = {}) {
   if (!Array.isArray(args) || !args.length) fail('no wrangler command');
-  const write = WRITES.find((c) => startsWith(args, c));
-  const read = READS.find((c) => startsWith(args, c));
-  if (!write && !read) fail(`wrangler ${args.slice(0, 3).join(' ')} is not on the staging allowlist`);
+  const write = WRITES.find((c) => c.length === args.length && startsWith(args, c));
+  const read = !WRITE_VERBS.some((c) => startsWith(args, c)) && READS.find((c) => startsWith(args, c));
+  if (!write && !read) fail(`wrangler ${args.slice(0, 4).join(' ')} is not on the staging allowlist (writes are allowed only in their exact reviewed form)`);
 
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     // The environment is added here, always; nobody else picks it, and no other config file or name may be given.
-    if (/^(--env|-e|--config|-c|--name|--script-name|--account-id|--env-file)(=|$)/.test(a)) fail(`option ${a.split('=')[0]} is not allowed (the guard sets the environment)`);
+    if (/^(--env|-e|--config|-c|--name|--script-name|--account-id|--env-file|--route|--routes|--domain|--domains|--triggers|--schedule|--var|--define|--assets|--site|--persist-to|--preview)(=|$)/.test(a)) fail(`option ${a.split('=')[0]} is not allowed (the guard sets the environment)`);
     for (const [what, re] of productionPatterns()) if (re.test(a) || (what === 'Worker or D1 name' && a === PRODUCTION.dbName)) fail(`argument names the production ${what}: refused`);
   }
   // D1 commands: only the staging binding, by its binding name.
@@ -158,7 +163,6 @@ export function checkWranglerArgs(args, { markerOk = false } = {}) {
     if (args[1] === 'object' && !path.startsWith(`${STAGING.bucket}/`)) fail(`r2 object path must be in ${STAGING.bucket}`);
     if (args[1] === 'bucket' && path !== STAGING.bucket) fail(`r2 bucket must be ${STAGING.bucket}`);
   }
-  if (startsWith(args, ['secret', 'put']) && !['BACKUP_KEY', 'PIN_PEPPER'].includes(args[2])) fail(`secret ${args[2]} is not a staging secret this workflow sets`);
   if (write && !markerOk) fail(`wrangler ${write.join(' ')} refused: the remote staging check has not passed for this commit`);
   return [...args, '--env', 'staging'];
 }
@@ -187,19 +191,32 @@ async function cf(path) {
   return { status: res.status, ok: res.ok && body.success === true, result: body.result, errors: (body.errors || []).map((e) => `${e.code} ${e.message}`) };
 }
 
-async function remote() {
-  const { account } = credentials();
-  const v = await cf('/user/tokens/verify');
+// The Cloudflare API part of the remote proof. `get` is the API reader (a fake one in the tests).
+export async function verifyRemote(get, account) {
+  const v = await get('/user/tokens/verify');
   if (!v.ok || v.result?.status !== 'active') fail(`the staging token is not active (${v.status} ${v.errors.join('; ')})`);
   if (v.result?.expires_on) console.log('staging token expires:', v.result.expires_on);
   else console.log('::warning::the staging token has no expiry date; consider setting one');
 
-  const db = await cf(`/accounts/${account}/d1/database/${STAGING.dbId}`);
+  // The token must see exactly one account, the configured one (a token that reaches several accounts is
+  // broader than this workflow needs). D1 UUIDs are unique, so finding the staging UUID there pins the account.
+  const acc = await get('/accounts?per_page=50');
+  if (!acc.ok) fail(`cannot list the token's accounts (${acc.status} ${acc.errors.join('; ')})`);
+  const ids = (acc.result || []).map((a) => a.id);
+  if (ids.length !== 1 || ids[0] !== account) fail(`the staging token must see exactly one account, CLOUDFLARE_STAGING_ACCOUNT_ID (it sees ${ids.length}${ids.includes(account) ? ', including it' : ', not including it'})`);
+
+  const db = await get(`/accounts/${account}/d1/database/${STAGING.dbId}`);
   if (!db.ok) fail(`the staging D1 ${STAGING.dbId} is not reachable in this account (${db.status} ${db.errors.join('; ')})`);
   if (db.result?.uuid !== STAGING.dbId || db.result?.name !== STAGING.dbName) fail(`D1 ${STAGING.dbId} is "${db.result?.name}", not ${STAGING.dbName}`);
 
-  const r2 = await cf(`/accounts/${account}/r2/buckets/${STAGING.bucket}`);
+  const r2 = await get(`/accounts/${account}/r2/buckets/${STAGING.bucket}`);
   if (!r2.ok || r2.result?.name !== STAGING.bucket) fail(`the staging bucket ${STAGING.bucket} is not reachable (${r2.status} ${r2.errors.join('; ')})`);
+  return true;
+}
+
+async function remote() {
+  const { account } = credentials();
+  await verifyRemote(cf, account);
 
   // Wrangler resolves the binding to the same database (same file, same environment the wrapper forces).
   const info = JSON.parse(execFileSync('npx', ['wrangler', ...checkWranglerArgs(['d1', 'info', 'DB', '--json'])], { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
@@ -213,7 +230,8 @@ async function schedules() {
   const { account } = credentials();
   const s = await cf(`/accounts/${account}/workers/scripts/${STAGING.worker}/schedules`);
   console.log('success:', s.ok, 'schedules:', JSON.stringify((s.result?.schedules || []).map((x) => x.cron)), s.errors.length ? `errors: ${s.errors.join('; ')}` : '');
-  if (!s.ok) process.exitCode = 1;
+  const got = (s.result?.schedules || []).map((x) => x.cron);
+  if (!s.ok || got.length !== 1 || got[0] !== STAGING.cron) fail(`the staging Worker's schedules are ${JSON.stringify(got)}, expected ["${STAGING.cron}"]`);
 }
 
 // ---------- CLI ----------
@@ -231,6 +249,9 @@ async function main(argv) {
     await schedules();
   } else if (mode === 'run') {
     const args = rest[0] === '--' ? rest.slice(1) : rest;
+    // wrangler reads wrangler.toml again for every call: check it again too.
+    const problems = checkConfig(readFileSync(join(WORKER, 'wrangler.toml'), 'utf8'));
+    if (problems.length) fail(`wrangler.toml:\n  - ${problems.join('\n  - ')}`);
     const full = checkWranglerArgs(args, { markerOk: markerValid() });
     credentials();
     execFileSync('npx', ['wrangler', ...full], { cwd: WORKER, stdio: 'inherit' });
