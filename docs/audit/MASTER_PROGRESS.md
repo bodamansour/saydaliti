@@ -44,7 +44,10 @@
 | Note | **Merging** would run `desktop.yml` on `main` and publish a new Windows installer to the public `desktop-latest` release. That isn't a server deploy, but it is a public release. |
 | CI on `8b70d70` | **Windows program: success** (installer build + smoke on Windows). **Tests: failure.** The `test` job failed (the stub test for no-receipt returns clicked return mode before the reload finished, and 11 tests cascaded from it). The Windows United/SQL Server job passed. Fixed in `ec2627b`; local 3/3. |
 | CI on `2f69a2f` / `ec2627b` / `83a239c` | Windows program: **success** on each. Tests: **failure**, 1 of 47 in the Worker/browser step on `83a239c`. The stock browser test had a false step (it matched the refusal message still on screen from the previous attempt; on CI the box sold). Fixed in `226519d`. The dashboard suite passed on CI after `ec2627b`. |
-| CI on `226519d` | Pending at the time of writing; see the session report |
+| CI on `34b9aa9` (Tests #129) | **success** (all jobs: unit, dashboard, Worker + stock + backup + browser on local D1/R2, Windows SQL Server sync) |
+| CI on `226519d` (Tests #130) | failure, 1 test: the approval browser test timed out waiting for a dialog after F2 (the cashier was still loading). Same code as `647e01c`, which passed. Test synchronization fixed in `34887a7`. |
+| CI on `647e01c` (Tests #131, Windows #105) | **success** |
+| CI on `34887a7` | see the session report |
 
 ## Phase 2 (authorized 2026-11-03: planning + isolated implementation; no production)
 
