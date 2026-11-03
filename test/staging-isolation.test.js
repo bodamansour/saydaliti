@@ -49,7 +49,7 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   assert.doesNotMatch(pre, /secrets\./);
   assert.match(dep, /needs: preflight/);
   assert.match(dep, /environment: staging/);
-  assert.match(dep, /if: github\.actor == github\.repository_owner && \(github\.ref == 'refs\/heads\/ccr-94719aa6-7k3i5e' \|\| github\.ref == 'refs\/heads\/main'\)/);
+  assert.match(dep, /if: github\.event_name == 'workflow_dispatch' && github\.actor == github\.repository_owner && \(github\.ref == 'refs\/heads\/ccr-94719aa6-7k3i5e' \|\| github\.ref == 'refs\/heads\/main'\)/);
   assert.ok(dep.indexOf('$GUARD remote') > 0 && dep.indexOf('$GUARD remote') < dep.indexOf('migrations apply'), 'the remote check comes before any write');
   // Every wrangler call goes through the guard; no direct `wrangler` / `npx wrangler` in the workflow.
   assert.doesNotMatch(wf, /npx wrangler|^\s*wrangler /m);

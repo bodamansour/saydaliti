@@ -8,7 +8,7 @@ The staging resources live on the **same Cloudflare account** as production; tha
 
 | | Production (not touched) | Staging |
 |---|---|---|
-| Worker | `saydaliti` (`https://saydaliti.mosaedapp.workers.dev`) | `saydaliti-staging` (`https://saydaliti-staging.mosaedapp.workers.dev`) |
+| Worker | `saydaliti` (`https://saydaliti.mosaedapp.workers.dev`) | `saydaliti-staging` (`https://saydaliti-staging.mosaedapp.workers.dev`). **Not created yet:** the first staging deploy creates it. |
 | D1 | `saydaliti`, `3cf7edd2-1642-428b-bf1b-973f71d93529` | `saydaliti-staging`, `0ba7c0dd-645e-453e-9999-a316a828e175` (EEUR) |
 | R2 | `saydaliti-files` | `saydaliti-files-staging` |
 | Secrets | `PIN_PEPPER`, … (unchanged) | `BACKUP_KEY` (from GitHub `STAGING_BACKUP_KEY`); `PIN_PEPPER` (random, staging only) |
@@ -27,9 +27,9 @@ Unrelated resources on the same account (`mosaed-cloud*` Workers, `mosaed-files*
 | Mode | What it checks |
 |---|---|
 | `config` (no credentials) | `[env.staging]`:<br>• Worker `saydaliti-staging`, `workers_dev` only, no routes;<br>• exactly one D1 (`saydaliti-staging` / `0ba7c0dd-…`) and one R2 (`saydaliti-files-staging`);<br>• no preview ids;<br>• no unreviewed binding kinds;<br>• a staging `SITE_URL`;<br>• no production id, name, bucket or URL anywhere in the section;<br>• production's own bindings unchanged. |
-| `remote` (read-only, before any write) | • The token is active (its expiry is printed; a warning if it has none).<br>• The account in `CLOUDFLARE_STAGING_ACCOUNT_ID` holds D1 `0ba7c0dd-…` named `saydaliti-staging` and the bucket `saydaliti-files-staging`.<br>• Wrangler resolves the `DB` binding to that same UUID.<br>• It then writes a marker for this commit (no secrets in it). |
-| `run -- <args>` (every wrangler call) | • Adds `--env staging` itself.<br>• Refuses `--env`, `--config`, `--name`, `--account-id` and any argument naming a production resource.<br>• Allows only: `d1 info / migrations list / migrations apply / execute` (one `SELECT` only), `secret list`, `secret put BACKUP_KEY or PIN_PEPPER`, `r2 object get` and `r2 bucket info` in the staging bucket, `deploy`, `deployments list`, `whoami`.<br>• Never `create`, `delete`, `rollback` or `r2 object put`.<br>• Writes (deploy, migrations apply, secret put) are refused unless the `remote` check passed for the same commit. |
-| `schedules` | Reads the staging Worker's cron schedules. |
+| `remote` (read-only, before any write) | • The token is active (its expiry is printed; a warning if it has none).<br>• The token sees **exactly one** account, and it is `CLOUDFLARE_STAGING_ACCOUNT_ID`. D1 UUIDs are globally unique, so finding the staging UUID there pins the account.<br>• The account in `CLOUDFLARE_STAGING_ACCOUNT_ID` holds D1 `0ba7c0dd-…` named `saydaliti-staging` and the bucket `saydaliti-files-staging`.<br>• Wrangler resolves the `DB` binding to that same UUID.<br>• It then writes a marker for this commit (no secrets in it). |
+| `run -- <args>` (every wrangler call) | • Checks `wrangler.toml` again first.<br>• Adds `--env staging` itself.<br>• Refuses `--env`, `--config`, `--name`, `--account-id`, `--route(s)`, `--domain(s)`, `--triggers`, `--var`, `--define`, `--assets`, `--persist-to`, `--preview` and any argument naming a production resource.<br>• Allows only: `d1 info / migrations list / migrations apply / execute` (one `SELECT` only), `secret list`, `secret put BACKUP_KEY or PIN_PEPPER`, `r2 object get` and `r2 bucket info` in the staging bucket, `deploy`, `deployments list`, `whoami`.<br>• Never `create`, `delete`, `rollback` or `r2 object put`.<br>• Writes are allowed only in their exact reviewed form: `deploy`, `d1 migrations apply DB --remote`, `secret put BACKUP_KEY`, `secret put PIN_PEPPER`. Any extra option is refused. They are refused unless the `remote` check passed for the same commit. |
+| `schedules` | Reads the staging Worker's cron schedules and fails unless they are exactly `*/30 * * * *`. |
 
 The guard never reads the production token, and it never sends a request about a production resource.
 
@@ -56,14 +56,18 @@ The guard never reads the production token, and it never sends a request about a
    - **Environment secrets:** move `CLOUDFLARE_STAGING_API_TOKEN` here and add `STAGING_BACKUP_KEY`. After that, delete the repository-level copy of the token: repository secrets can be read by workflows run from branches of this repository, including pull requests opened from them, while environment secrets are released only to a job that the environment admits.
    - **Environment variable:** `CLOUDFLARE_STAGING_ACCOUNT_ID`, the 32-character account id (Cloudflare dashboard → any page → Account ID). It isn't secret; the guard uses it to prove the token reaches the staging database in that account.
 3. **The staging backup key, made on your own computer:**
-   - `openssl rand -base64 48` (macOS/Linux), or in PowerShell: `[Convert]::ToBase64String((1..48|%{Get-Random -Max 256}))`.
+   - `openssl rand -base64 48` (macOS/Linux), or in PowerShell 7: `[Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(48))`. That gives 64 characters and 384 random bits. The Worker needs at least 32 characters; it uses the text as HKDF input.
+   - Don't use `Get-Random`: it isn't a cryptographic generator. An earlier version of this page suggested it; a key made that way should be replaced.
+   - Paste it **only** into GitHub's secret form (Settings → Environments → `staging` → Add secret, name `STAGING_BACKUP_KEY`). The workflow passes it to the Worker as `BACKUP_KEY` through standard input; it never appears in an argument or a log.
    - **Keep an offline copy:** your password manager, plus a printed or written copy in a sealed envelope stored separately from the computer. Without it, staging backups can't be opened (by design).
 
 **Key rotation:** make a new key, put the new one in `STAGING_BACKUP_KEY` and the old one in a Worker secret `BACKUP_KEYS_OLD` (comma-separated). Old backups stay readable (tested). Keep the old key's offline copy until its backups have expired (14 per pharmacy).
 
 ## 4. Running it (only after the owner's approval)
 
-Change `.github/staging-run` on the working branch and push, or (once the workflow is on `main`) use Actions → Cloudflare staging validation → Run workflow, typing `STAGING`.
+**Deploy:** only from a manual run, Actions → Cloudflare staging validation → Run workflow (branch `ccr-94719aa6-7k3i5e`, type `STAGING`). GitHub shows that button only when a file named `.github/workflows/staging.yml` exists on the default branch (`main`); today it doesn't. Getting it there needs a decision by the owner (§5).
+
+**Preflight only:** changing `.github/staging-run` on the working branch runs the credential-free `preflight` job; `deploy` is skipped.
 
 **Job `preflight`** (no secrets): isolation and guard tests, then `staging-guard config`.
 
@@ -81,6 +85,25 @@ Change `.github/staging-run` on the working branch and push, or (once the workfl
 
 Reports are uploaded as the `staging-reports` artifact.
 
-## 5. Cleaning up (when staging is no longer needed; needs your approval)
+## 5. Verification status (2026-11-03)
+
+| Check | How | Result |
+|---|---|---|
+| D1 `saydaliti-staging` = `0ba7c0dd-645e-453e-9999-a316a828e175`, empty (12,288 bytes); production `saydaliti` `3cf7edd2-…` 479,232 bytes (unchanged); throwaway `saydaliti-staging-sqlcheck` `20c6fee5-…` | Cloudflare read-only (connector) | Verified |
+| R2 `saydaliti-files-staging` exists; production `saydaliti-files` exists | Cloudflare read-only | Verified |
+| Worker `saydaliti-staging` | Cloudflare read-only | **Doesn't exist yet**; production `saydaliti` last modified 2026-10-31 |
+| Account id | — | **Not verified:** the connector doesn't show it. The guard checks it at run time. |
+| GitHub environment `staging`, its reviewers, branches, secrets and variable | — | **Not verified / not created:** this session has no GitHub tool for environments or secrets |
+| `staging.yml` on `main` (needed for the Run workflow button) | GitHub read | **Absent** |
+| Guard and isolation tests | Local + CI | Pass |
+| Migrations 0001–0014 | Local review | Additive (0010 backfills a new column; every `DROP` is in rollback comments) |
+
+**Decision needed: how to make the manual run possible.**
+- **Option A (recommended):** a small separate PR to `main` that adds only `.github/workflows/staging.yml`, `worker/scripts/staging-guard.mjs` and the two guard tests.
+  - It deploys nothing: `cloudflare.yml` is manual-only, the staging workflow has no `main` push trigger, and `desktop.yml` ignores these paths.
+  - Merging is the owner's decision.
+- **Option B:** wait until PR #51 is merged.
+
+## 6. Cleaning up (when staging is no longer needed; needs your approval)
 
 Delete the `saydaliti-staging` Worker, the D1 databases `saydaliti-staging` and `saydaliti-staging-sqlcheck`, the R2 bucket `saydaliti-files-staging` (empty it first), the GitHub secrets, and the Cloudflare token.

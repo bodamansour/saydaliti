@@ -6,7 +6,9 @@
 #   - before any write, `staging-guard.mjs remote` proves (read-only) that the token's account holds the staging
 #     D1 and R2; every wrangler call then goes through `staging-guard.mjs run`, which adds --env staging,
 #     allows only listed commands, refuses production names/ids, and refuses writes without that proof.
-# Never triggered by pull requests, schedules or other workflows. Docs: docs/deployment/STAGING.md.
+# The deploy job runs only from a manual run (Actions → Run workflow, typing STAGING). A push of
+# .github/staging-run runs the credential-free preflight only. Never triggered by pull requests,
+# schedules or other workflows. Docs: docs/deployment/STAGING.md.
 name: Cloudflare staging validation
 
 on:
@@ -54,8 +56,9 @@ jobs:
   deploy:
     name: Staging deploy and validation
     needs: preflight
-    # Owner only, from the working branch or main; never a pull request (no such trigger above either).
-    if: github.actor == github.repository_owner && (github.ref == 'refs/heads/ccr-94719aa6-7k3i5e' || github.ref == 'refs/heads/main')
+    # Manual runs only (a push of the request file runs the preflight alone). Owner only, from the working
+    # branch or main; never a pull request (no such trigger above either).
+    if: github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && (github.ref == 'refs/heads/ccr-94719aa6-7k3i5e' || github.ref == 'refs/heads/main')
     environment: staging
     runs-on: ubuntu-latest
     timeout-minutes: 45
