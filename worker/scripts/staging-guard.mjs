@@ -8,14 +8,20 @@
 //                                                  the remote check passed for this commit
 //   node scripts/staging-guard.mjs schedules       read-only: the staging Worker's cron schedules
 //
+// Every wrangler call made here gets `--config <absolute path of worker/wrangler.toml>` (the file this guard
+// checks), so Wrangler's own config discovery (wrangler.json / wrangler.jsonc found in any parent folder, or a
+// .wrangler/deploy/config.json redirect) never runs; and the guard refuses to run at all while such a file exists.
+//
 // It never reads, prints or compares the production token, and it never sends a request about a production
 // resource. Any doubt → exit 1 before wrangler runs. Tested by test/staging-guard.test.js.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, parse } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const WORKER = join(dirname(fileURLToPath(import.meta.url)), '..');
+// Absolute paths from this file's own location, never from the current directory.
+export const WORKER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export const CONFIG = join(WORKER, 'wrangler.toml');
 const MARKER = join(WORKER, '.staging-preflight.json');
 
 // The only resources staging may touch.
@@ -38,6 +44,51 @@ export const PRODUCTION = Object.freeze({
 
 class GuardError extends Error {}
 const fail = (msg) => { throw new GuardError(msg); };
+
+// ---------- which config Wrangler would read ----------
+// Files that would make Wrangler read something other than worker/wrangler.toml if it searched for a config
+// (it walks up from the current folder and prefers wrangler.json / wrangler.jsonc over wrangler.toml; a
+// .wrangler/deploy/config.json redirects deploys; .env in the working folder is loaded into its environment).
+export function alternativeConfigs(worker = WORKER) {
+  const found = [];
+  let dir = resolve(worker);
+  for (;;) {
+    for (const f of ['wrangler.json', 'wrangler.jsonc', join('.wrangler', 'deploy', 'config.json')]) if (existsSync(join(dir, f))) found.push(join(dir, f));
+    const up = dirname(dir);
+    if (up === dir || dir === parse(dir).root) break;
+    dir = up;
+  }
+  for (const f of ['.env', '.env.local']) if (existsSync(join(worker, f))) found.push(join(worker, f));
+  return found;
+}
+export function assertSingleConfig(worker = WORKER) {
+  const alt = alternativeConfigs(worker);
+  if (alt.length) fail(`refusing: other Wrangler config files could change what is deployed: ${alt.join(', ')}`);
+  if (!existsSync(join(worker, 'wrangler.toml'))) fail('worker/wrangler.toml is missing');
+}
+// The one config, checked; used by every mode.
+export function loadCheckedConfig(worker = WORKER) {
+  assertSingleConfig(worker);
+  const problems = checkConfig(readFileSync(join(worker, 'wrangler.toml'), 'utf8'));
+  if (problems.length) fail(`wrangler.toml:\n  - ${problems.join('\n  - ')}`);
+  const code = join(worker, 'src', 'index.js');
+  const codeProblems = existsSync(code) ? checkScheduledHandler(readFileSync(code, 'utf8')) : ['worker/src/index.js is missing'];
+  if (codeProblems.length) fail(`scheduled jobs:\n  - ${codeProblems.join('\n  - ')}`);
+}
+
+// The staging cron must reach only the backup job. In worker/src/index.js the handler has to send
+// event.cron === env.BACKUP_CRON to the backups and return before the morning report or the patient reminders
+// (any other cron would run the reminders).
+export function checkScheduledHandler(src) {
+  const start = src.search(/async\s+scheduled\s*\(/);
+  if (start < 0) return ['no scheduled handler found'];
+  const body = src.slice(start);
+  const backup = body.search(/if\s*\(\s*event\.cron\s*===\s*env\.BACKUP_CRON\s*\)\s*\{[^{}]*backupAll\([^{}]*\breturn\s*;\s*\}/);
+  const firstJob = body.search(/runReminders|runMorning/);
+  if (backup < 0) return ['the scheduled handler does not send BACKUP_CRON to the backups and return (this code would run the patient reminders on the staging cron)'];
+  if (firstJob >= 0 && firstJob < backup) return ['the scheduled handler can start another job before the BACKUP_CRON check'];
+  return [];
+}
 
 // ---------- wrangler.toml ----------
 // Just enough TOML for this file: [section] / [[array]] headers and key = "string" | number | bool | [..].
@@ -95,6 +146,15 @@ export function checkConfig(text) {
   const known = new Set(['env.staging', 'env.staging.vars', 'env.staging.d1_databases', 'env.staging.r2_buckets', 'env.staging.triggers', 'env.staging.observability']);
   for (const t of cfg.tables.filter((t) => t._table.startsWith('env.staging') && !known.has(t._table))) problems.push(`unreviewed staging section [${t._table}]`);
   no(!STAGING.urlHost.test(vars.SITE_URL || ''), `staging SITE_URL is ${vars.SITE_URL}`);
+
+  // Schedules: staging must declare its own triggers (otherwise it inherits production's morning report and
+  // reminders), with exactly the backup cron, and BACKUP_CRON must be that same cron.
+  const trig = tablesOf(cfg, 'env.staging.triggers');
+  let crons = null;
+  try { crons = trig.length === 1 ? JSON.parse(trig[0].crons ?? 'null') : null; } catch { crons = null; }
+  no(!Array.isArray(crons) || crons.length !== 1 || crons[0] !== STAGING.cron, `staging crons must be exactly ["${STAGING.cron}"] (got ${trig.length === 1 ? trig[0].crons : 'no [env.staging.triggers]'})`);
+  no(vars.BACKUP_CRON !== STAGING.cron, `staging BACKUP_CRON must be "${STAGING.cron}" (got ${vars.BACKUP_CRON})`);
+  no(vars.MORNING_CRON === STAGING.cron, 'staging MORNING_CRON must not equal the staging cron');
 
   // No production identifier anywhere in the staging part of the file.
   const stagingText = text.slice(text.search(/^\[env\.staging\]/m));
@@ -167,6 +227,13 @@ export function checkWranglerArgs(args, { markerOk = false } = {}) {
   return [...args, '--env', 'staging'];
 }
 
+// The exact command line every guarded wrangler call runs (read-only proof and writes alike).
+export function guardedArgv(args, { markerOk = false, worker = WORKER } = {}) {
+  assertSingleConfig(worker);
+  return ['wrangler', ...checkWranglerArgs(args, { markerOk }), '--config', join(resolve(worker), 'wrangler.toml')];
+}
+const wrangler = (args, opts) => execFileSync('npx', guardedArgv(args, { markerOk: opts?.markerOk }), { cwd: WORKER, ...opts?.exec });
+
 export function markerValid(sha = process.env.GITHUB_SHA || 'local') {
   if (!existsSync(MARKER)) return false;
   try {
@@ -219,7 +286,7 @@ async function remote() {
   await verifyRemote(cf, account);
 
   // Wrangler resolves the binding to the same database (same file, same environment the wrapper forces).
-  const info = JSON.parse(execFileSync('npx', ['wrangler', ...checkWranglerArgs(['d1', 'info', 'DB', '--json'])], { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  const info = JSON.parse(wrangler(['d1', 'info', 'DB', '--json'], { exec: { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] } }));
   if (info.uuid !== STAGING.dbId || info.uuid === PRODUCTION.dbId) fail(`wrangler resolved DB to ${info.uuid}, not the staging database`);
 
   writeFileSync(MARKER, JSON.stringify({ ok: true, sha: process.env.GITHUB_SHA || 'local', dbId: STAGING.dbId, bucket: STAGING.bucket, worker: STAGING.worker, at: new Date().toISOString() }));
@@ -237,24 +304,20 @@ async function schedules() {
 // ---------- CLI ----------
 async function main(argv) {
   const [mode, ...rest] = argv;
+  // Every mode first checks the one config file (and that no other could be read) and the scheduled handler.
+  loadCheckedConfig();
   if (mode === 'config') {
-    const problems = checkConfig(readFileSync(join(WORKER, 'wrangler.toml'), 'utf8'));
-    if (problems.length) fail(`wrangler.toml:\n  - ${problems.join('\n  - ')}`);
-    console.log('wrangler.toml: staging is isolated from production');
+    console.log('wrangler.toml: staging is isolated from production; the staging cron reaches only the backups');
   } else if (mode === 'remote') {
-    const problems = checkConfig(readFileSync(join(WORKER, 'wrangler.toml'), 'utf8'));
-    if (problems.length) fail(`wrangler.toml:\n  - ${problems.join('\n  - ')}`);
     await remote();
   } else if (mode === 'schedules') {
     await schedules();
   } else if (mode === 'run') {
     const args = rest[0] === '--' ? rest.slice(1) : rest;
-    // wrangler reads wrangler.toml again for every call: check it again too.
-    const problems = checkConfig(readFileSync(join(WORKER, 'wrangler.toml'), 'utf8'));
-    if (problems.length) fail(`wrangler.toml:\n  - ${problems.join('\n  - ')}`);
-    const full = checkWranglerArgs(args, { markerOk: markerValid() });
+    const markerOk = markerValid();
+    guardedArgv(args, { markerOk }); // refuse before touching credentials
     credentials();
-    execFileSync('npx', ['wrangler', ...full], { cwd: WORKER, stdio: 'inherit' });
+    wrangler(args, { markerOk, exec: { stdio: 'inherit' } });
   } else {
     fail('usage: staging-guard.mjs config | remote | schedules | run -- <wrangler args>');
   }

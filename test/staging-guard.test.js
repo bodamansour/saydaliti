@@ -2,8 +2,10 @@
 // remote staging check has passed. Pure checks only: no wrangler, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { checkConfig, checkWranglerArgs, verifyRemote, STAGING, PRODUCTION } from '../worker/scripts/staging-guard.mjs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
+import { join, isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
+import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, checkScheduledHandler, STAGING, PRODUCTION, WORKER, CONFIG } from '../worker/scripts/staging-guard.mjs';
 
 const toml = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
 const staging = (fn) => toml.replace(/^\[env\.staging\][\s\S]*$/m, (part) => fn(part));
@@ -126,4 +128,105 @@ test('no script calls wrangler remotely except through the guard', () => {
       assert.doesNotMatch(line, /'--remote'/, `${f}: ${line.trim()}`);
     }
   }
+});
+
+// ---------- H1: Wrangler must read worker/wrangler.toml and nothing else ----------
+// A throwaway tree: <tmp>/repo/worker/wrangler.toml (the real one), plus whatever an attack adds.
+function tree() {
+  const root = mkdtempSync(join(tmpdir(), 'guard-'));
+  const worker = join(root, 'repo', 'worker');
+  mkdirSync(worker, { recursive: true });
+  copyFileSync(new URL('../worker/wrangler.toml', import.meta.url), join(worker, 'wrangler.toml'));
+  return { root, repo: join(root, 'repo'), worker, done: () => rmSync(root, { recursive: true, force: true }) };
+}
+// What an attacker would put in an alternative config: production Worker, database, bucket, route and crons.
+const PROD_JSON = JSON.stringify({ name: 'saydaliti', main: 'src/index.js', env: { staging: {
+  name: PRODUCTION.worker, routes: ['pharmacy.example/*'], triggers: { crons: ['0 6 * * *', '15 * * * *'] },
+  d1_databases: [{ binding: 'DB', database_name: PRODUCTION.dbName, database_id: PRODUCTION.dbId }],
+  r2_buckets: [{ binding: 'FILES', bucket_name: PRODUCTION.bucket }] } } });
+
+test('the real checkout has no alternative Wrangler config, and every guarded call names worker/wrangler.toml absolutely', () => {
+  assert.deepEqual(alternativeConfigs(), []);
+  assert.ok(isAbsolute(CONFIG) && CONFIG === join(WORKER, 'wrangler.toml'));
+  const argv = guardedArgv(['d1', 'info', 'DB', '--json']);
+  assert.deepEqual(argv.slice(-4), ['--env', 'staging', '--config', CONFIG]);
+  assert.deepEqual(guardedArgv(['deploy'], { markerOk: true }), ['wrangler', 'deploy', '--env', 'staging', '--config', CONFIG]);
+});
+
+test('the config path does not depend on the current directory', () => {
+  const t = tree();
+  const before = process.cwd();
+  try { process.chdir(t.root); assert.equal(guardedArgv(['d1', 'info', 'DB']).at(-1), CONFIG); } finally { process.chdir(before); t.done(); }
+});
+
+test('attack: a wrangler.json / wrangler.jsonc in a parent folder (Wrangler prefers it over wrangler.toml) is refused', () => {
+  for (const [where, file] of [['repo', 'wrangler.json'], ['repo', 'wrangler.jsonc'], ['root', 'wrangler.json'], ['worker', 'wrangler.json'], ['worker', 'wrangler.jsonc']]) {
+    const t = tree();
+    try {
+      writeFileSync(join(t[where], file), PROD_JSON);
+      assert.ok(alternativeConfigs(t.worker).length > 0, `${where}/${file} detected`);
+      // Even a read, and even the read-only proof's own d1 info, is refused; so is every write.
+      for (const args of [['d1', 'info', 'DB', '--json'], ['deploy'], ['d1', 'migrations', 'apply', 'DB', '--remote'], ['secret', 'put', 'BACKUP_KEY']]) {
+        assert.throws(() => guardedArgv(args, { markerOk: true, worker: t.worker }), /other Wrangler config files/, `${where}/${file}: ${args.join(' ')}`);
+      }
+    } finally { t.done(); }
+  }
+});
+
+test('attack: a .wrangler/deploy/config.json redirect (here or in a parent folder) or a .env in worker/ is refused', () => {
+  for (const [where, rel] of [['worker', ['.wrangler', 'deploy', 'config.json']], ['repo', ['.wrangler', 'deploy', 'config.json']], ['worker', ['.env']], ['worker', ['.env.local']]]) {
+    const t = tree();
+    try {
+      mkdirSync(join(t[where], ...rel.slice(0, -1)), { recursive: true });
+      writeFileSync(join(t[where], ...rel), rel[0] === '.wrangler' ? JSON.stringify({ configPath: '../../prod.json' }) : 'CLOUDFLARE_ENV=production\n');
+      assert.throws(() => guardedArgv(['deploy'], { markerOk: true, worker: t.worker }), /other Wrangler config files/, `${where}/${rel.join('/')}`);
+    } finally { t.done(); }
+  }
+});
+
+test('a clean tree passes, and a missing wrangler.toml is refused', () => {
+  const t = tree();
+  try {
+    assert.deepEqual(alternativeConfigs(t.worker), []);
+    assert.deepEqual(guardedArgv(['deploy'], { markerOk: true, worker: t.worker }).slice(-2), ['--config', join(t.worker, 'wrangler.toml')]);
+    rmSync(join(t.worker, 'wrangler.toml'));
+    assert.throws(() => guardedArgv(['deploy'], { markerOk: true, worker: t.worker }), /wrangler\.toml is missing/);
+  } finally { t.done(); }
+});
+
+// ---------- M2: schedules ----------
+test('config: the staging schedule must be exactly the backup cron, and BACKUP_CRON must match it', () => {
+  const cases = {
+    'no [env.staging.triggers] (would inherit production crons)': staging((p) => p.replace(/\[env\.staging\.triggers\][^[]*/, '')),
+    'production crons': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = ["0 6 * * *", "15 * * * *"]')),
+    'an extra cron': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = ["*/30 * * * *", "15 * * * *"]')),
+    'another cron': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = ["*/15 * * * *"]')),
+    'unparseable crons': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = [\n  "*/30 * * * *",\n]')),
+    'BACKUP_CRON differs': staging((p) => p.replace('BACKUP_CRON = "*/30 * * * *"', 'BACKUP_CRON = "30 1 * * *"')),
+    'no BACKUP_CRON': staging((p) => p.replace(/BACKUP_CRON = "\*\/30 \* \* \* \*"\n/, '')),
+    'MORNING_CRON equal to the staging cron': staging((p) => p.replace('MORNING_CRON = "0 6 * * *"', 'MORNING_CRON = "*/30 * * * *"')),
+  };
+  for (const [what, text] of Object.entries(cases)) assert.ok(checkConfig(text).some((p) => /cron/i.test(p)), what);
+  assert.deepEqual(checkConfig(toml), []);
+});
+
+test('code: the staging cron may reach only the backups (never the patient reminders or the morning report)', () => {
+  const good = `export default { async scheduled(event, env, ctx) {
+    const e = jobEnv(env);
+    if (event.cron === env.BACKUP_CRON) { ctx.waitUntil(backupAll(env).then((r) => console.log(r))); return; }
+    if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e }));
+    else ctx.waitUntil(runReminders({ env: e }));
+  } };`;
+  assert.deepEqual(checkScheduledHandler(good), []);
+  const bad = {
+    'no backup branch (main before PR #51: every other cron runs the reminders)': `export default { async scheduled(event, env, ctx) {
+      if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({}));
+      else ctx.waitUntil(runReminders({}));
+    } };`,
+    'backup branch without return': good.replace('; return; }', '; }'),
+    'reminders before the backup check': good.replace('const e = jobEnv(env);', 'const e = jobEnv(env); ctx.waitUntil(runReminders({ env: e }));'),
+    'backup check on another variable': good.replace('env.BACKUP_CRON', 'env.MORNING_CRON'),
+    'no scheduled handler': 'export default { fetch() {} };',
+  };
+  for (const [what, src] of Object.entries(bad)) assert.ok(checkScheduledHandler(src).length > 0, what);
 });
