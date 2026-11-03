@@ -82,7 +82,35 @@ These timings come from a small test pharmacy on a local machine. They are **not
 4. Check the Worker CPU and memory limits of the current Cloudflare plan against the size of the largest pharmacy. The daily job reads the whole pharmacy and the uploaded files, so it may need the paid plan.
 5. Decide alerting: today a failure is listed for the owner and in the log. There is no push or e-mail alert.
 
-## 7. Limits
+## 7. Key rotation and key loss (tested 2026-11-03)
+
+- New files carry the id of the key that made them (`SDBK2`). To rotate, set the new key in `BACKUP_KEY` and the retired keys in `BACKUP_KEYS_OLD` (comma-separated). **Old backups stay readable** (unit tests, plus the local drill end to end), and new ones use the new key.
+- **If a key is lost** and not kept in `BACKUP_KEYS_OLD`, the backups made with it can't be opened by anyone. The error names the key id. The live database is not affected, and backups made after a new key is set are fine (tested). This is why an **offline copy of every key** is required until its backups have expired (14 per pharmacy).
+- Files from before key ids (`SDBK1`) are tried with every available key.
+
+## 8. Failure monitoring
+
+| Signal | Where | Status |
+|---|---|---|
+| A backup that fails is listed (`status = failed`, the error) | `backups` table | Implemented, tested |
+| After each daily run, `backupHealth`: a pharmacy with no good backup, a last good one older than 36 h, or a failure after the last good one | Logged as `BACKUP_ALERT {…}` (Cloudflare Workers observability) | Implemented; the local drill confirms a failure and a missing backup are flagged |
+| App admin view | RPC `admin_backup_health` | Implemented |
+| Owner view | Dashboard → النسخ: last backup time; red when older than 36 h or the last attempt failed | Implemented |
+| Push / e-mail alert | — | **Plan:** a Cloudflare notification or Logpush filter on `BACKUP_ALERT` sent to the support e-mail, or a small Worker alerting through WhatsApp Business (already used for the morning report). Needs the owner to choose the channel and an account. |
+
+## 9. What a backup does NOT contain
+
+| Not included | Why / what to do |
+|---|---|
+| Item photos (`images/<pharmacy>/…` in R2) | Size; re-upload after a disaster, or copy the R2 prefix separately |
+| Older uploaded files beyond what the `snapshots` rows point to | The app keeps the newest 10 per branch anyway |
+| Sign-in sessions, sign-in/PIN/invite attempt counters | Short-lived; people sign in again |
+| `client_errors` (app error reports), `app_config` and `app_admins` (whole-app settings) | Not pharmacy data; app-level settings are re-entered by the app owner |
+| Other pharmacies' rows | Each backup is one pharmacy |
+| Worker secrets (`PIN_PEPPER`, `BACKUP_KEY`, WhatsApp, AI) | Kept outside the database; they must be stored separately (offline) |
+| `stock_levels` | Rebuilt from the ledger on restore (checked) |
+
+## 10. Limits
 
 - Item photos (`images/` in R2) are not in the backup.
 - Auto-increment ids (`snapshots`, `attendance`, `audit_log`) are restored as-is. A restore into a database that already holds other pharmacies could collide, which is why restoring is only into an empty database.

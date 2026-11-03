@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current phase | **Phase 2 M1 and M2 done locally; draft PR #51 for CI. Waiting for the owner's review. No production changes.** |
+| Current phase | **Staging validation (approved 2026-11-03): staging resources created and isolated; real-D1 SQL validated; staging Worker deploy waiting for the owner's 3 GitHub secrets. No production changes.** |
 | Branch | `ccr-94719aa6-7k3i5e` (not merged) · **Draft PR #51** (https://github.com/bodamansour/saydaliti/pull/51), opened for CI only — do not merge yet |
 | Base commit | `7d23b83` (= `main` at 2026-10-31) |
 | Production | **Not modified.** No deploy, no remote migration, no live database or Cloudflare account access, and no request to the production site. GitHub Actions run history was read (metadata only). |
@@ -55,6 +55,20 @@
 |---|---|---|---|---|---|
 | P2-M1 | Server-authoritative inventory: ledger in the same atomic batch as every movement, levels by trigger, reversals, openings with a watermark, optional oversell guard inside the receipt's INSERT, stale after upload, reconciliation | **Done (local)** | migration `0013_stock_ledger.sql`, `worker/src/stock.js`, `worker/src/db.js`, `worker/src/rpc.js` (`stock_status`, `open_stock`, `set_stock_policy`), `src/stock-reconcile.js`, `src/app.js`, `src/cashier.js`, `docs/architecture/INVENTORY_LEDGER.md` | `worker/test/stock.test.mjs` 8/8 (2 devices → 1 sale; 10 devices for 3 boxes → 3); mutation check (guard off → test fails); reconcile unit 3/3; browser flow; 0013 apply/rollback/re-apply on a copy (1,179 receipts, 113 purchases kept) | commit 2f69a2f |
 | P2-M2 | Encrypted server backups (AES-256-GCM, per-pharmacy key derived from the `BACKUP_KEY` secret; existing R2 bucket; read back and decrypted before being listed; keep 14; daily cron only with the secret); exact restore into an empty database only; verification; owner-only RPCs | **Done (local)** | migration `0014_backups.sql`, `worker/src/backup.js`, `worker/scripts/restore-drill.mjs`, `worker/src/rpc.js` (`backup_now`, `list_backups`), `worker/wrangler.toml` (cron), `src/app.js`, `docs/operations/DISASTER_RECOVERY.md` | `test/backup-crypto.test.js` 5/5 (wrong key, other pharmacy, tamper, cut file, no key); `worker/test/backup.test.mjs` 1/1 (owner only, rate limit, list); **restore drill PASS** (copy of the local test DB → separate empty DB: 177 rows, 0 problems; tamper check detected 5 problems; negative checks refused; retention 14 kept / 3 expired with files deleted) | commit 34b9aa9 |
+
+## Staging validation (owner approval 2026-11-03: staging only; block selling below zero in the pilot; no fixed late threshold)
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| ST1 | Inspection: the Cloudflare connector reaches the **production account** (Worker `saydaliti`, D1 `3cf7edd2-…`, R2 `saydaliti-files`, plus unrelated `mosaed-*`); this container has no Wrangler credentials | Done | Read-only listings; no production data read |
+| ST2 | Staging resources created: D1 `saydaliti-staging` `0ba7c0dd-645e-453e-9999-a316a828e175`, R2 `saydaliti-files-staging`; throwaway D1 `saydaliti-staging-sqlcheck` `20c6fee5-…` | Done | `docs/deployment/STAGING.md` |
+| ST3 | Isolation: `[env.staging]` in `wrangler.toml`, `test/staging-isolation.test.js`, `.github/workflows/staging.yml` (staging token only, `--env staging` everywhere, D1 UUID check) | Done | Isolation tests 3/3 |
+| ST4 | **Real D1 (Cloudflare) with the Worker's exact SQL** (check database): migration 0013 schema + trigger created; opening row → level 1; sale 1 stored → level 0; **sale 2 refused by D1** (`NOT NULL constraint failed: pos_sales.id`, i.e. insufficient stock); ledger retry → 0 changes | Done | Connector query results (this session) |
+| ST5 | Staging Worker deploy + migrations 0001–0014 via Wrangler + suites + backup on Cloudflare | **Blocked: owner** | Run #1 (41704199925) stopped at step 1: the GitHub secrets `CLOUDFLARE_STAGING_API_TOKEN`, `CLOUDFLARE_STAGING_ACCOUNT_ID`, `STAGING_BACKUP_KEY` are not set. Nothing deployed. |
+| ST6 | Stock and offline fixes: clock-backdating bypass closed in blocking branches (+ `before_base` flag); move-in marks stock stale; cashier shows **refused** receipts (with reason and consequence) instead of "waiting"; an offline sale in a blocking branch says it may be refused; "confirmed" only when the server took it | Done | commit 9ddb8cb |
+| ST7 | Scenario tests (local Worker): offline vs competing online sale; recovery after a restock; clock manipulation; adjustment concurrent with a sale (5 rounds); return concurrent with sale and delivery; 2 branches × 2 devices; browser: refused on reconnect, retry from the refused list, restart with pending, network drop mid-sync, online confirmation; static guard on every write path | Done | `worker/test/stock.test.mjs` 13/13, `e2e/offline-sync.e2e.mjs` 7/7, `test/stock-paths.test.js` 3/3 |
+| ST8 | Backup key rotation (key ids, `BACKUP_KEYS_OLD`), key-loss behaviour, failure monitoring (`backupHealth`, `BACKUP_ALERT`, admin RPC, owner warning) | Done (local) | `test/backup-crypto.test.js` 9/9; restore drill PASS incl. monitoring and rotation (242 pharmacies checked) |
+| ST9 | Pilot plan (E-Plus stays the system of record) | Done (plan) | `docs/pilot/REAL_WORLD_PILOT_PLAN.md` |
 
 ## Final Phase 1 test results (this environment, 2026-11-03)
 
@@ -115,7 +129,8 @@ Phase 2 adds **0013_stock_ledger.sql** (stock_ledger, stock_levels, stock_bases,
 
 ## Blocked / waiting for the owner
 
-1. Review Phase 1 and decide on the release (production deploy needs separate approval).
+1. **Add the 3 staging GitHub secrets** (`docs/deployment/STAGING.md` §3), then re-run "Cloudflare staging validation".
+1b. Review Phase 1 and decide on the release (production deploy needs separate approval).
 2. **Business rules not invented, waiting for a decision:**
    - ~~Should no-receipt returns need a manager approval?~~ **Decided 2026-11-03:** yes, an employee the owner flags, with their own PIN (F1).
    - Late receipts: the proposed policy in `docs/architecture/OFFLINE_SYNC.md` §3 (72 h / 30 days / closed day) needs the owner's decision **after** pilot lag measurements. Today: no limit; arrival time recorded; odd times flagged (F2).
@@ -143,7 +158,7 @@ Phase 2 adds **0013_stock_ledger.sql** (stock_ledger, stock_levels, stock_bases,
 - A return without a receipt now needs a connection and staff PINs set up (by design, F1). A pharmacy that has no employees can no longer make such returns until the owner adds staff and flags an approver.
 - New Arabic strings (approval dialog, log flags) have no English translation yet; they show in Arabic in English mode.
 - `local-db.js` (desktop offline mode) applies the approval rules, but only by code review: no automated test covers that path (it needs IndexedDB in a browser test).
-- Phase 2 M1: production D1 support for the `stock_ledger_apply` trigger is **untested** (local Miniflare only). Needs staging or the first release run.
+- Phase 2 M1: the `stock_ledger_apply` trigger and the guarded INSERT **work on real Cloudflare D1** (ST4, check database). Concurrency of separate requests on real D1 is still to be shown by the staging run (ST5).
 - Phase 2 M1: the oversell block works at the cashier only when it's online. An offline sale that oversells is refused on arrival and kept in the device's refused list (by design: never discarded).
 - Phase 2 M1: batches, expiry and FEFO are still computed in the app; the server keeps boxes per item and branch only.
 - Phase 2 M2: backups are not active in production until the owner creates the `BACKUP_KEY` secret and a copy is kept offline (without it the backups can't be opened). The daily job's CPU use on the current Cloudflare plan is untested.
@@ -152,7 +167,12 @@ Phase 2 adds **0013_stock_ledger.sql** (stock_ledger, stock_levels, stock_bases,
 - Intermittent test (open): the first Cloudflare browser test (sign-up + item-file upload) failed 2 times in about 16 local runs (a 15 s wait; it normally takes 3.4 s; no server error in the Worker log). It hasn't been seen on CI. The step wasn't changed in this work. Cause not found.
 - Intermittent test: 1 failure in about 11 runs of the combined Worker + Cloudflare browser suite, at the item-file upload step of the first browser test (not changed in this phase); not reproduced in the next 8 runs; cause unknown.
 
-## Architectural decisions
+## Architectural decisions (staging additions below the table)
+
+- 2026-11-03: In a branch that blocks selling below zero, every movement received after the opening counts, whatever its date (closes the clock bypass); elsewhere the upload-base rule is unchanged.
+- 2026-11-03: Staging lives on the same Cloudflare account with its own Worker, D1, R2, secrets and token; isolation is enforced by tests and workflow checks.
+- 2026-11-03: Backup files carry a key id; retired keys can be listed so rotation keeps old backups readable.
+
 
 | Date | Decision | Reason |
 |---|---|---|
