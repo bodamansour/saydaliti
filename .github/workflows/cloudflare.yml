@@ -1,14 +1,26 @@
-# Publishes صيدليتي on Cloudflare (worker/: pages, D1 database, R2 files) on every push to main.
-# Needs two repository secrets (Settings → Secrets and variables → Actions):
-#   CLOUDFLARE_API_TOKEN   a token with "Edit Cloudflare Workers" + D1 edit permissions
-#   CLOUDFLARE_ACCOUNT_ID  the account id (Cloudflare dashboard → Workers & Pages, right side)
-# Without them this does nothing, so the Vercel + Supabase version keeps working as before.
-name: Cloudflare
+# Production release of صيدليتي on Cloudflare (worker/: pages, D1 database, R2 files).
+#
+# MANUAL ONLY (owner decision, 2026-11-03). Nothing here runs on push or merge: a merge to main no
+# longer publishes anything or changes the live database. To release:
+#   Actions → "Cloudflare production release" → Run workflow → branch: main → type DEPLOY-PRODUCTION.
+# Then, in order:
+#   1. the full test workflow (tests.yml) runs on the same commit: unit tests, browser tests, and the
+#      Worker on a local D1/R2 (the non-production test deployment), plus the United sync on Windows;
+#   2. the job waits for the "production" GitHub Environment (add required reviewers to it in
+#      Settings → Environments for a second approval);
+#   3. preflight: the PIN_PEPPER secret must exist on the Worker, and the pending D1 migrations are listed;
+#   4. pending migrations are applied to the live D1, then the Worker is published.
+# Needs the repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+# Release procedure, rollback and migration rules: docs/deployment/DEPLOYMENT_AND_RELEASE.md.
+name: Cloudflare production release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY-PRODUCTION to publish to the live site and apply pending migrations to the live database'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,36 +30,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only from main, only when confirmed
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then echo "::error::Production is released from main only (this run: $REF)."; exit 1; fi
+          if [ "$CONFIRM" != "DEPLOY-PRODUCTION" ]; then echo "::error::Not confirmed: type DEPLOY-PRODUCTION exactly."; exit 1; fi
+
+  tests:
+    needs: guard
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: production
     steps:
       - name: Check the Cloudflare secrets
-        id: keys
         env:
           TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set: nothing published."; echo "ok=false" >> "$GITHUB_OUTPUT"; else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set: nothing published."; exit 1; fi
       - uses: actions/checkout@v5
-        if: steps.keys.outputs.ok == 'true'
       - uses: actions/setup-node@v5
-        if: steps.keys.outputs.ok == 'true'
         with:
           node-version: 22
       - name: Install
-        if: steps.keys.outputs.ok == 'true'
         working-directory: worker
         run: npm ci
-      - name: Database tables (only new changes are applied)
-        if: steps.keys.outputs.ok == 'true'
+      - name: Preflight (PIN_PEPPER secret present; pending migrations listed)
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Only secret names are listed, never their values.
+          npx wrangler secret list --format json > secrets.json
+          node -e "const n=JSON.parse(require('fs').readFileSync('secrets.json','utf8')).map(s=>s.name); if(!n.includes('PIN_PEPPER')){console.log('::error::PIN_PEPPER is not set on the Worker: cashier PINs would stop working. Set it before releasing.'); process.exit(1)}"
+          rm -f secrets.json
+          npx wrangler d1 migrations list saydaliti --remote
+      - name: Database tables (only pending migrations are applied)
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler d1 migrations apply saydaliti --remote
       - name: Publish
-        if: steps.keys.outputs.ok == 'true'
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

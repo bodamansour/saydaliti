@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current phase | **Phase 0: repository audit. Complete; waiting for the owner's approval to start Phase 1.** |
+| Current phase | **Phase 1 (approved 2026-11-03): isolated development/test environment only. In progress.** |
 | Branch | `ccr-94719aa6-7k3i5e` |
 | Base commit audited | `7d23b83` (= `main` at 2026-10-31) |
 | Production | Not touched. Nothing deployed. No live database accessed. |
@@ -19,9 +19,15 @@
 | Phase 0 repository audit | — | Done | `docs/audit/MASTER_AUDIT.md` | `npm test` 173/0/17 skipped; Worker API + Cloudflare e2e 27/0; `npm run e2e` 43/0; `npm audit` root/worker 0, desktop 15 moderate; local probes of the sale API | MASTER_AUDIT §2, §6.1 |
 | E-Plus parity skeleton | P4 | Done (no evidence available) | `docs/audit/EPLUS_FEATURE_PARITY.md` | — | Repository search found no E-Plus material |
 
+## Phase 1 milestones
+
+| # | Milestone | Status | Location | Tests executed | Evidence |
+|---|---|---|---|---|---|
+| M1 | Production-safety investigation; manual-only production release; Windows 7/8 unsupported | **Done** | `docs/deployment/DEPLOYMENT_AND_RELEASE.md`, `.github/workflows/{cloudflare,test,desktop}.yml`, `test/release-workflow.test.js` | `node --test test/release-workflow.test.js` 5/5 pass (includes running the guard script with right/wrong branch and confirmation); YAML parse of all 4 workflows OK. actionlint could not be downloaded (blocked in this environment). The workflows have not run on GitHub yet: they need a PR or a manual run, and I did not trigger a manual run because it targets production. | Production deploy evidence: Actions run 41218360186 |
+
 ## In progress
 
-None.
+Phase 1 milestones M2–M5 (below).
 
 ## Next: proposed Phase 1 (waiting for approval)
 

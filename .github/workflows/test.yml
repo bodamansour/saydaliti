@@ -6,6 +6,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Also run by the production release (cloudflare.yml) on the commit being released.
+  workflow_call:
 
 permissions:
   contents: read
