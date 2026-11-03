@@ -24,6 +24,19 @@ Unrelated resources on the same account (`mosaed-cloud*` Workers, `mosaed-files*
 
 **The guard** (`worker/scripts/staging-guard.mjs`). It fails closed: any doubt stops the job before wrangler runs. Production's identifiers are fixed inside the guard, so editing `wrangler.toml` can't move the target.
 
+**One config file only.**
+- Every Wrangler call the guard makes passes `--config <absolute path of worker/wrangler.toml>`. That path is worked out from the guard's own location, not the current folder. With an explicit `--config`, Wrangler doesn't search for a config file and doesn't follow redirects.
+- The guard also refuses to run, in every mode, while any of these exists:
+  - a `wrangler.json`, a `wrangler.jsonc` or a `.wrangler/deploy/config.json` in `worker/` or any parent folder;
+  - a `.env` or `.env.local` in `worker/`.
+
+  Without `--config`, Wrangler would prefer such a file over `worker/wrangler.toml` (reproduced with a root `wrangler.json` naming production's Worker, database and bucket).
+
+**Schedules.**
+- `[env.staging.triggers]` must exist (otherwise staging would inherit production's crons) and hold exactly `*/30 * * * *`.
+- `BACKUP_CRON` must be that same value, and `MORNING_CRON` must differ from it.
+- The Worker code's scheduled handler must send `BACKUP_CRON` to the backups and return before it can start the morning report or the patient reminders. `main`'s code before PR #51 fails this check: its handler would run the reminders on the staging cron.
+
 | Mode | What it checks |
 |---|---|
 | `config` (no credentials) | `[env.staging]`:<br>• Worker `saydaliti-staging`, `workers_dev` only, no routes;<br>• exactly one D1 (`saydaliti-staging` / `0ba7c0dd-…`) and one R2 (`saydaliti-files-staging`);<br>• no preview ids;<br>• no unreviewed binding kinds;<br>• a staging `SITE_URL`;<br>• no production id, name, bucket or URL anywhere in the section;<br>• production's own bindings unchanged. |
@@ -71,7 +84,11 @@ The guard never reads the production token, and it never sends a request about a
 
 **Job `preflight`** (no secrets): isolation and guard tests, then `staging-guard config`.
 
-**Job `deploy`** (runs after `preflight`, waits for the `staging` environment reviewer; owner only; working branch or `main` only):
+**Job `deploy`** (runs after `preflight`, waits for the `staging` environment reviewer; owner only; branch `ccr-94719aa6-7k3i5e` only, with `main` added back after PR #51 is merged).
+
+**Secrets.** No secret is set for the whole job. `CLOUDFLARE_STAGING_API_TOKEN` is given only to the steps that run the guard: the settings check, the remote proof, migrations, deploy, Worker secrets, the D1 checks and the schedules check. It is never given to `npm ci`, the build, Playwright, the test suites or the backup-check script. `test/staging-isolation.test.js` enforces this. The backup-check script therefore can't read from R2 yet, and that step fails until it is changed to take the file from a guarded step.
+
+Steps:
 1. Settings present (names only).
 2. `staging-guard remote` (read-only proof).
 3. Migrations.

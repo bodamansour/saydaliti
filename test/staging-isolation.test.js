@@ -49,7 +49,9 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   assert.doesNotMatch(pre, /secrets\./);
   assert.match(dep, /needs: preflight/);
   assert.match(dep, /environment: staging/);
-  assert.match(dep, /if: github\.event_name == 'workflow_dispatch' && github\.actor == github\.repository_owner && \(github\.ref == 'refs\/heads\/ccr-94719aa6-7k3i5e' \|\| github\.ref == 'refs\/heads\/main'\)/);
+  // Only the Phase 2 branch until PR #51 is merged (main's code would run the reminders on the staging cron).
+  assert.match(dep, /^ {4}if: github\.event_name == 'workflow_dispatch' && github\.actor == github\.repository_owner && github\.ref == 'refs\/heads\/ccr-94719aa6-7k3i5e'\n/m);
+  assert.doesNotMatch(dep.split('\n').find((l) => /^ {4}if:/.test(l)), /main|\|\||\*|startsWith|contains/, 'no broader branch list');
   assert.ok(dep.indexOf('$GUARD remote') > 0 && dep.indexOf('$GUARD remote') < dep.indexOf('migrations apply'), 'the remote check comes before any write');
   // Every wrangler call goes through the guard; no direct `wrangler` / `npx wrangler` in the workflow.
   assert.doesNotMatch(wf, /npx wrangler|^\s*wrangler /m);
@@ -60,4 +62,50 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   // Untrusted input is never pasted into a shell line.
   assert.doesNotMatch(wf, /run:.*\$\{\{\s*(inputs|github\.event)\./);
   assert.match(wf, /persist-credentials: false/);
+});
+
+// ---------- secret scoping in the deploy job ----------
+function steps(job) {
+  return job.split(/\n(?= {6}- (?:name|uses|run):)/).slice(1).map((t) => {
+    const name = (t.match(/- name: (.*)/) || t.match(/- uses: (.*)/) || [, t.slice(0, 40)])[1];
+    const env = (t.match(/\n {8}env:\n((?: {10}.*\n?)*)/) || [, ''])[1];
+    const run = (t.match(/\n {8}run: \|\n((?: {10}.*\n?)*)/) || [, ''])[1] || (t.match(/\n {8}run: (.*)/) || [, ''])[1];
+    return { name, text: t, env, run };
+  });
+}
+const wfText = () => readFileSync(new URL('../.github/workflows/staging.yml', import.meta.url), 'utf8');
+
+test('no secret at workflow or job level: each one is given to single steps', () => {
+  const wf = wfText();
+  const dep = wf.slice(wf.indexOf('\n  deploy:'));
+  const jobEnv = (dep.match(/\n {4}env:\n((?: {6}.*\n)*)/) || [, ''])[1];
+  assert.doesNotMatch(jobEnv, /secrets\./, 'job-level env holds no secret');
+  assert.doesNotMatch(wf.slice(0, wf.indexOf('\njobs:')), /secrets\./, 'workflow-level env holds no secret');
+  // Every secret reference sits in a step's env block.
+  const inSteps = steps(dep).reduce((n, s) => n + (s.env.match(/secrets\./g) || []).length, 0);
+  assert.equal(inSteps, (wf.match(/secrets\./g) || []).length);
+});
+
+test('the Cloudflare token reaches only steps that run the guard (never npm, the build, Playwright, tests or scripts)', () => {
+  const dep = wfText().slice(wfText().indexOf('\n  deploy:'));
+  const all = steps(dep);
+  const withToken = all.filter((s) => /CLOUDFLARE_API_TOKEN:/.test(s.env));
+  assert.ok(withToken.length >= 6, 'the guarded steps were found');
+  // Commands allowed in a step that holds the token: the guard, shell built-ins, and short inline checks.
+  const allowed = /^(\$GUARD (remote|schedules|run -- .*)|set -o pipefail|missing=""|\[ .*|if .*|fi|then|else|url=\$\(grep .*\)|echo .*|rm -f [\w.]+|node -e "[^"]*"( > \S+)?|openssl rand -hex 32 \| tr -d '\\n' \| \$GUARD run -- secret put PIN_PEPPER >\/dev\/null|printf '%s' "\$STAGING_BACKUP_KEY" \| \$GUARD run -- secret put BACKUP_KEY >\/dev\/null|\$GUARD run -- .*)$/;
+  for (const s of withToken) {
+    const lines = s.run.split('\n').map((l) => l.trim()).filter(Boolean);
+    assert.ok(lines.length, `${s.name}: has commands`);
+    assert.ok(!s.text.includes('- uses:'), `${s.name}: no action gets the token`);
+    for (const l of lines) {
+      assert.match(l, allowed, `${s.name}: "${l}" may not run with the token`);
+      assert.doesNotMatch(l, /\b(npm|npx|yarn|pnpm|playwright|curl|wget)\b|node (?!-e)|GITHUB_ENV|GITHUB_OUTPUT/, `${s.name}: "${l}"`);
+    }
+  }
+  // And the opposite: installs, build, browser, tests and scripts never hold it.
+  for (const s of all.filter((s) => /npm |npx |playwright|node --test|node scripts\/(?!staging-guard)|curl /.test(s.run) || s.text.includes('- uses:'))) {
+    assert.doesNotMatch(s.env, /CLOUDFLARE_API_TOKEN/, `${s.name} must not get the token`);
+  }
+  // The backup key goes only to the settings check, the secret upload and the backup check.
+  for (const s of all.filter((s) => /STAGING_BACKUP_KEY:/.test(s.env))) assert.match(s.name, /settings are present|Staging secrets on the Worker|Backup on Cloudflare/, s.name);
 });
