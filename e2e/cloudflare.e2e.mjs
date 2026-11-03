@@ -303,6 +303,55 @@ test('the Windows program: turning on the sync with United makes a working conne
   assert.ok(await until(owner, async () => /مقفولة/.test(await text(owner, '#glStatus'))));
 });
 
+// Receipt numbers (Phase 1): "YYMMDD-K1-<device>-<0001>", unique across devices, and the count goes on
+// after the browser's saved counter is lost (sign-out, cleared storage) because the server is asked.
+const serverSales = (p) => p.evaluate(async () => {
+  const s = JSON.parse(localStorage.getItem('sd-cf-auth'));
+  const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.access_token}` },
+    body: JSON.stringify({ op: 'select', table: 'pos_sales', cols: 'number, receipt_device', filters: [], limit: 1000 }) });
+  return (await r.json()).data;
+});
+async function sellOne(p) {
+  await p.goto(`${BASE}/cashier.html`);
+  await p.waitForSelector('#pos:not([hidden])');
+  await p.evaluate(() => { window.print = () => {}; });
+  assert.ok(await until(p, async () => /صنف/.test(await text(p, '#posMsg'))));
+  await p.fill('#q', '6220000000001');
+  await p.press('#q', 'Enter');
+  await p.keyboard.press('F2');
+  assert.ok(await until(p, async () => /الفاتورة اتسجلت/.test(await text(p, '#posMsg'))));
+  assert.ok(await until(p, async () => /متصل/.test(await text(p, '#netChip'))), 'uploaded, nothing refused');
+  return (await text(p, '#posMsg')).match(/\d{6}-K1-[A-Z0-9]{4}-\d{4}/)[0];
+}
+test('receipt numbers stay unique across devices and after the saved counter is lost', { skip }, async () => {
+  const dev1 = await owner.evaluate(() => localStorage.getItem('pos-device-v1'));
+  assert.match(dev1, /^[A-HJ-NP-Z2-9]{4}$/);
+  const first = await sellOne(owner);
+  assert.ok(first.includes(`-${dev1}-`));
+  // The browser's counter and its copy of the receipts are gone (like a sign-out); the device code stays.
+  await owner.evaluate(() => { localStorage.removeItem('pos-receipt-seq-v1'); return new Promise((r) => { const q = indexedDB.deleteDatabase('saydaliti'); q.onsuccess = q.onerror = q.onblocked = () => r(); }); });
+  const second = await sellOne(owner);
+  assert.equal(+second.slice(-4), +first.slice(-4) + 1, `${first} then ${second}`);
+  // Another computer of the same pharmacy gets its own device code.
+  const p2 = await newPage();
+  await p2.goto(BASE);
+  await p2.waitForSelector('#loginForm');
+  await p2.fill('#email', OWNER); await p2.fill('#password', 'password123');
+  await p2.click('#loginForm button[type=submit]');
+  await p2.waitForSelector('#app:not([hidden])');
+  const other = await sellOne(p2);
+  const dev2 = await p2.evaluate(() => localStorage.getItem('pos-device-v1'));
+  assert.notEqual(dev2, dev1);
+  assert.ok(other.includes(`-${dev2}-`));
+  const rows = await serverSales(owner);
+  const numbers = rows.map((r) => r.number);
+  assert.equal(new Set(numbers).size, numbers.length, 'no number twice');
+  for (const n of [first, second, other]) assert.ok(numbers.includes(n), `${n} reached the server`);
+  assert.ok(rows.filter((r) => r.receipt_device).every((r) => r.number.includes(`-${r.receipt_device}-`)));
+  await owner.goto(BASE); // back to the dashboard for the next test
+  await owner.waitForSelector('#app:not([hidden])');
+});
+
 test('signing out and in again', { skip }, async () => {
   await owner.click('#logout');
   await owner.waitForSelector('#loginForm');

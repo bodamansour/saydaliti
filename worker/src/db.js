@@ -79,10 +79,16 @@ function withDefaults(t, row) {
   return out;
 }
 
-function guardedReturnInsert(env, row, cols, ignoreDuplicates) {
+// A receipt is inserted only if, at that moment (one SQL statement, so two requests can't both pass):
+//   • no other receipt of the pharmacy has the same number, and
+//   • for a return against a receipt: what it takes back, plus every earlier return of that receipt,
+//     is no more than the receipt sold (counted in boxes).
+// Otherwise its id is NULL and SQLite refuses the row (NOT NULL), which insert() turns into an error.
+function guardedSaleInsert(env, row, cols, ignoreDuplicates) {
+  const isReturn = row.kind === 'return' && !!row.return_of;
   const code = (line) => `CAST(json_extract(${line}.value, '$.code') AS TEXT)`;
   const qty = (line) => `COALESCE(CAST(json_extract(${line}.value, '$.qty') AS REAL), 0) / CASE WHEN CAST(json_extract(${line}.value, '$.per') AS REAL) > 1 THEN CAST(json_extract(${line}.value, '$.per') AS REAL) ELSE 1 END`;
-  const sql = `WITH source_sale AS (
+  const ret = isReturn ? `WITH source_sale AS (
       SELECT lines FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'
     ), sold AS (
       SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM source_sale sale, json_each(sale.lines) line GROUP BY code
@@ -91,12 +97,16 @@ function guardedReturnInsert(env, row, cols, ignoreDuplicates) {
       WHERE p.kind = 'return' AND p.return_of = ? AND p.pharmacy_id = ? AND p.id <> ? GROUP BY code
     ), requested AS (
       SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM json_each(?) line GROUP BY code
-    )
+    )` : '';
+  const retOk = isReturn ? ' AND EXISTS (SELECT 1 FROM source_sale) AND NOT EXISTS (SELECT 1 FROM requested r LEFT JOIN sold s ON s.code IS r.code LEFT JOIN returned b ON b.code IS r.code WHERE r.qty > COALESCE(s.qty, 0) - COALESCE(b.qty, 0) + 0.0001)' : '';
+  const numberOk = 'NOT EXISTS (SELECT 1 FROM pos_sales d WHERE d.pharmacy_id = ? AND d.number = ? AND d.id <> ?)';
+  const sql = `${ret}
     INSERT INTO pos_sales (${cols.join(', ')})
-    SELECT ${cols.map((c) => c === 'id' ? 'CASE WHEN EXISTS (SELECT 1 FROM source_sale) AND NOT EXISTS (SELECT 1 FROM requested r LEFT JOIN sold s ON s.code IS r.code LEFT JOIN returned b ON b.code IS r.code WHERE r.qty > COALESCE(s.qty, 0) - COALESCE(b.qty, 0) + 0.0001) THEN ? ELSE NULL END' : '?').join(', ')}
+    SELECT ${cols.map((c) => c === 'id' ? `CASE WHEN ${numberOk}${retOk} THEN ? ELSE NULL END` : '?').join(', ')}
     ${ignoreDuplicates ? 'ON CONFLICT(id) DO NOTHING' : ''}`;
-  const values = cols.map((c) => c === 'id' ? row.id : toDb(TABLES.pos_sales.cols[c][0], row[c]));
-  return env.DB.prepare(sql).bind(row.return_of, row.pharmacy_id, row.return_of, row.pharmacy_id, row.id, JSON.stringify(row.lines), ...values);
+  const values = cols.flatMap((c) => c === 'id' ? [row.pharmacy_id, row.number, row.id, row.id] : [toDb(TABLES.pos_sales.cols[c][0], row[c])]);
+  const head = isReturn ? [row.return_of, row.pharmacy_id, row.return_of, row.pharmacy_id, row.id, JSON.stringify(row.lines)] : [];
+  return env.DB.prepare(sql).bind(...head, ...values);
 }
 
 // ---------- Who may do what ----------
@@ -246,7 +256,7 @@ export async function insert(ctx, env, q, hooks = {}) {
   const list = Array.isArray(q.rows) ? q.rows : [q.rows];
   if (!list.length || list.length > 500) throw new ApiError('bad rows');
   const stmts = [];
-  let guardedReturn = false;
+  const guarded = [];
   for (const raw of list) {
     if (!raw || typeof raw !== 'object') throw new ApiError('bad row');
     for (const k of Object.keys(raw)) colSpec(t, table, k);
@@ -258,17 +268,32 @@ export async function insert(ctx, env, q, hooks = {}) {
     if (q.ignoreDuplicates && t.pk && row[t.pk] != null && await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
     await checkRefs(env, t, row);
     if (hooks.beforeInsert) await hooks.beforeInsert(table, row);
+    // A receipt's time of arrival is the server's, never the device's (sold_at is the device's).
+    if (table === 'pos_sales') row.created_at = nowIso();
     const cols = Object.keys(row).filter((c) => row[c] !== undefined && t.cols[c][0] !== 'serial');
-    if (table === 'pos_sales' && row.kind === 'return' && row.return_of) {
-      guardedReturn = true;
-      stmts.push(guardedReturnInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk)));
+    if (table === 'pos_sales') {
+      guarded.push(row);
+      stmts.push(guardedSaleInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk)));
+      // A return with no receipt is kept in the log of changes, with who made it.
+      if (row.kind === 'return' && !row.return_of) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
     } else stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${q.ignoreDuplicates && t.pk ? ` ON CONFLICT(${t.pk}) DO NOTHING` : ''}`)
       .bind(...cols.map((c) => toDb(t.cols[c][0], row[c]))));
     if (t.audit) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
   }
   if (stmts.length) {
     try { await runBatch(env, stmts); } catch (e) {
-      if (guardedReturn && /NOT NULL constraint failed: pos_sales\.id/i.test(String(e?.message))) throw new ApiError('return more than sold');
+      if (guarded.length && /NOT NULL constraint failed: pos_sales\.id/i.test(String(e?.message))) {
+        // Which guard refused it: the number already used, or a return of more than is left.
+        // (Nothing of this request was stored: the whole batch was rolled back.)
+        const inRequest = new Set();
+        for (const r of guarded) {
+          const k = `${r.pharmacy_id}\n${r.number}`;
+          if (inRequest.has(k)) throw new ApiError('receipt number already used', '23505', 409);
+          inRequest.add(k);
+          if (await env.DB.prepare('SELECT 1 FROM pos_sales WHERE pharmacy_id = ? AND number = ? AND id <> ?').bind(r.pharmacy_id, r.number, r.id).first()) throw new ApiError('receipt number already used', '23505', 409);
+        }
+        throw guarded.some((r) => r.kind === 'return' && r.return_of) ? new ApiError('return more than sold') : new ApiError('receipt number already used', '23505', 409);
+      }
       throw e;
     }
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalize, lookup, cartTotals, changeDue, receiptNumber, stockLeft, expiryWarning, daySummary } from '../src/pos.js';
+import { normalize, lookup, cartTotals, changeDue, receiptNumber, receiptPrefix, counterIn, newDeviceCode, isDeviceCode, stockLeft, expiryWarning, daySummary } from '../src/pos.js';
 
 const d = (s) => new Date(`${s}T00:00:00`);
 const ITEMS = [
@@ -41,7 +41,20 @@ test('change due', () => {
 });
 
 test('receipt numbers', () => {
-  assert.equal(receiptNumber(d('2026-10-27'), 'K1', 7), '261027-K1-007');
+  assert.equal(receiptNumber(d('2026-10-27'), 'K1', 7), '261027-K1-007'); // older numbers keep their shape
+  // With the device code: unique per device, a 4-digit counter so they sort as text.
+  assert.equal(receiptNumber(d('2026-10-27'), 'k1', 7, 'AB3D'), '261027-K1-AB3D-0007');
+  assert.equal(receiptNumber(d('2026-10-27'), 'a-b c', 12, 'AB3D'), '261027-ABC-AB3D-0012', 'the tag is letters and digits only');
+  assert.equal(receiptNumber(d('2026-10-27'), '', 1, 'AB3D'), '261027-K1-AB3D-0001');
+  assert.ok(receiptNumber(d('2026-10-27'), 'K1', 999, 'AB3D') < receiptNumber(d('2026-10-27'), 'K1', 1000, 'AB3D'));
+  const p = receiptPrefix(d('2026-10-27'), 'K1', 'AB3D');
+  assert.equal(counterIn('261027-K1-AB3D-0042', p), 42);
+  assert.equal(counterIn('261027-K1-ZZZZ-0042', p), 0, 'another device');
+  assert.equal(counterIn('261027-K1-042', p), 0, 'an older number');
+  const codes = new Set(Array.from({ length: 200 }, () => newDeviceCode()));
+  assert.ok([...codes].every(isDeviceCode));
+  assert.ok(codes.size > 190, 'random codes');
+  assert.ok(!isDeviceCode('ab3d') && !isDeviceCode('AB0D') && !isDeviceCode('ABCDE'));
 });
 
 test('stock left after cashier sales since the last upload', () => {

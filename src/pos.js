@@ -130,10 +130,27 @@ export function changeDue(total, paid) {
 }
 
 // Receipt number: date, this device's short tag, and a counter that restarts each day.
-export function receiptNumber(date, tag, counter) {
-  const d = new Date(date);
-  const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  return `${ymd}-${tag}-${String(counter).padStart(3, '0')}`;
+// With a device code (4 letters/digits made once per device and kept across sign-outs) the number is
+// "YYMMDD-<tag>-<device>-<0001>": unique across the pharmacy's devices, and the server refuses a repeat.
+// Without one it is the older "YYMMDD-<tag>-<001>" (receipts already stored keep their numbers).
+export const DEVICE_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const isDeviceCode = (s) => /^[A-HJ-NP-Z2-9]{4}$/.test(String(s ?? ''));
+export function newDeviceCode(random = (n) => crypto.getRandomValues(new Uint8Array(n))) {
+  return [...random(4)].map((b) => DEVICE_ABC[b % DEVICE_ABC.length]).join('');
+}
+const cleanTag = (tag) => String(tag ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'K1';
+const ymdOf = (date) => { const d = new Date(date); return `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; };
+export function receiptPrefix(date, tag, device) { return `${ymdOf(date)}-${cleanTag(tag)}-${device}-`; }
+export function receiptNumber(date, tag, counter, device = null) {
+  if (device) return `${receiptPrefix(date, tag, device)}${String(counter).padStart(4, '0')}`;
+  return `${ymdOf(date)}-${tag}-${String(counter).padStart(3, '0')}`;
+}
+// The counter in a number with this prefix (0 if it isn't one of them).
+export function counterIn(number, prefix) {
+  const s = String(number ?? '');
+  if (!s.startsWith(prefix)) return 0;
+  const n = s.slice(prefix.length);
+  return /^\d{1,9}$/.test(n) ? +n : 0;
 }
 
 // Shelf stock = last upload from the pharmacy program, minus what this cashier sold since then
