@@ -35,8 +35,13 @@ export async function checkPassword(password, stored) {
 }
 
 // A PIN (4–6 digits) is checked against every employee of the pharmacy, so it uses a fast salted
-// hash with a server-side secret; the server limits wrong tries (pin_attempts).
-export const hashPin = async (env, pharmacyId, pin) => sha256(`${env.PIN_PEPPER || 'saydaliti'}:${pharmacyId}:${pin}`);
+// hash with a server-side secret; the server limits wrong tries (pin_attempts). Without the secret a
+// PIN hash could be reversed by trying all 1,111,000 PINs, so the server refuses PIN work instead of
+// falling back to a known value (the release workflow also checks the secret exists before deploying).
+export const hashPin = async (env, pharmacyId, pin) => {
+  if (typeof env?.PIN_PEPPER !== 'string' || !env.PIN_PEPPER) throw new ApiError('server not configured: PIN secret missing', '503', 503);
+  return sha256(`${env.PIN_PEPPER}:${pharmacyId}:${pin}`);
+};
 
 async function tooMany(env, k, max, minutes) {
   const since = new Date(Date.now() - minutes * 60000).toISOString();

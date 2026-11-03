@@ -189,7 +189,7 @@ D1 is the cloud system of record. The repository has no scheduled export, no cop
 
 ## 7. Security findings
 
-Status of the existing `docs/SECURITY_AUDIT.md` items: the closed items are consistent with what I observed (`npm audit` is clean for root and worker). The desktop lockfile now shows 15 moderate build-time advisories.
+Status of the existing `docs/security/SECURITY_AUDIT.md` items: the closed items are consistent with what I observed (`npm audit` is clean for root and worker). The desktop lockfile now shows 15 moderate build-time advisories.
 
 | # | Finding | Severity | Evidence |
 |---|---|---|---|

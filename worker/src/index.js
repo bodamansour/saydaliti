@@ -17,6 +17,8 @@ const SECURITY = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Frame-Options': 'SAMEORIGIN',
+  // API answers are data, never a page: nothing in them may run or be framed.
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
 };
 const json = (body, status = 200) => new Response(typeof body === 'string' ? body : JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY },
@@ -82,7 +84,7 @@ async function api(req, env, url) {
       requireRole(ctx, p, ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock']);
       const obj = await env.FILES.get(k);
       if (!obj) throw new ApiError('not found', '404', 404);
-      return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=86400' } });
+      return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=86400', ...SECURITY } });
     }
     requireRole(ctx, p, ['owner', 'stock']);
     if (req.method === 'DELETE') { await env.FILES.delete(k); return json({ data: null, error: null }); }
