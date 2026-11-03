@@ -7,6 +7,10 @@
 //                                                  the allowlist, names no production resource, and (for a write)
 //                                                  the remote check passed for this commit
 //   node scripts/staging-guard.mjs schedules       read-only: the staging Worker's cron schedules
+//   node scripts/staging-guard.mjs fetch-backup    read-only: downloads the one backup named in
+//                                                  worker/.staging-backup/request.json from the staging R2 bucket
+//                                                  to worker/.staging-backup/backup.sdbk (fixed paths), so the
+//                                                  backup-check script itself never needs the Cloudflare token
 //
 // Every wrangler call made here gets `--config <absolute path of worker/wrangler.toml>` (the file this guard
 // checks), so Wrangler's own config discovery (wrangler.json / wrangler.jsonc found in any parent folder, or a
@@ -14,7 +18,8 @@
 //
 // It never reads, prints or compares the production token, and it never sends a request about a production
 // resource. Any doubt → exit 1 before wrangler runs. Tested by test/staging-guard.test.js.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, parse } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -23,6 +28,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export const WORKER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const CONFIG = join(WORKER, 'wrangler.toml');
 const MARKER = join(WORKER, '.staging-preflight.json');
+// The backup hand-over between the token-free backup check and the guarded download. Fixed paths: nobody can
+// pass another one.
+export const BACKUP_DIR = join(WORKER, '.staging-backup');
+export const BACKUP_REQUEST = join(BACKUP_DIR, 'request.json');
+export const BACKUP_FILE = join(BACKUP_DIR, 'backup.sdbk');
+export const BACKUP_META = join(BACKUP_DIR, 'download.json');
+export const BACKUP_MAX_BYTES = 200 * 1024 * 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // The only resources staging may touch.
 export const STAGING = Object.freeze({
@@ -221,6 +234,12 @@ export function checkWranglerArgs(args, { markerOk = false } = {}) {
   if (args[0] === 'r2') {
     const path = args[3] || '';
     if (args[1] === 'object' && !path.startsWith(`${STAGING.bucket}/`)) fail(`r2 object path must be in ${STAGING.bucket}`);
+    if (args[1] === 'object') {
+      // Only the backup download: one key under backups/, from the remote bucket, into the one fixed file.
+      if (!/^backups\/[0-9a-f-]{36}\/[A-Za-z0-9-]+\.sdbk$/.test(path.slice(STAGING.bucket.length + 1))) fail('r2 object get: only a staging backup file may be read');
+      const opts = args.slice(4);
+      if (opts.length !== 3 || opts[0] !== '--remote' || opts[1] !== '--file' || opts[2] !== BACKUP_FILE) fail(`r2 object get: exactly --remote --file ${BACKUP_FILE}`);
+    }
     if (args[1] === 'bucket' && path !== STAGING.bucket) fail(`r2 bucket must be ${STAGING.bucket}`);
   }
   if (write && !markerOk) fail(`wrangler ${write.join(' ')} refused: the remote staging check has not passed for this commit`);
@@ -240,6 +259,62 @@ export function markerValid(sha = process.env.GITHUB_SHA || 'local') {
     const m = JSON.parse(readFileSync(MARKER, 'utf8'));
     return m.ok === true && m.sha === sha && m.dbId === STAGING.dbId && m.bucket === STAGING.bucket;
   } catch { return false; }
+}
+
+// ---------- backup hand-over (fixed files; nothing from them reaches a command line unchecked) ----------
+function plainFileOrMissing(path, what) {
+  let st;
+  try { st = lstatSync(path); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  if (!st.isFile() || st.isSymbolicLink()) fail(`${what} must be a plain file (not a link or folder)`);
+  return st;
+}
+export function backupDirOk(dir = BACKUP_DIR) {
+  let st;
+  try { st = lstatSync(dir); } catch { fail(`${dir} is missing`); }
+  if (!st.isDirectory() || st.isSymbolicLink()) fail(`${dir} must be a plain folder (not a link)`);
+}
+// The request the token-free script wrote: two ids, nothing else.
+export function readBackupRequest(file = BACKUP_REQUEST, dir = BACKUP_DIR) {
+  backupDirOk(dir);
+  const st = plainFileOrMissing(file, 'the backup request');
+  if (!st) fail('no backup request (the backup step did not run or failed)');
+  if (st.size > 1024) fail('the backup request is too large');
+  let req;
+  try { req = JSON.parse(readFileSync(file, 'utf8')); } catch { fail('the backup request is not JSON'); }
+  const keys = Object.keys(req || {}).sort().join(',');
+  if (keys !== 'backupId,pharmacyId') fail('the backup request must hold exactly backupId and pharmacyId');
+  if (!UUID.test(req.pharmacyId) || !UUID.test(req.backupId)) fail('the backup request ids must be UUIDs');
+  return { pharmacyId: req.pharmacyId, backupId: req.backupId };
+}
+// The R2 key the staging D1 lists for that backup must be the one the Worker makes for it
+// (worker/src/backup.js: backups/<pharmacy>/<time>-<first 8 of the id>.sdbk).
+export function backupKeyOk(key, { pharmacyId, backupId }) {
+  const re = new RegExp(`^backups/${pharmacyId}/\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-${backupId.slice(0, 8)}\\.sdbk$`);
+  return typeof key === 'string' && re.test(key);
+}
+export function backupSelect({ pharmacyId, backupId }) {
+  if (!UUID.test(pharmacyId) || !UUID.test(backupId)) fail('ids must be UUIDs');
+  return `SELECT r2_key FROM backups WHERE id = '${backupId}' AND pharmacy_id = '${pharmacyId}' AND status = 'ok'`;
+}
+
+async function fetchBackup() {
+  credentials();
+  const req = readBackupRequest();
+  const out = wrangler(['d1', 'execute', 'DB', '--remote', '--json', '--command', backupSelect(req)], { exec: { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] } });
+  let rows;
+  try { rows = JSON.parse(out)?.[0]?.results; } catch { fail('could not read the backup row'); }
+  if (!Array.isArray(rows) || rows.length !== 1) fail(`expected exactly one good backup row, got ${Array.isArray(rows) ? rows.length : 'none'}`);
+  const key = rows[0].r2_key;
+  if (!backupKeyOk(key, req)) fail('the backup row has an unexpected R2 key');
+  for (const f of [BACKUP_FILE, BACKUP_META]) if (plainFileOrMissing(f, f)) unlinkSync(f);
+  wrangler(['r2', 'object', 'get', `${STAGING.bucket}/${key}`, '--remote', '--file', BACKUP_FILE], { exec: { stdio: ['ignore', 'pipe', 'pipe'] } });
+  const st = plainFileOrMissing(BACKUP_FILE, 'the downloaded backup');
+  if (!st || st.size < 41 || st.size > BACKUP_MAX_BYTES) fail('the downloaded backup is missing or has an impossible size');
+  const bytes = readFileSync(BACKUP_FILE);
+  if (bytes.subarray(0, 4).toString() !== 'SDBK') fail('the downloaded file is not a backup');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  writeFileSync(BACKUP_META, JSON.stringify({ ...req, bytes: bytes.length, sha256 }));
+  console.log(`staging backup downloaded: ${bytes.length} bytes, sha256 ${sha256}`);
 }
 
 // ---------- Cloudflare (read-only, staging resources only) ----------
@@ -312,6 +387,8 @@ async function main(argv) {
     await remote();
   } else if (mode === 'schedules') {
     await schedules();
+  } else if (mode === 'fetch-backup') {
+    await fetchBackup();
   } else if (mode === 'run') {
     const args = rest[0] === '--' ? rest.slice(1) : rest;
     const markerOk = markerValid();
@@ -319,7 +396,7 @@ async function main(argv) {
     credentials();
     wrangler(args, { markerOk, exec: { stdio: 'inherit' } });
   } else {
-    fail('usage: staging-guard.mjs config | remote | schedules | run -- <wrangler args>');
+    fail('usage: staging-guard.mjs config | remote | schedules | fetch-backup | run -- <wrangler args>');
   }
 }
 

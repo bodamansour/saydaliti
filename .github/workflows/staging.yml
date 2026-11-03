@@ -157,14 +157,26 @@ jobs:
         env:
           WORKER_URL: ${{ env.STAGING_URL }}
         run: node --test worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs 2>&1 | tee staging-tests.log; exit ${PIPESTATUS[0]}
-      # This script does not get the Cloudflare token (it is test code, not the guard). Its R2 download and D1
-      # read need it, so this step fails closed until the script is changed to take the file from a guarded step.
-      - name: Backup on Cloudflare — make, download from R2, open, refuse wrong key/pharmacy/changed byte, restore, verify
+      # The backup check, in three steps. The script never holds the Cloudflare token; only the guard downloads,
+      # and only the one backup the first step made, to a fixed file (worker/.staging-backup/backup.sdbk).
+      - name: Backup on Cloudflare — make a backup on the staging Worker (no credentials)
+        id: backup_prepare
         if: always() && env.STAGING_URL != ''
+        working-directory: worker
+        run: node scripts/staging-backup-check.mjs prepare 300
+      - name: Backup on Cloudflare — download that backup from the staging R2 bucket (guard only)
+        id: backup_fetch
+        if: always() && steps.backup_prepare.outcome == 'success'
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: $GUARD fetch-backup
+      - name: Backup on Cloudflare — open, refuse wrong key/pharmacy/changed byte, restore locally, verify (no Cloudflare access)
+        if: always() && steps.backup_fetch.outcome == 'success'
         working-directory: worker
         env:
           STAGING_BACKUP_KEY: ${{ secrets.STAGING_BACKUP_KEY }}
-        run: node scripts/staging-backup-check.mjs 300 ../staging-backup-report.json
+        run: node scripts/staging-backup-check.mjs verify ../staging-backup-report.json
       - name: Keep the reports
         if: always()
         uses: actions/upload-artifact@v4
