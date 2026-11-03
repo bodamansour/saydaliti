@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current phase | **Phase 1 follow-ups done; PR opened for CI; Phase 2 (M1 inventory, M2 backup) authorized for isolated implementation only.** |
+| Current phase | **Phase 2 M1 and M2 done locally; draft PR #51 for CI. Waiting for the owner's review. No production changes.** |
 | Branch | `ccr-94719aa6-7k3i5e` (not merged) · **Draft PR #51** (https://github.com/bodamansour/saydaliti/pull/51), opened for CI only — do not merge yet |
 | Base commit | `7d23b83` (= `main` at 2026-10-31) |
 | Production | **Not modified.** No deploy, no remote migration, no live database or Cloudflare account access, and no request to the production site. GitHub Actions run history was read (metadata only). |
@@ -43,14 +43,15 @@
 | Pre-flight before opening PR #51 | Branch, history and working tree verified (clean, 9 commits on top of `main` `7d23b83`). Diff scanned for secrets, credentials, emails, phone numbers and data files: none. Workflows a PR can trigger: `test.yml` (no secrets, local D1 only), `desktop.yml` and `android.yml` (build only; publishing is gated to non-PR events; Android didn't trigger). `cloudflare.yml` can't run on a PR. |
 | Note | **Merging** would run `desktop.yml` on `main` and publish a new Windows installer to the public `desktop-latest` release. That isn't a server deploy, but it is a public release. |
 | CI on `8b70d70` | **Windows program: success** (installer build + smoke on Windows). **Tests: failure.** The `test` job failed (the stub test for no-receipt returns clicked return mode before the reload finished, and 11 tests cascaded from it). The Windows United/SQL Server job passed. Fixed in `ec2627b`; local 3/3. |
-| CI on later commits | See the Phase 2 report |
+| CI on `2f69a2f` / `ec2627b` / `83a239c` | Windows program: **success** on each. Tests: **failure**, 1 of 47 in the Worker/browser step on `83a239c`. The stock browser test had a false step (it matched the refusal message still on screen from the previous attempt; on CI the box sold). Fixed in `226519d`. The dashboard suite passed on CI after `ec2627b`. |
+| CI on `226519d` | Pending at the time of writing; see the session report |
 
 ## Phase 2 (authorized 2026-11-03: planning + isolated implementation; no production)
 
 | # | Milestone | Status | Location | Tests executed | Evidence |
 |---|---|---|---|---|---|
 | P2-M1 | Server-authoritative inventory: ledger in the same atomic batch as every movement, levels by trigger, reversals, openings with a watermark, optional oversell guard inside the receipt's INSERT, stale after upload, reconciliation | **Done (local)** | migration `0013_stock_ledger.sql`, `worker/src/stock.js`, `worker/src/db.js`, `worker/src/rpc.js` (`stock_status`, `open_stock`, `set_stock_policy`), `src/stock-reconcile.js`, `src/app.js`, `src/cashier.js`, `docs/architecture/INVENTORY_LEDGER.md` | `worker/test/stock.test.mjs` 8/8 (2 devices → 1 sale; 10 devices for 3 boxes → 3); mutation check (guard off → test fails); reconcile unit 3/3; browser flow; 0013 apply/rollback/re-apply on a copy (1,179 receipts, 113 purchases kept) | commit 2f69a2f |
-| P2-M2 | Backup and recovery | In progress | — | — | — |
+| P2-M2 | Encrypted server backups (AES-256-GCM, per-pharmacy key derived from the `BACKUP_KEY` secret; existing R2 bucket; read back and decrypted before being listed; keep 14; daily cron only with the secret); exact restore into an empty database only; verification; owner-only RPCs | **Done (local)** | migration `0014_backups.sql`, `worker/src/backup.js`, `worker/scripts/restore-drill.mjs`, `worker/src/rpc.js` (`backup_now`, `list_backups`), `worker/wrangler.toml` (cron), `src/app.js`, `docs/operations/DISASTER_RECOVERY.md` | `test/backup-crypto.test.js` 5/5 (wrong key, other pharmacy, tamper, cut file, no key); `worker/test/backup.test.mjs` 1/1 (owner only, rate limit, list); **restore drill PASS** (copy of the local test DB → separate empty DB: 177 rows, 0 problems; tamper check detected 5 problems; negative checks refused; retention 14 kept / 3 expired with files deleted) | commit 34b9aa9 |
 
 ## Final Phase 1 test results (this environment, 2026-11-03)
 
@@ -86,6 +87,9 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 | Replay of the same sale id | ignored | ignored (unchanged), also when the two requests arrive at the same time |
 
 ## Database migration impact
+
+Phase 2 adds **0013_stock_ledger.sql** (stock_ledger, stock_levels, stock_bases, plus the trigger `stock_ledger_apply`) and **0014_backups.sql** (the backups list). Both are additive and tested locally with apply → rollback → re-apply (0013 on a copy with 1,179 receipts and 113 purchases; 0014 trivially). **Rollback limitations:** rolling back 0013 loses the ledger written since; rolling back 0014 loses the list (the R2 files stay). Neither is applied to production.
+
 
 - **0011_receipt_numbers.sql** (new): `ALTER TABLE pos_sales ADD COLUMN receipt_device TEXT` plus `CREATE UNIQUE INDEX … (pharmacy_id, number) WHERE receipt_device IS NOT NULL`.
   - Additive. No existing row is changed or rewritten. It cannot fail on existing duplicate numbers, because only new rows carry the column.
@@ -139,6 +143,9 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 - Phase 2 M1: production D1 support for the `stock_ledger_apply` trigger is **untested** (local Miniflare only). Needs staging or the first release run.
 - Phase 2 M1: the oversell block works at the cashier only when it's online. An offline sale that oversells is refused on arrival and kept in the device's refused list (by design: never discarded).
 - Phase 2 M1: batches, expiry and FEFO are still computed in the app; the server keeps boxes per item and branch only.
+- Phase 2 M2: backups are not active in production until the owner creates the `BACKUP_KEY` secret and a copy is kept offline (without it the backups can't be opened). The daily job's CPU use on the current Cloudflare plan is untested.
+- Phase 2 M2: item photos are not in the backup; a restore is only into an empty database (auto-increment ids).
+- Intermittent test: the browser test of the no-receipt return approval failed twice locally without a captured reason (not reproduced in 6 runs); it now reports the screen state at each step.
 - Intermittent test: 1 failure in about 11 runs of the combined Worker + Cloudflare browser suite, at the item-file upload step of the first browser test (not changed in this phase); not reproduced in the next 8 runs; cause unknown.
 
 ## Architectural decisions
@@ -156,6 +163,7 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 | 2026-11-03 | Late receipts: detect and flag, don't refuse, until the owner sets a policy from measured lags | Owner decision 2: no arbitrary threshold |
 | 2026-11-03 | Server stock = append-only ledger plus a trigger-kept level, written in the same D1 batch as the movement; selling below zero stays **allowed by default** (today's behaviour), and blocking is per branch, owner-set | Atomic, idempotent and auditable; no behaviour change until the owner opts in |
 | 2026-11-03 | Server levels start from an explicit opening of the app's numbers (with a watermark), not from parsing the uploaded file on the server | Free-plan CPU limits; keeps one stock algorithm (`liveData`) as the reference |
+| 2026-11-03 | Backups encrypted on the server, stored in the existing R2 bucket, key derived per pharmacy from one secret; restore only into an empty database | No new service; no plaintext at rest; restore can never overwrite live data |
 
 ## UI/UX redesign progress
 
@@ -192,3 +200,4 @@ Restart `wrangler dev` after adding files under `src/` or changing `worker/publi
 - **2026-11-03 (Phase 1):** Milestones M1–M5 above. Commits on `ccr-94719aa6-7k3i5e` after `0fc1522`. Production untouched.
 - **2026-11-03 (Phase 1 follow-ups):** F1 manager approval (`28a5529`), F2 offline receipts (`9a33ad9`). Production untouched.
 - **2026-11-03 (PR + Phase 2 M1):** Draft PR #51; CI fix `ec2627b`; M1 server stock (`2f69a2f`). Production untouched.
+- **2026-11-03 (Phase 2 M2):** encrypted backups and restore drill (`34b9aa9`); CI-found test fix (`226519d`). Production untouched.
