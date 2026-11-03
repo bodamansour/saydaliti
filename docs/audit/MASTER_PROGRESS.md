@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current phase | **Staging validation (approved 2026-11-03): staging resources created and isolated; real-D1 SQL validated; staging Worker deploy waiting for the owner's 3 GitHub secrets. No production changes.** |
+| Current phase | **Staging preflight / configuration review (2026-11-03): fail-closed staging guard and protected two-job staging workflow added; nothing deployed, no resources created. Waiting for the owner's approval and the staging GitHub environment set-up.** |
 | Branch | `ccr-94719aa6-7k3i5e` (not merged) · **Draft PR #51** (https://github.com/bodamansour/saydaliti/pull/51), opened for CI only — do not merge yet |
 | Base commit | `7d23b83` (= `main` at 2026-10-31) |
 | Production | **Not modified.** No deploy, no remote migration, no live database or Cloudflare account access, and no request to the production site. GitHub Actions run history was read (metadata only). |
@@ -68,6 +68,7 @@
 | ST6 | Stock and offline fixes: clock-backdating bypass closed in blocking branches (+ `before_base` flag); move-in marks stock stale; cashier shows **refused** receipts (with reason and consequence) instead of "waiting"; an offline sale in a blocking branch says it may be refused; "confirmed" only when the server took it | Done | commit 9ddb8cb |
 | ST7 | Scenario tests (local Worker): offline vs competing online sale; recovery after a restock; clock manipulation; adjustment concurrent with a sale (5 rounds); return concurrent with sale and delivery; 2 branches × 2 devices; browser: refused on reconnect, retry from the refused list, restart with pending, network drop mid-sync, online confirmation; static guard on every write path | Done | `worker/test/stock.test.mjs` 13/13, `e2e/offline-sync.e2e.mjs` 7/7, `test/stock-paths.test.js` 3/3 |
 | ST8 | Backup key rotation (key ids, `BACKUP_KEYS_OLD`), key-loss behaviour, failure monitoring (`backupHealth`, `BACKUP_ALERT`, admin RPC, owner warning) | Done (local) | `test/backup-crypto.test.js` 9/9; restore drill PASS incl. monitoring and rotation (242 pharmacies checked) |
+| ST9 | **Preflight (no deploy):** `worker/scripts/staging-guard.mjs` (config / remote read-only proof / wrangler wrapper with allowlist, production denylist, forced `--env staging`, writes only after the remote proof for the same commit); `staging.yml` split into a secret-free `preflight` job and a `deploy` job (`needs`, `environment: staging`, owner-only, branch-limited, typed `STAGING` on manual runs, staging token only, account id as a variable); the backup check's wrangler calls go through the guard | Done (local only) | `test/staging-guard.test.js` 5/5, `test/staging-isolation.test.js` 3/3; `npm test` 0 failures. No Cloudflare call made. |
 | ST9 | Pilot plan (E-Plus stays the system of record) | Done (plan) | `docs/pilot/REAL_WORLD_PILOT_PLAN.md` |
 
 ## Final Phase 1 test results (this environment, 2026-11-03)
@@ -129,7 +130,7 @@ Phase 2 adds **0013_stock_ledger.sql** (stock_ledger, stock_levels, stock_bases,
 
 ## Blocked / waiting for the owner
 
-1. **Add the 3 staging GitHub secrets** (`docs/deployment/STAGING.md` §3), then re-run "Cloudflare staging validation".
+1. **Staging set-up** (`docs/deployment/STAGING.md` §3): GitHub environment `staging` with a required reviewer and branch limits; secrets `CLOUDFLARE_STAGING_API_TOKEN` (configured, per the owner) and `STAGING_BACKUP_KEY` in it; variable `CLOUDFLARE_STAGING_ACCOUNT_ID`. Then the owner's go-ahead to run "Cloudflare staging validation".
 1b. Review Phase 1 and decide on the release (production deploy needs separate approval).
 2. **Business rules not invented, waiting for a decision:**
    - ~~Should no-receipt returns need a manager approval?~~ **Decided 2026-11-03:** yes, an employee the owner flags, with their own PIN (F1).
