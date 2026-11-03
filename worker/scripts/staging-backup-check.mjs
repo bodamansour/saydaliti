@@ -14,15 +14,17 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getPlatformProxy } from 'wrangler';
 import { decryptBackup, restoreInto, verifyRestore, summarize } from '../src/backup.js';
+import { checkWranglerArgs, STAGING } from './staging-guard.mjs';
 
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.STAGING_URL, KEY = process.env.STAGING_BACKUP_KEY;
 const [rowsArg = '300', outFile = 'staging-backup-report.json'] = process.argv.slice(2);
 if (!BASE || !KEY) { console.error('STAGING_URL and STAGING_BACKUP_KEY are needed'); process.exit(2); }
-if (!/saydaliti-staging\./.test(BASE)) { console.error('refusing: not the staging URL'); process.exit(2); }
+if (!STAGING.urlHost.test(BASE)) { console.error('refusing: not the staging URL'); process.exit(2); }
 const report = { at: new Date().toISOString(), target: BASE, synthetic_rows: +rowsArg };
 const rnd = () => Math.random().toString(36).slice(2, 10);
-const wrangler = (args) => execFileSync('npx', ['wrangler', ...args, '--env', 'staging'], { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+// Remote reads only, through the staging guard (it adds --env staging and refuses production names).
+const wrangler = (args) => execFileSync('npx', ['wrangler', ...checkWranglerArgs(args)], { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 async function call(token, path, body) {
   const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
@@ -68,9 +70,9 @@ try {
     one_byte_changed: await refused(() => decryptBackup({ BACKUP_KEY: KEY }, P, bent)),
     no_key: await refused(() => decryptBackup({}, P, bytes)),
   };
-  // 4. Restore into a separate, empty local database.
+  // 4. Restore into a separate, empty LOCAL database (--local: on this runner's disk, no Cloudflare call).
   const dst = join(work, 'restore');
-  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'saydaliti', '--local', '--persist-to', dst], { cwd: WORKER, stdio: 'pipe' });
+  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', dst], { cwd: WORKER, stdio: 'pipe' });
   const proxy = await getPlatformProxy({ configPath: join(WORKER, 'wrangler.toml'), persist: { path: join(dst, 'v3') } });
   try {
     t = Date.now();
