@@ -149,6 +149,11 @@
         <summary>نسخة احتياطية من كل بياناتك</summary>
         <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>
         <div class="row"><button class="btn primary" type="button" id="cloudBackupBtn">نزّل نسخة كاملة دلوقتي</button><span class="note" id="cloudBackupMsg" role="status"></span></div>
+        <div id="serverBackups" hidden>
+          <hr>
+          <p><b>النسخ المشفّرة على السيرفر:</b> السيرفر بيعمل نسخة مشفّرة كل يوم ويحتفظ بآخر 14. <span id="serverBackupState" class="note" role="status"></span></p>
+          <div class="row"><button class="btn" type="button" id="serverBackupBtn">اعمل نسخة على السيرفر دلوقتي</button></div>
+        </div>
         <div id="cloudImport" hidden>
           <hr>
           <p><b>نقل من النسخة القديمة:</b> لو الصيدلية دي جديدة وفاضية، رجّع فيها النسخة الكاملة اللي نزلتها من البرنامج القديم: الأصناف والرصيد والفواتير والعملاء والموظفين كلهم هيتنقلوا. الأرقام السرية للموظفين لازم تتكتب تاني من صفحة الحضور.</p>

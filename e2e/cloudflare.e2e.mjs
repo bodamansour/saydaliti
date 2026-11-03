@@ -270,6 +270,10 @@ test('moving: a full backup goes into a new, empty pharmacy', { skip }, async ()
   await m.click('[data-sec=stock]');
   await m.click('[data-tab=items]');
   await m.fill('#itemsQ', 'شاش');
+  // The encrypted server backup, from the same panel (Phase 2 M2).
+  await openTools(owner);
+  await owner.click('#serverBackupBtn');
+  assert.ok(await until(owner, async () => /آخر نسخة/.test(await text(owner, '#serverBackupState')), 20000), await text(owner, '#serverBackupState'));
   assert.ok(await until(m, async () => /11/.test(await text(m, '#itemsBody tr'))), `the same stock as the old pharmacy: ${await text(m, '#itemsBody')} / ${await text(m, '#cloudBackupMsg')} / ${await text(m, '#fileMsg')}`);
 });
 

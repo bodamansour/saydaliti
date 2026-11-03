@@ -7,6 +7,7 @@ import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch,
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
 import { openStock } from './stock.js';
+import { runBackup } from './backup.js';
 
 const signedIn = (ctx) => { if (!ctx.user) throw new ApiError('not signed in', '42501', 401); };
 const isAdmin = async (env, ctx) => !!ctx.user && !!(await env.DB.prepare('SELECT 1 FROM app_admins WHERE user_id = ?').bind(ctx.user.id).first());
@@ -290,6 +291,21 @@ export const RPC = {
       audit(env, ctx, 'stock_bases', 'update', null, { id: branch, pharmacy_id: p_pharmacy, block_negative: p_block_negative }),
     ]);
     return { block_negative: p_block_negative };
+  },
+  // ---------- Encrypted server backups (Phase 2 M2, backup.js) ----------
+  // The owner makes one now, or sees the list (not the files: restoring is a recovery procedure,
+  // docs/operations/DISASTER_RECOVERY.md).
+  async backup_now(env, ctx, { p_pharmacy }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    const recentOne = await one(env, "SELECT count(*) AS n FROM backups WHERE pharmacy_id = ? AND created_at > ? AND source = 'manual'", p_pharmacy, recent(60));
+    if (recentOne.n >= 6) throw new ApiError('too many backups this hour', '429', 429);
+    const r = await runBackup(env, p_pharmacy, { by: ctx.user.id, source: 'manual' });
+    return { id: r.id, bytes: r.bytes, counts: r.counts };
+  },
+  async list_backups(env, ctx, { p_pharmacy }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    return (await all(env, 'SELECT id, created_at, status, bytes, summary, error, source FROM backups WHERE pharmacy_id = ? ORDER BY created_at DESC LIMIT 60', p_pharmacy))
+      .map((b) => ({ ...b, summary: b.summary ? JSON.parse(b.summary) : null }));
   },
   async is_app_admin(env, ctx) { return isAdmin(env, ctx); },
   async admin_pharmacies(env, ctx) {
