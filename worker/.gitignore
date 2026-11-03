@@ -2,3 +2,4 @@ public/
 node_modules/
 .wrangler/
 .dev.vars
+.staging-preflight.json
