@@ -92,7 +92,7 @@ test('the Cloudflare token reaches only steps that run the guard (never npm, the
   const withToken = all.filter((s) => /CLOUDFLARE_API_TOKEN:/.test(s.env));
   assert.ok(withToken.length >= 6, 'the guarded steps were found');
   // Commands allowed in a step that holds the token: the guard, shell built-ins, and short inline checks.
-  const allowed = /^(\$GUARD (remote|schedules|run -- .*)|set -o pipefail|missing=""|\[ .*|if .*|fi|then|else|url=\$\(grep .*\)|echo .*|rm -f [\w.]+|node -e "[^"]*"( > \S+)?|openssl rand -hex 32 \| tr -d '\\n' \| \$GUARD run -- secret put PIN_PEPPER >\/dev\/null|printf '%s' "\$STAGING_BACKUP_KEY" \| \$GUARD run -- secret put BACKUP_KEY >\/dev\/null|\$GUARD run -- .*)$/;
+  const allowed = /^(\$GUARD (remote|schedules|fetch-backup|run -- .*)|set -o pipefail|missing=""|\[ .*|if .*|fi|then|else|url=\$\(grep .*\)|echo .*|rm -f [\w.]+|node -e "[^"]*"( > \S+)?|openssl rand -hex 32 \| tr -d '\\n' \| \$GUARD run -- secret put PIN_PEPPER >\/dev\/null|printf '%s' "\$STAGING_BACKUP_KEY" \| \$GUARD run -- secret put BACKUP_KEY >\/dev\/null|\$GUARD run -- .*)$/;
   for (const s of withToken) {
     const lines = s.run.split('\n').map((l) => l.trim()).filter(Boolean);
     assert.ok(lines.length, `${s.name}: has commands`);
@@ -108,4 +108,24 @@ test('the Cloudflare token reaches only steps that run the guard (never npm, the
   }
   // The backup key goes only to the settings check, the secret upload and the backup check.
   for (const s of all.filter((s) => /STAGING_BACKUP_KEY:/.test(s.env))) assert.match(s.name, /settings are present|Staging secrets on the Worker|Backup on Cloudflare/, s.name);
+});
+
+test('backup check: the script steps have no Cloudflare credentials; the download step runs only the guard', () => {
+  const dep = wfText().slice(wfText().indexOf('\n  deploy:'));
+  const all = steps(dep);
+  const scriptSteps = all.filter((s) => /staging-backup-check\.mjs/.test(s.run));
+  assert.deepEqual(scriptSteps.map((s) => s.run.trim().split(' ').slice(0, 3).join(' ')), ['node scripts/staging-backup-check.mjs prepare', 'node scripts/staging-backup-check.mjs verify']);
+  for (const s of scriptSteps) {
+    assert.doesNotMatch(s.env, /CLOUDFLARE|secrets\.(?!STAGING_BACKUP_KEY\b)/, `${s.name}: no Cloudflare credential`);
+    assert.doesNotMatch(s.run, /\$GUARD|wrangler|--file|\.sdbk/, `${s.name}: no guard call and no file path on the command line`);
+  }
+  assert.doesNotMatch(scriptSteps[0].env, /secrets\./, 'the prepare step holds no secret at all');
+  const fetch = all.filter((s) => /fetch-backup/.test(s.run));
+  assert.equal(fetch.length, 1);
+  assert.equal(fetch[0].run.trim(), '$GUARD fetch-backup');
+  assert.equal(fetch[0].env.trim(), 'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}');
+  // Order: make → download → verify; verify only after a successful download.
+  const idx = (re) => all.findIndex((s) => re.test(s.run));
+  assert.ok(idx(/ prepare /) < idx(/fetch-backup/) && idx(/fetch-backup/) < idx(/ verify /));
+  assert.match(all[idx(/ verify /)].text, /if: always\(\) && steps\.backup_fetch\.outcome == 'success'/);
 });

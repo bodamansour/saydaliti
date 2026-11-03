@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
+import { symlinkSync } from 'node:fs';
+const PH = '11111111-2222-4333-8444-555555555555', BK = 'abcdef12-0000-4000-8000-000000000000';
 import { tmpdir } from 'node:os';
-import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, checkScheduledHandler, STAGING, PRODUCTION, WORKER, CONFIG } from '../worker/scripts/staging-guard.mjs';
+import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, checkScheduledHandler, readBackupRequest, backupKeyOk, backupSelect, STAGING, PRODUCTION, WORKER, CONFIG, BACKUP_FILE, BACKUP_DIR } from '../worker/scripts/staging-guard.mjs';
 
 const toml = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
 const staging = (fn) => toml.replace(/^\[env\.staging\][\s\S]*$/m, (part) => fn(part));
@@ -37,7 +39,7 @@ test('wrangler: the guard adds --env staging and allows listed reads', () => {
   assert.deepEqual(checkWranglerArgs(['d1', 'info', 'DB', '--json']), ['d1', 'info', 'DB', '--json', '--env', 'staging']);
   assert.deepEqual(checkWranglerArgs(['d1', 'migrations', 'list', 'DB', '--remote']).slice(-2), ['--env', 'staging']);
   checkWranglerArgs(['d1', 'execute', 'DB', '--remote', '--command', 'SELECT id FROM d1_migrations ORDER BY id']);
-  checkWranglerArgs(['r2', 'object', 'get', `${STAGING.bucket}/backups/p/1.sdbk`, '--remote', '--file', 'x']);
+  checkWranglerArgs(['r2', 'object', 'get', `${STAGING.bucket}/backups/${PH}/2026-11-03T21-50-49-123Z-abcdef12.sdbk`, '--remote', '--file', BACKUP_FILE]);
   checkWranglerArgs(['secret', 'list', '--format', 'json']);
 });
 
@@ -229,4 +231,72 @@ test('code: the staging cron may reach only the backups (never the patient remin
     'no scheduled handler': 'export default { fetch() {} };',
   };
   for (const [what, src] of Object.entries(bad)) assert.ok(checkScheduledHandler(src).length > 0, what);
+});
+
+// ---------- the backup hand-over: guarded download, token-free check ----------
+const GOOD_KEY = `backups/${PH}/2026-11-03T21-50-49-123Z-abcdef12.sdbk`;
+
+test('r2: only the guarded backup download — one backup key, from the remote bucket, into the one fixed file', () => {
+  const get = (path, ...opts) => ['r2', 'object', 'get', path, ...opts];
+  assert.deepEqual(checkWranglerArgs(get(`${STAGING.bucket}/${GOOD_KEY}`, '--remote', '--file', BACKUP_FILE)).slice(-2), ['--env', 'staging']);
+  const refused = {
+    'another file': get(`${STAGING.bucket}/${GOOD_KEY}`, '--remote', '--file', '/tmp/x.sdbk'),
+    'a relative file': get(`${STAGING.bucket}/${GOOD_KEY}`, '--remote', '--file', 'backup.sdbk'),
+    'to stdout': get(`${STAGING.bucket}/${GOOD_KEY}`, '--remote', '--pipe'),
+    'no --remote (local)': get(`${STAGING.bucket}/${GOOD_KEY}`, '--file', BACKUP_FILE),
+    'an extra option': get(`${STAGING.bucket}/${GOOD_KEY}`, '--remote', '--file', BACKUP_FILE, '--jurisdiction', 'eu'),
+    'not a backup': get(`${STAGING.bucket}/images/${PH}/a.png`, '--remote', '--file', BACKUP_FILE),
+    'path traversal': get(`${STAGING.bucket}/backups/${PH}/../../x.sdbk`, '--remote', '--file', BACKUP_FILE),
+    'production bucket': get(`saydaliti-files/${GOOD_KEY}`, '--remote', '--file', BACKUP_FILE),
+  };
+  for (const [what, args] of Object.entries(refused)) assert.throws(() => checkWranglerArgs(args, { markerOk: true }), undefined, what);
+});
+
+test('backup request: exactly two UUIDs, in a plain file inside a plain folder', () => {
+  const root = mkdtempSync(join(tmpdir(), 'req-'));
+  const dir = join(root, '.staging-backup'), file = join(dir, 'request.json');
+  try {
+    assert.throws(() => readBackupRequest(file, dir), /missing/);
+    mkdirSync(dir);
+    assert.throws(() => readBackupRequest(file, dir), /no backup request/);
+    writeFileSync(file, JSON.stringify({ pharmacyId: PH, backupId: BK }));
+    assert.deepEqual(readBackupRequest(file, dir), { pharmacyId: PH, backupId: BK });
+    const bad = {
+      'extra field (e.g. a path)': { pharmacyId: PH, backupId: BK, file: '/etc/passwd' },
+      'not a UUID': { pharmacyId: PH, backupId: "x' OR 1=1 --" },
+      'missing id': { pharmacyId: PH },
+    };
+    for (const [what, req] of Object.entries(bad)) { writeFileSync(file, JSON.stringify(req)); assert.throws(() => readBackupRequest(file, dir), undefined, what); }
+    writeFileSync(file, 'x'.repeat(2000)); assert.throws(() => readBackupRequest(file, dir), /too large/);
+    // A link instead of the file, or instead of the folder, is refused.
+    rmSync(file); writeFileSync(join(root, 'elsewhere.json'), JSON.stringify({ pharmacyId: PH, backupId: BK }));
+    symlinkSync(join(root, 'elsewhere.json'), file); assert.throws(() => readBackupRequest(file, dir), /plain file/);
+    const other = join(root, 'other'); mkdirSync(other); const linked = join(root, 'linked');
+    symlinkSync(other, linked); assert.throws(() => readBackupRequest(join(linked, 'request.json'), linked), /plain folder/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+  assert.ok(BACKUP_FILE.startsWith(BACKUP_DIR) && isAbsolute(BACKUP_FILE) && BACKUP_DIR.startsWith(WORKER));
+});
+
+test('backup key and SELECT: only the key the Worker makes for that pharmacy and backup; ids can not inject SQL', () => {
+  const req = { pharmacyId: PH, backupId: BK };
+  assert.equal(backupKeyOk(GOOD_KEY, req), true);
+  for (const k of [`backups/${PH}/../x-abcdef12.sdbk`, `backups/${PH}/2026-11-03T21-50-49-123Z-00000000.sdbk`, `backups/22222222-2222-4333-8444-555555555555/2026-11-03T21-50-49-123Z-abcdef12.sdbk`, `images/${PH}/2026-11-03T21-50-49-123Z-abcdef12.sdbk`, `${GOOD_KEY}x`, null]) assert.equal(backupKeyOk(k, req), false, String(k));
+  assert.match(backupSelect(req), /^SELECT r2_key FROM backups WHERE id = '[0-9a-f-]{36}' AND pharmacy_id = '[0-9a-f-]{36}' AND status = 'ok'$/);
+  checkWranglerArgs(['d1', 'execute', 'DB', '--remote', '--json', '--command', backupSelect(req)]);
+  assert.throws(() => backupSelect({ pharmacyId: PH, backupId: "' OR '1'='1" }));
+});
+
+test('the backup-check script never has Cloudflare access: no token, no remote wrangler, no guard call, fixed file paths', () => {
+  const src = readFileSync(new URL('../worker/scripts/staging-backup-check.mjs', import.meta.url), 'utf8');
+  const code = src.replace(/^\s*\/\/.*$/gm, '');
+  assert.match(code, /if \(process\.env\.CLOUDFLARE_API_TOKEN\) \{[^}]*process\.exit\(2\)/, 'it refuses to run with the token');
+  assert.doesNotMatch(code.replace("process.env.CLOUDFLARE_API_TOKEN", ''), /CLOUDFLARE|api\.cloudflare\.com/);
+  assert.doesNotMatch(code, /--remote|checkWranglerArgs|guardedArgv|staging-guard\.mjs['"]\s*\)|r2['"],\s*['"]object|fetch-backup/);
+  for (const line of code.split('\n').filter((l) => /['"]wrangler['"]/.test(l) && /execFile|spawn/.test(l))) {
+    assert.match(line, /'--local'/); assert.match(line, /'--config', CONFIG/);
+  }
+  // The downloaded file is read only from the guard's fixed constant; the command line can't name it.
+  assert.match(code, /readFile\(BACKUP_FILE\)/);
+  assert.doesNotMatch(code, /readFile\((arg|process\.argv)/);
+  assert.match(code, /meta\.sha256 !== sha256/, 'checks the file is the one the guard downloaded');
 });

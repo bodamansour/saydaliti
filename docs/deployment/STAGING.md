@@ -86,7 +86,22 @@ The guard never reads the production token, and it never sends a request about a
 
 **Job `deploy`** (runs after `preflight`, waits for the `staging` environment reviewer; owner only; branch `ccr-94719aa6-7k3i5e` only, with `main` added back after PR #51 is merged).
 
-**Secrets.** No secret is set for the whole job. `CLOUDFLARE_STAGING_API_TOKEN` is given only to the steps that run the guard: the settings check, the remote proof, migrations, deploy, Worker secrets, the D1 checks and the schedules check. It is never given to `npm ci`, the build, Playwright, the test suites or the backup-check script. `test/staging-isolation.test.js` enforces this. The backup-check script therefore can't read from R2 yet, and that step fails until it is changed to take the file from a guarded step.
+**Secrets.** No secret is set for the whole job. `CLOUDFLARE_STAGING_API_TOKEN` is given only to the steps that run the guard: the settings check, the remote proof, migrations, deploy, Worker secrets, the D1 checks and the schedules check. It is never given to `npm ci`, the build, Playwright, the test suites or the backup-check script. `test/staging-isolation.test.js` enforces this.
+
+**Backup check: three steps, so the script never holds the token.**
+1. `staging-backup-check.mjs prepare` (no secrets): makes a synthetic pharmacy and a backup on the staging Worker, then writes the two ids to `worker/.staging-backup/request.json`.
+2. `staging-guard.mjs fetch-backup` (the token, nothing else in the step):
+   - reads that request, which must be exactly two UUIDs in a plain file inside a plain folder;
+   - looks up the backup's R2 key with one `SELECT` on the staging D1;
+   - accepts the key only in the exact form the Worker makes for that pharmacy and backup;
+   - downloads it with the only R2 read the guard allows: that key, from the remote staging bucket, into the fixed file `worker/.staging-backup/backup.sdbk`;
+   - checks the header and size, and records the SHA-256.
+3. `staging-backup-check.mjs verify` (only `STAGING_BACKUP_KEY`):
+   - reads only that fixed file; it must be a plain file whose SHA-256 matches what the guard recorded;
+   - checks it can't be opened with the wrong key, as the wrong pharmacy or with a changed byte;
+   - restores it into an empty **local** database and verifies the result.
+
+   The script refuses to run at all if a Cloudflare token is in its environment.
 
 Steps:
 1. Settings present (names only).
@@ -98,7 +113,7 @@ Steps:
 7. Real-D1 checks: trigger and tables.
 8. Cron schedules.
 9. All API, stock, backup and browser suites against the staging Worker.
-10. The backup check on Cloudflare: make a backup → download it from R2 → open it → refuse wrong key, wrong pharmacy and a changed byte → restore into a separate, empty **local** database → verify.
+10. The backup check on Cloudflare: make a backup (no secrets) → guarded download from R2 → open it → refuse wrong key, wrong pharmacy and a changed byte → restore into a separate, empty **local** database → verify (no Cloudflare access).
 
 Reports are uploaded as the `staging-reports` artifact.
 
