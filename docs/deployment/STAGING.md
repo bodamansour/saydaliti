@@ -44,7 +44,7 @@ Unrelated resources on the same account (`mosaed-cloud*` Workers, `mosaed-files*
 
 ## 4. Running it
 
-Actions → **Cloudflare staging validation** → Run workflow. Or change `.github/staging-run` on the working branch.
+Change `.github/staging-run` on the working branch and push: that runs **Cloudflare staging validation**. (The "Run workflow" button in Actions appears only once the workflow file is on `main`, after PR #51 is merged.)
 
 Steps:
 1. Secrets check.
