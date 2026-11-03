@@ -60,6 +60,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .muted { color: var(--muted); }
 .note { font-size: .86rem; color: var(--muted); margin: 0; }
 .err { color: var(--crit); font-weight: 600; }
+.data-alert { background: var(--crit-soft); color: var(--crit); border: 1px solid var(--crit); border-radius: var(--r-m); padding: 10px 14px; font-weight: 600; }
+.data-alert p { margin: 0; }
 .ic { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 :focus-visible { outline: none; box-shadow: var(--ring); }
 

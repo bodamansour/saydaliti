@@ -10,6 +10,7 @@ import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
+import { readAll, showDataAlert, incompleteText } from './paged.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
@@ -927,6 +928,8 @@ function refreshDerived() {
 }
 
 // Server rows, plus local changes still waiting in the outbox; falls back to the copy on this device.
+// The most rows of one table this screen loads (Phase 2 moves stock to the server and removes this).
+const LOAD_MAX = 50000;
 async function loadTable(table, cols, order = 'created_at') {
   const q = await pending();
   const mine = (t) => (e) => e.payload?.table === table && e.type === t;
@@ -935,14 +938,9 @@ async function loadTable(table, cols, order = 'created_at') {
   const upd = q.filter(mine('update'));
   let rows = null;
   if (isOnline()) {
-    // The server sends at most 1000 rows at a time: read page by page (stock needs every row).
-    let all = [], error = null;
-    for (let from = 0; from < 50000; from += 1000) {
-      const res = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).range(from, from + 999);
-      if (res.error) { error = res.error; break; }
-      all.push(...res.data);
-      if (res.data.length < 1000) break;
-    }
+    // Every row (stock and money need all of them), page by page; never part of the table.
+    const { data: all, error } = await readAll(() => SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }), { table, max: LOAD_MAX });
+    if (error?.incomplete) { showDataAlert($('dataAlert'), error); throw error; }
     if (error && !/fetch|network/i.test(error.message)) throw Object.assign(new Error(error.message), { missing: true });
     if (!error) rows = all;
   }
@@ -2394,14 +2392,13 @@ async function cloudBackup() {
     tables: { pharmacies: [{ id: SESS.pharmacy.id, name: SESS.pharmacy.name, settings: SESS.pharmacy.settings || {}, created_at: new Date().toISOString() }] } };
   for (const [t, cols] of CLOUD_TABLES) {
     $('cloudBackupMsg').textContent = `بنزّل ${t}…`;
-    const rows = [];
-    for (let from = 0; from < 500000; from += 1000) {
-      const r = await SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }).range(from, from + 999);
-      if (r.error) { if (!/fetch|network/i.test(r.error.message)) break; throw new Error('النت فصل. جرّب تاني.'); }
-      rows.push(...r.data);
-      if (r.data.length < 1000) break;
-    }
-    out.tables[t] = rows;
+    // A backup is all or nothing: any table that can't be read whole stops it with the reason.
+    const { data: rows, error } = await readAll(() => SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }), { table: t, max: 500000 });
+    if (error?.incomplete) throw new Error(incompleteText(error));
+    if (error && /fetch|network/i.test(error.message)) throw new Error('النت فصل. جرّب تاني.');
+    // A table the database doesn't have yet (an update not applied) is empty; any other refusal stops the backup.
+    if (error && !/does not exist|schema cache|42P01/i.test(`${error.code ?? ''} ${error.message}`)) throw new Error(`مقدرتش أنزّل ${t}: ${error.message}`);
+    out.tables[t] = rows ?? [];
   }
   // The latest uploaded data of each branch (the starting stock).
   $('cloudBackupMsg').textContent = 'بنزّل آخر رفع لكل فرع…';

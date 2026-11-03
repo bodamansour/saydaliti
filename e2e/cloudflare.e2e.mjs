@@ -352,6 +352,26 @@ test('receipt numbers stay unique across devices and after the saved counter is 
   await owner.waitForSelector('#app:not([hidden])');
 });
 
+test('a table too big to load whole is reported on screen, not used in part', { skip }, async () => {
+  // The server here answers every page of stock adjustments with 1,000 rows: there is always more.
+  const p = await newPage();
+  await p.route('**/api/db', async (route) => {
+    const q = JSON.parse(route.request().postData() || '{}');
+    if (q.op !== 'select' || q.table !== 'stock_moves') return route.continue();
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ id: crypto.randomUUID(), branch_id: null, code: 'X', qty: 1, kind: 'count', expiry: null, cost: null, ref: null, note: null, person: null, happened_at: '2026-10-01T00:00:00Z', created_at: `2026-10-01T00:00:${String(i % 60).padStart(2, '0')}Z` }));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: rows, error: null }) });
+  });
+  await p.goto(BASE);
+  await p.waitForSelector('#loginForm');
+  await p.fill('#email', OWNER); await p.fill('#password', 'password123');
+  await p.click('#loginForm button[type=submit]');
+  await p.waitForSelector('#app:not([hidden])');
+  assert.ok(await until(p, async () => /البيانات مش كاملة: حركات المخزون/.test(await p.locator('#dataAlert').innerText().catch(() => '')), 60000), 'the dashboard says the data is incomplete');
+  await p.goto(`${BASE}/cashier.html`);
+  await p.waitForSelector('#pos:not([hidden])');
+  assert.ok(await until(p, async () => /البيانات مش كاملة: حركات المخزون/.test(await p.locator('#dataAlert').innerText().catch(() => '')), 60000), 'the cashier says so too');
+});
+
 test('signing out and in again', { skip }, async () => {
   await owner.click('#logout');
   await owner.waitForSelector('#loginForm');
