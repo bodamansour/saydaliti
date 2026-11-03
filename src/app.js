@@ -885,8 +885,10 @@ function renderShifts() {
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
-const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم' };
-const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم', pos_sales: 'فاتورة كاشير', return_approvals: 'موافقة مرتجع' };
+const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح', flag: 'وقت محتاج نظرة' };
+// Why a receipt's time was flagged by the server (worker/src/rpc.js timeFlags). Kept, never refused.
+const FLAG_TEXT = { time_not_number_day: 'وقتها مش في يوم رقمها (ساعة الجهاز اتغيرت؟)', before_shift_opened: 'قبل ما ورديتها تتفتح', after_shift_closed: 'بعد ما ورديتها اتقفلت', return_before_sale: 'مرتجع وقته قبل فاتورة البيع', after_day_closed: 'وصلت ليوم اتقفل خلاص' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
   const show = (v) => (v === null || v === undefined || v === '' ? '—' : Array.isArray(v) ? `${v.length} سطر` : typeof v === 'object' ? '…' : String(v));
@@ -896,6 +898,8 @@ function logChanges(x) {
     return keys.map((k) => `${k}: ${show(x.old_row?.[k])} ← ${show(x.new_row?.[k])}`).join('، ');
   }
   const r = x.new_row || x.old_row || {};
+  if (x.op === 'flag') return [r.number, ...(r.flags || []).map((f) => FLAG_TEXT[f] || f)].filter(Boolean).join(' · ');
+  if (x.table_name === 'return_approvals') return `${r.total} ج · ${r.reason} · الكاشير ${r.cashier_name} · وافق ${r.approver_name}`;
   return [r.name, r.code, r.invoice_no, r.supplier_name, r.amount != null ? `${r.amount} ج` : '', r.qty != null ? `كمية ${r.qty}` : '', r.employee_name, r.note].filter(Boolean).join(' · ');
 }
 function renderLog() {
@@ -906,7 +910,7 @@ function renderLog() {
   return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button></div>
   <p class="note">كل إضافة أو تعديل أو مسح في المشتريات والأصناف والرصيد والعملاء والفلوس والورديات بيتسجل هنا: مين وإمتى وإيه اللي اتغير. محدش يقدر يمسح السجل ده.</p>
   ${list.length ? table(['إمتى', 'مين', 'إيه', 'العملية', 'التفاصيل'], list.slice(0, 500).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td>
-    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
+    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' || x.op === 'flag' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
     <td class="name">${esc(logChanges(x))}</td></tr>`)) : '<p class="muted">لسه مفيش حاجة في السجل.</p>'}`;
 }
 

@@ -105,7 +105,7 @@ async function api(req, env, url) {
     if (q.op === 'select') { const r = await select(ctx, env, q); return json(rowsJson(r.rows, r.blob)); }
     if (q.op === 'insert' || q.op === 'upsert') {
       await insert(ctx, env, q, { beforeInsert: async (table, row) => {
-        if (table === 'pos_sales') await checkPosSale(ctx, env, row);
+        if (table === 'pos_sales') return checkPosSale(ctx, env, row);
         // The cashier device records only money taken out of the drawer; other expenses are the owner's.
         if (table === 'expenses' && !['owner', 'accountant'].includes(ctx.roles.get(row.pharmacy_id)) && row.kind !== 'withdrawal') throw new ApiError('not allowed', '42501', 403);
       } });
