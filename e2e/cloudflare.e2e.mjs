@@ -381,15 +381,20 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
     if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); }
     assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip'))), `step 3: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   };
+  // The cashier loads its items and staff after the page opens: wait for both before starting.
+  assert.ok(await until(owner, async () => /صنف/.test(await text(owner, '#posMsg')), 20000), `loaded: ${await text(owner, '#posMsg')}`);
   if (await owner.locator('#pinDlg[open]').count()) await signIn();
   await owner.click('#modeReturn');
   await owner.check('#retNoReceipt');
   await owner.fill('#retReason', 'الفاتورة ضاعت');
   await owner.fill('#q', '6220000000001');
   await owner.press('#q', 'Enter');
-  await owner.keyboard.press('F2');
-  // With no cashier signed in, the cashier is asked for their PIN first.
-  await owner.waitForSelector('#pinDlg[open], #apprDlg[open]');
+  assert.ok(await until(owner, async () => (await owner.locator('#cart tr').count()) > 0), `in the cart: ${await text(owner, '#posMsg')}`);
+  // F2 opens the cashier's PIN (no cashier yet) or the manager's approval; the staff count may still be
+  // arriving, so try again until one opens.
+  const dialog = () => owner.locator('#pinDlg[open], #apprDlg[open]').count();
+  assert.ok(await until(owner, async () => { if (await dialog()) return true; await owner.keyboard.press('F2'); await owner.waitForTimeout(700); return (await dialog()) > 0; }, 20000),
+    `a dialog opens: posMsg=${await text(owner, '#posMsg')} cart=${await owner.locator('#cart tr').count()} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   if (await owner.locator('#pinDlg[open]').count()) {
     assert.match(await text(owner, '#posMsg'), /الكاشير يدخل برقمه السري الأول/);
     await signIn();
