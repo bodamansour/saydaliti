@@ -355,6 +355,65 @@ test('receipt numbers stay unique across devices and after the saved counter is 
   await owner.waitForSelector('#app:not([hidden])');
 });
 
+test('a return without a receipt: the cashier signs in, a manager the owner allowed approves with their PIN', { skip }, async () => {
+  // The owner adds a manager and allows them to approve returns.
+  await owner.goto(`${BASE}/attendance.html`);
+  await owner.waitForSelector('#app:not([hidden])');
+  await owner.click('[data-tab=staff]');
+  await owner.fill('#nName', 'مدير المرتجع');
+  await owner.fill('#nPin', '7777');
+  await owner.click('#addForm button[type=submit]');
+  assert.ok(await until(owner, async () => /مدير المرتجع/.test(await text(owner, '#staff'))));
+  const box = owner.locator('tr', { hasText: 'مدير المرتجع' }).locator('[data-approve]');
+  await box.check();
+  assert.ok(await until(owner, async () => /يقدر يوافق/.test(await text(owner, '#staffMsg'))));
+  // At the cashier: سارة (PIN 1234, added earlier) sells; a return with no receipt.
+  await owner.goto(`${BASE}/cashier.html`);
+  await owner.waitForSelector('#pos:not([hidden])');
+  await owner.evaluate(() => { window.print = () => {}; });
+  const signIn = async () => {
+    await owner.fill('#pinIn', '1234'); await owner.click('#pinOk');
+    await owner.waitForTimeout(500);
+    if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); }
+    assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip'))));
+  };
+  if (await owner.locator('#pinDlg[open]').count()) await signIn();
+  await owner.click('#modeReturn');
+  await owner.check('#retNoReceipt');
+  await owner.fill('#retReason', 'الفاتورة ضاعت');
+  await owner.fill('#q', '6220000000001');
+  await owner.press('#q', 'Enter');
+  await owner.keyboard.press('F2');
+  // With no cashier signed in, the cashier is asked for their PIN first.
+  await owner.waitForSelector('#pinDlg[open], #apprDlg[open]');
+  if (await owner.locator('#pinDlg[open]').count()) {
+    assert.match(await text(owner, '#posMsg'), /الكاشير يدخل برقمه السري الأول/);
+    await signIn();
+    await owner.keyboard.press('F2');
+  }
+  await owner.waitForSelector('#apprDlg[open]');
+  assert.match(await text(owner, '#apprNote'), /الفاتورة ضاعت/);
+  // The cashier can't approve her own return.
+  await owner.fill('#apprPin', '1234');
+  await owner.click('#apprForm button[type=submit]');
+  assert.ok(await until(owner, async () => /موظف تاني|مش مسموح/.test(await text(owner, '#apprMsg'))), 'the cashier is not an approver');
+  await owner.fill('#apprPin', '7777');
+  await owner.click('#apprForm button[type=submit]');
+  assert.ok(await until(owner, async () => /المرتجع اتسجل/.test(await text(owner, '#posMsg'))));
+  assert.ok(await until(owner, async () => /متصل/.test(await text(owner, '#netChip'))), 'uploaded, not refused');
+  const rows = await owner.evaluate(async () => {
+    const s = JSON.parse(localStorage.getItem('sd-cf-auth'));
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.access_token}` },
+      body: JSON.stringify({ op: 'select', table: 'return_approvals', cols: 'return_id, reason, cashier_name, approver_name', filters: [], limit: 10 }) });
+    return (await r.json()).data;
+  });
+  assert.equal(rows.length, 1);
+  assert.deepEqual({ ...rows[0], return_id: undefined }, { return_id: undefined, reason: 'الفاتورة ضاعت', cashier_name: 'سارة', approver_name: 'مدير المرتجع' });
+  assert.equal(await owner.evaluate(() => localStorage.getItem('sd:apprPin')), null);
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+});
+
 test('a table too big to load whole is reported on screen, not used in part', { skip }, async () => {
   // The server here answers every page of stock adjustments with 1,000 rows: there is always more.
   const p = await newPage();
