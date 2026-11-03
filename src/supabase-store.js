@@ -18,6 +18,8 @@ const MESSAGES = {
   'approval not for this': 'الموافقة دي مش لنفس المرتجع. اطلب موافقة جديدة.',
   'already approved differently': 'المرتجع ده اتوافق عليه قبل كده ببيانات مختلفة.',
   'insufficient stock': 'الرصيد على السيرفر مش كفاية للصنف ده (البيع بعد ما الرصيد يخلص ممنوع في الفرع ده). ظبط الرصيد أو سجّل الطلبية اللي وصلت الأول.',
+  'backup key missing': 'النسخ على السيرفر مش متفعّلة لسه (محتاجة إعداد).',
+  'too many backups this hour': 'عملت نسخ كتير الساعة دي. استنى شوية.',
   'receipt number already used': 'رقم الفاتورة ده اتسجل قبل كده لفاتورة تانية.',
   'sale total does not match its lines': 'إجمالي الفاتورة مش مطابق للأصناف والخصم.',
   'return price more than sold': 'سعر الصنف في المرتجع أكبر من سعره في فاتورة البيع.',

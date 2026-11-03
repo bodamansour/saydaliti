@@ -208,6 +208,10 @@ export const TABLES = {
   stock_bases: { pk: ['pharmacy_id', 'branch_id'], added: 13, read: ROLES_ALL, cols: {
     pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], base_at: ['ts'], opened_at: ['ts'], stale: ['bool', { nn: true }],
     block_negative: ['bool', { nn: true }], updated_at: ['ts', { nn: true }] } },
+  // Encrypted server backups (worker/src/backup.js, migrations/0014): the list; the files are in R2.
+  backups: { pk: 'id', internal: true, added: 14, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], created_at: ['ts', { nn: true }], status: ['text', { nn: true }], r2_key: ['text'], bytes: ['int'],
+    sha256: ['text'], summary: ['json'], error: ['text'], created_by: ['id'], source: ['text', { nn: true }] } },
   client_errors: { pk: 'id', internal: true, cols: {
     id: ['serial'], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], pharmacy_id: ['id'], page: ['text'], message: ['text', { nn: true }],
     stack: ['text'], agent: ['text'], version: ['text'] },

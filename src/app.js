@@ -2473,6 +2473,27 @@ $('stockBlock').addEventListener('change', async (e) => {
   await refreshStockBox();
 });
 
+// Encrypted backups the server keeps (Phase 2 M2): the latest one, and one now.
+async function refreshServerBackups() {
+  if (!SESS.client?.cloudflare || !isOwner()) return;
+  const r = await SESS.client.rpc('list_backups', { p_pharmacy: SESS.pharmacy.id });
+  if (r.error) return; // an older server without backups: nothing shown
+  $('serverBackups').hidden = false;
+  const ok = r.data.find((b) => b.status === 'ok'), failed = r.data.find((b) => b.status === 'failed');
+  const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('serverBackupState').textContent = ok ? `آخر نسخة: ${t(ok.created_at)}.` : 'لسه مفيش نسخة.';
+  if (failed && (!ok || failed.created_at > ok.created_at)) $('serverBackupState').textContent += ` آخر محاولة ما نجحتش (${t(failed.created_at)}).`;
+}
+$('cloudBackupBox').addEventListener('toggle', () => { if ($('cloudBackupBox').open) refreshServerBackups(); });
+$('serverBackupBtn').addEventListener('click', async () => {
+  $('serverBackupBtn').disabled = true;
+  $('serverBackupState').textContent = 'بنعمل النسخة…';
+  const r = await SESS.client.rpc('backup_now', { p_pharmacy: SESS.pharmacy.id });
+  $('serverBackupBtn').disabled = false;
+  if (r.error) { $('serverBackupState').textContent = `ما اتعملتش: ${arabicError(r.error).message}`; return; }
+  await refreshServerBackups();
+});
+
 $('cloudBackupBtn').addEventListener('click', async () => {
   if (!isOnline()) { $('cloudBackupMsg').textContent = 'النسخة الكاملة محتاجة نت.'; return; }
   $('cloudBackupBtn').disabled = true;

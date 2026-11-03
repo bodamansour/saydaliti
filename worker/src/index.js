@@ -10,6 +10,7 @@ import { signUp, signIn, signOut, userOf, changePassword } from './auth.js';
 import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
+import { backupAll } from './backup.js';
 import { runMorning } from '../../src/morning-job.js';
 import { runReminders } from '../../src/reminders-job.js';
 
@@ -167,6 +168,8 @@ export default {
   },
   async scheduled(event, env, ctx) {
     const e = jobEnv(env);
+    // The daily encrypted backups (only with the BACKUP_KEY secret set; see backup.js).
+    if (event.cron === env.BACKUP_CRON) { ctx.waitUntil(backupAll(env).then((r) => console.log('backups', JSON.stringify(r)))); return; }
     if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('morning', JSON.stringify(r))));
     else ctx.waitUntil(runReminders({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('reminders', JSON.stringify(r))));
   },
