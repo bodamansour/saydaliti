@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| Current phase | **Phase 1 complete (isolated dev/test environment only). Waiting for the owner's review and decisions before Phase 2.** |
-| Branch | `ccr-94719aa6-7k3i5e` (not merged; no PR opened) |
+| Current phase | **Phase 1 follow-ups done; PR opened for CI; Phase 2 (M1 inventory, M2 backup) authorized for isolated implementation only.** |
+| Branch | `ccr-94719aa6-7k3i5e` (not merged) |
 | Base commit | `7d23b83` (= `main` at 2026-10-31) |
 | Production | **Not modified.** No deploy, no remote migration, no live database or Cloudflare account access, and no request to the production site. GitHub Actions run history was read (metadata only). |
 | Release decision | **NOT READY** (Phase 2 items: server-side stock, cloud backup with a restore drill) |
@@ -28,6 +28,13 @@
 | M3 | Durable unique receipt numbers (P0-2) + migration 0011 | **Done** | `src/pos.js`, `src/cashier.js`, `worker/migrations/0011_receipt_numbers.sql`, `worker/src/schema.js` | Migration applied, rolled back and re-applied on a local D1 holding 3 legacy duplicate numbers (29 rows preserved); a direct SQL duplicate is refused by the index; API race test; browser numbering test | See "Database migration impact" |
 | M4 | Explicit errors when loading reaches a limit or fails (P0-3) | **Done** | `src/paged.js`, `src/app.js` (`loadTable`, full backup), `src/cashier.js`, `#dataAlert` in `index.html`/`cashier.html` | `test/paged.test.js` 4/4; browser test with a server that always has more rows (dashboard + cashier) | The full backup now stops with the reason instead of saving a backup with a table missing |
 | M5 | PIN secret fail-closed; endpoint authorization review; CSP and browser security headers (P0-7) | **Done** | `worker/src/auth.js`, `worker/src/index.js`, `worker/public-headers`, `docs/security/SECURITY_AUDIT.md` | `test/pin-secret.test.js` 2/2; e2e CSP sweep of every tab and page (0 violations) with a negative control | `docs/security/SECURITY_AUDIT.md` "Phase 1" |
+
+## Phase 1 follow-ups (owner decisions of 2026-11-03)
+
+| # | Item | Status | Location | Tests executed | Evidence |
+|---|---|---|---|---|---|
+| F1 | Returns without a receipt need a manager's approval: the owner flags employees; the approver types their own PIN; the server keeps an immutable approval bound to that return (id, amount, reason, cashier, approver, account) | **Done** | migration `0012_return_approvals.sql`, `worker/src/rpc.js` (`approve_no_receipt_return`, `checkApproval`), `src/cashier.js` (approval dialog), `src/attendance-app.js` (owner checkbox), `src/local-db.js` | API test (refusals: no approval, flag not set, device can't set it, wrong PIN, same person, no cashier, no reason, positive amount, reuse, other amount/cashier; record + audit; owner-only writes); browser tests on the local Worker and on the stub; migration apply/rollback/re-apply on a local D1 (237 receipts, 19 employees preserved) | commit 28a5529 |
+| F2 | Delayed and offline receipts: inspected; reused id with other contents refused (409, kept on the device); odd times flagged, never refused; late-receipt policy **proposed, not enforced** | **Done** | `worker/src/db.js` (`sameReceipt`), `worker/src/rpc.js` (`timeFlags`), `src/app.js` (log labels), `docs/architecture/OFFLINE_SYNC.md` | API test for retries, conflicts, late-but-normal receipts and each flag | commit 9a33ad9 |
 
 ## Final Phase 1 test results (this environment, 2026-11-03)
 
@@ -69,6 +76,11 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
   - Older app builds keep working (they don't send the column). All receipts are still checked for duplicate numbers by the guarded INSERT.
   - Tested locally: apply → rollback (`DROP INDEX …; ALTER TABLE pos_sales DROP COLUMN receipt_device;`) → re-apply. Row count and data identical.
   - **Not applied to production.** It will be applied by the next manual production release, after you approve it.
+- **0012_return_approvals.sql** (new, F1): `employees.can_approve_returns` (default 0), `pos_sales.approval_id`, and the `return_approvals` table with a unique `return_id` index.
+  - Additive. Existing employees can't approve until the owner flags them; existing rows are unchanged.
+  - Tested locally: apply → rollback (`DROP TABLE return_approvals; ALTER TABLE pos_sales DROP COLUMN approval_id; ALTER TABLE employees DROP COLUMN can_approve_returns;`) → re-apply. 237 receipts and 19 employees preserved.
+  - **Rollback limitation:** after rollback, approvals already recorded are lost. Take a D1 bookmark first.
+  - **Not applied to production.**
 - No other schema changes. Column checks were added in `schema.js` (bounds on `total`, `paid`, `credit` and `discount`); those run in the Worker, not in SQL.
 
 ## Deployment preconditions (for whenever the owner approves a release)
@@ -82,8 +94,8 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 
 1. Review Phase 1 and decide on the release (production deploy needs separate approval).
 2. **Business rules not invented, waiting for a decision:**
-   - Should no-receipt returns need a manager role or approval? Today: any seller, with a reason, audited.
-   - Should there be a limit on how old a receipt may be when it reaches the server? Today: no limit; arrival time recorded.
+   - ~~Should no-receipt returns need a manager approval?~~ **Decided 2026-11-03:** yes, an employee the owner flags, with their own PIN (F1).
+   - Late receipts: the proposed policy in `docs/architecture/OFFLINE_SYNC.md` §3 (72 h / 30 days / closed day) needs the owner's decision **after** pilot lag measurements. Today: no limit; arrival time recorded; odd times flagged (F2).
 3. E-Plus: version and authorised sample exports or screenshots (`EPLUS_FEATURE_PARITY.md`).
 4. Hosted staging environment: needs Cloudflare resources created on the owner's account (`DEPLOYMENT_AND_RELEASE.md` §4).
 5. Approval to start Phase 2 (server-side stock ledger, cloud backup and restore drill).
@@ -105,6 +117,10 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 - Desktop (Electron) and Android builds were not run in this environment.
 - Session token in `localStorage`; `style-src 'unsafe-inline'` (see the security doc).
 - Production usage is unconfirmed; it is treated as holding real data.
+- A return without a receipt now needs a connection and staff PINs set up (by design, F1). A pharmacy that has no employees can no longer make such returns until the owner adds staff and flags an approver.
+- New Arabic strings (approval dialog, log flags) have no English translation yet; they show in Arabic in English mode.
+- `local-db.js` (desktop offline mode) applies the approval rules, but only by code review: no automated test covers that path (it needs IndexedDB in a browser test).
+- Intermittent test: 1 failure in about 11 runs of the combined Worker + Cloudflare browser suite, at the item-file upload step of the first browser test (not changed in this phase); not reproduced in the next 8 runs; cause unknown.
 
 ## Architectural decisions
 
@@ -117,6 +133,8 @@ Same request shape, sent as a `device` (cashier) member to a local Worker. "Befo
 | 2026-11-03 | Windows 7/8/32-bit unsupported; no Electron 22 build (owner decision 4) | End-of-life runtime |
 | 2026-11-03 | Receipt rules restate the cashier's existing arithmetic (`src/sale-rules.js`), shared by the Worker and the desktop offline database | No invented business rules; one implementation |
 | 2026-11-03 | Receipt uniqueness via a guarded INSERT plus a partial unique index on the new `receipt_device` column | Cannot fail on legacy duplicates; atomic under concurrency |
+| 2026-11-03 | The manager for a no-receipt return is an employee the owner flags (`can_approve_returns`), approving with their own PIN online (owner decision) | Uses the existing PIN check and roles; no PIN stored on devices |
+| 2026-11-03 | Late receipts: detect and flag, don't refuse, until the owner sets a policy from measured lags | Owner decision 2: no arbitrary threshold |
 
 ## UI/UX redesign progress
 
@@ -151,3 +169,4 @@ Restart `wrangler dev` after adding files under `src/` or changing `worker/publi
 
 - **2026-11-03 (Phase 0):** Audit. Ran every suite runnable on Linux, probed the sale API locally, captured screenshots of all 32 tabs plus the cashier and phone layouts. No application code changed.
 - **2026-11-03 (Phase 1):** Milestones M1–M5 above. Commits on `ccr-94719aa6-7k3i5e` after `0fc1522`. Production untouched.
+- **2026-11-03 (Phase 1 follow-ups):** F1 manager approval (`28a5529`), F2 offline receipts (`9a33ad9`). Production untouched.
