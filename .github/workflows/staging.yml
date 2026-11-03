@@ -79,11 +79,16 @@ jobs:
           rm -f names.json
       - name: The staging Worker answers
         run: for i in $(seq 1 40); do curl -sf "$STAGING_URL/api/config" && exit 0; sleep 3; done; exit 1
-      - name: Real D1 — the stock trigger exists, nothing pending, crons registered
+      - name: Real D1 — applied migrations in order, the stock trigger and tables exist, nothing pending
         working-directory: worker
         run: |
-          npx wrangler d1 execute DB --env staging --remote --command "SELECT type, name FROM sqlite_master WHERE type IN ('trigger','table') AND name LIKE 'stock_%' OR name = 'backups' OR name = 'return_approvals' ORDER BY name"
+          npx wrangler d1 execute DB --env staging --remote --command "SELECT id, name, applied_at FROM d1_migrations ORDER BY id"
+          npx wrangler d1 execute DB --env staging --remote --command "SELECT type, name FROM sqlite_master WHERE (type = 'trigger') OR (type = 'table' AND (name LIKE 'stock_%' OR name IN ('backups', 'return_approvals'))) ORDER BY type, name"
           npx wrangler d1 migrations list DB --env staging --remote
+      - name: Cloudflare — the staging Worker's cron schedules (read with the staging token)
+        run: |
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/saydaliti-staging/schedules" \
+            | node -e "const j=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log('success:', j.success, 'schedules:', JSON.stringify((j.result?.schedules||[]).map(s=>s.cron)), j.errors?.length ? 'errors: '+JSON.stringify(j.errors) : '')"
       - name: Browser for the UI tests
         run: npx playwright install --with-deps chromium
       - name: Test suites against the staging Worker (synthetic accounts and data)
