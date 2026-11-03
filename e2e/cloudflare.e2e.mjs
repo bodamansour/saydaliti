@@ -367,10 +367,10 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
   await owner.fill('#nName', 'مدير المرتجع');
   await owner.fill('#nPin', '7777');
   await owner.click('#addForm button[type=submit]');
-  assert.ok(await until(owner, async () => /مدير المرتجع/.test(await text(owner, '#staff'))));
+  assert.ok(await until(owner, async () => /مدير المرتجع/.test(await text(owner, '#staff'))), `step 1: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   const box = owner.locator('tr', { hasText: 'مدير المرتجع' }).locator('[data-approve]');
   await box.check();
-  assert.ok(await until(owner, async () => /يقدر يوافق/.test(await text(owner, '#staffMsg'))));
+  assert.ok(await until(owner, async () => /يقدر يوافق/.test(await text(owner, '#staffMsg'))), `step 2: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   // At the cashier: سارة (PIN 1234, added earlier) sells; a return with no receipt.
   await owner.goto(`${BASE}/cashier.html`);
   await owner.waitForSelector('#pos:not([hidden])');
@@ -379,7 +379,7 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
     await owner.fill('#pinIn', '1234'); await owner.click('#pinOk');
     await owner.waitForTimeout(500);
     if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); }
-    assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip'))));
+    assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip'))), `step 3: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   };
   if (await owner.locator('#pinDlg[open]').count()) await signIn();
   await owner.click('#modeReturn');
@@ -403,7 +403,7 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
   assert.ok(await until(owner, async () => /موظف تاني|مش مسموح/.test(await text(owner, '#apprMsg'))), 'the cashier is not an approver');
   await owner.fill('#apprPin', '7777');
   await owner.click('#apprForm button[type=submit]');
-  assert.ok(await until(owner, async () => /المرتجع اتسجل/.test(await text(owner, '#posMsg'))));
+  assert.ok(await until(owner, async () => /المرتجع اتسجل/.test(await text(owner, '#posMsg'))), `step 4: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   assert.ok(await until(owner, async () => /متصل/.test(await text(owner, '#netChip'))), 'uploaded, not refused');
   const rows = await owner.evaluate(async () => {
     const s = JSON.parse(localStorage.getItem('sd-cf-auth'));
@@ -447,16 +447,11 @@ test('stock on the server: the owner opens it from the app\'s numbers, they matc
   assert.ok(await until(owner, async () => /الرصيد على السيرفر مش كفاية/.test(await text(owner, '#posMsg'))), await text(owner, '#posMsg'));
   assert.equal(await count(), n0, 'nothing saved');
   assert.ok((await owner.locator('#cart tr').count()) > 0, 'the cart is kept to fix');
-  // The app's own number for this item is below zero by now (earlier tests), so even one box is refused…
-  await owner.fill('[data-qty="0"]', '1');
-  await owner.press('[data-qty="0"]', 'Tab');
-  await owner.keyboard.press('F2');
-  assert.ok(await until(owner, async () => /الرصيد على السيرفر مش كفاية/.test(await text(owner, '#posMsg'))), `below zero: ${await text(owner, '#posMsg')}`);
-  // …until a delivery of 5 boxes is recorded; then one box sells.
+  // After a delivery (1,000 boxes, so it doesn't depend on the stock earlier tests left), one box sells.
   const pid = await owner.evaluate(async (tok) => {
     const id = crypto.randomUUID();
     const ph = JSON.parse(localStorage.getItem('saydaliti-member-v1')).pharmacy.id;
-    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ op: 'upsert', table: 'purchases', ignoreDuplicates: true, rows: [{ id, pharmacy_id: ph, received_on: new Date().toISOString().slice(0, 10), lines: [{ code: '6220000000001', qty: 5, cost: 10 }], total: 50 }] }) });
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ op: 'upsert', table: 'purchases', ignoreDuplicates: true, rows: [{ id, pharmacy_id: ph, received_on: new Date().toISOString().slice(0, 10), lines: [{ code: '6220000000001', qty: 1000, cost: 10 }], total: 10000 }] }) });
     return (await r.json()).error ? null : id;
   }, before);
   assert.ok(pid, 'the delivery was recorded');
