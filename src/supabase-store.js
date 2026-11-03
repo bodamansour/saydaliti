@@ -10,6 +10,7 @@ const MESSAGES = {
   'return more than sold': 'المرتجع أكتر من اللي اتباع في الفاتورة (أو اترجع منها قبل كده).',
   'receipt not found': 'فاتورة البيع اللي المرتجع منها مش موجودة.',
   // The server's checks on a cashier receipt (src/sale-rules.js).
+  'PIN secret missing': 'السيرفر محتاج إعداد (كود الكاشير). كلّم الدعم.',
   'receipt number already used': 'رقم الفاتورة ده اتسجل قبل كده لفاتورة تانية.',
   'sale total does not match its lines': 'إجمالي الفاتورة مش مطابق للأصناف والخصم.',
   'return price more than sold': 'سعر الصنف في المرتجع أكبر من سعره في فاتورة البيع.',

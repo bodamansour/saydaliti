@@ -28,10 +28,13 @@ async function newPage() {
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
+  // A Content-Security-Policy refusal shows up as a console error: any one fails the run.
+  page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy|Refused to/i.test(m.text())) cspViolations.push(`${page.url()}: ${m.text()}`); });
   page.on('dialog', (d) => d.accept());
   pages.push(page);
   return page;
 }
+const cspViolations = [];
 const text = (p, sel) => p.locator(sel).first().innerText();
 const until = async (p, fn, ms = 15000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await p.waitForTimeout(150); } return false; };
 async function signUp(p, email) {
@@ -372,6 +375,31 @@ test('a table too big to load whole is reported on screen, not used in part', { 
   assert.ok(await until(p, async () => /البيانات مش كاملة: حركات المخزون/.test(await p.locator('#dataAlert').innerText().catch(() => '')), 60000), 'the cashier says so too');
 });
 
+test('security headers are sent, and no page or tab breaks the Content-Security-Policy', { skip }, async () => {
+  const h = (await fetch(`${BASE}/`)).headers;
+  const csp = h.get('content-security-policy') || '';
+  for (const d of ["default-src 'self'", "object-src 'none'", "frame-ancestors 'self'", "base-uri 'self'"]) assert.ok(csp.includes(d), `CSP has ${d}`);
+  assert.doesNotMatch(csp.split('script-src')[1].split(';')[0], /unsafe-inline|unsafe-eval/, 'no inline or eval scripts allowed');
+  assert.equal(h.get('x-frame-options'), 'SAMEORIGIN');
+  assert.equal(h.get('x-content-type-options'), 'nosniff');
+  const api = (await fetch(`${BASE}/api/config`)).headers.get('content-security-policy');
+  assert.equal(api, "default-src 'none'; frame-ancestors 'none'");
+  // Every section and tab of the dashboard, the cashier and the other pages, as the owner.
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+  for (const sec of await owner.$$eval('[data-sec]', (e) => [...new Set(e.map((x) => x.dataset.sec))])) {
+    await owner.click(`[data-sec=${sec}]`);
+    for (const tab of await owner.$$eval('#tabs [data-tab]', (e) => e.map((x) => x.dataset.tab))) {
+      await owner.click(`#tabs [data-tab=${tab}]`).catch(() => {});
+      await owner.waitForTimeout(150);
+    }
+  }
+  for (const page of ['cashier.html', 'attendance.html', 'about.html', 'privacy.html', 'terms.html', 'admin.html']) { await owner.goto(`${BASE}/${page}`); await owner.waitForTimeout(1500); }
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+  assert.deepEqual(cspViolations, []);
+});
+
 test('signing out and in again', { skip }, async () => {
   await owner.click('#logout');
   await owner.waitForSelector('#loginForm');
@@ -388,4 +416,4 @@ test('public pages show the prices from the server', { skip }, async () => {
   assert.match(await text(p, 'h1'), /صيدليتي/);
 });
 
-test('no script errors', { skip }, () => { assert.deepEqual(errors, []); });
+test('no script errors', { skip }, () => { assert.deepEqual(errors, []); assert.deepEqual(cspViolations, [], 'no Content-Security-Policy refusals in any test'); });

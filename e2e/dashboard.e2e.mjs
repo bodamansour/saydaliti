@@ -780,7 +780,8 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.waitForSelector('#app:not([hidden])');
   assert.equal(await page.getAttribute('html', 'lang'), 'en');
   assert.ok(await until(async () => {
-    const labels = await page.locator('#sections .sec').allInnerTexts();
+    // The section names only (a section may also show a count of urgent items next to its name).
+    const labels = await page.locator('#sections .sec .lbl').allInnerTexts();
     return labels.includes('Summary') && labels.includes('Stock');
   }, 10000));
   await shot('english-dashboard');
