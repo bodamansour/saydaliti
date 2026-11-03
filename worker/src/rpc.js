@@ -6,6 +6,7 @@ import { checkSaleRow, checkReturnAgainst } from '../../src/sale-rules.js';
 import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
+import { openStock } from './stock.js';
 
 const signedIn = (ctx) => { if (!ctx.user) throw new ApiError('not signed in', '42501', 401); };
 const isAdmin = async (env, ctx) => !!ctx.user && !!(await env.DB.prepare('SELECT 1 FROM app_admins WHERE user_id = ?').bind(ctx.user.id).first());
@@ -51,6 +52,8 @@ export async function storeSnapshotText(env, pharmacyId, branchId, userId, text,
   const r = await one(env, 'INSERT INTO snapshots (pharmacy_id, branch_id, created_at, created_by, item_count) VALUES (?, ?, ?, ?, ?) RETURNING id',
     pharmacyId, branchId, createdAt && !Number.isNaN(Date.parse(createdAt)) ? new Date(createdAt).toISOString() : nowIso(), userId, Math.max(0, Math.trunc(+itemCount || 0)));
   await env.FILES.put(blobKey('snapshots', r.id), text, { httpMetadata: { contentType: 'application/json' } });
+  // A new upload is a new starting stock for the app: the server's levels wait for the next opening.
+  await env.DB.prepare('UPDATE stock_bases SET stale = 1, updated_at = ? WHERE pharmacy_id = ? AND branch_id = ?').bind(nowIso(), pharmacyId, branchId ?? await mainBranch(env, pharmacyId)).run();
   const old = await all(env, 'SELECT id FROM snapshots WHERE branch_id IS ? AND pharmacy_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET 10', branchId, pharmacyId);
   if (old.length) {
     await env.DB.prepare(`DELETE FROM snapshots WHERE id IN (${old.map(() => '?').join(', ')})`).bind(...old.map((o) => o.id)).run();
@@ -260,6 +263,33 @@ export const RPC = {
       audit(env, ctx, 'return_approvals', 'insert', null, row),
     ]);
     return { approval_id: row.id, approver_name: approver.name };
+  },
+  // ---------- Stock kept by the server (Phase 2 M1, stock.js) ----------
+  // The state of a branch's levels, and the server's clock (the app takes it before loading its data,
+  // as the watermark for open_stock).
+  async stock_status(env, ctx, { p_pharmacy, p_branch = null }) {
+    requireRole(ctx, p_pharmacy, ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock']);
+    const branch = requireBranch(ctx, p_pharmacy, p_branch);
+    const b = await one(env, 'SELECT base_at, opened_at, stale, block_negative FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ?', p_pharmacy, branch);
+    return { server_now: nowIso(), branch_id: branch, base_at: b?.base_at ?? null, opened_at: b?.opened_at ?? null, stale: !!b?.stale, block_negative: !!b?.block_negative };
+  },
+  async open_stock(env, ctx, args) {
+    requireRole(ctx, args.p_pharmacy, ['owner', 'stock']);
+    requireBranch(ctx, args.p_pharmacy, args.p_branch ?? null);
+    return openStock(env, ctx, args);
+  },
+  // Selling below zero: allowed (as today) or blocked, per branch. The owner decides; it is logged.
+  async set_stock_policy(env, ctx, { p_pharmacy, p_branch = null, p_block_negative }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    const branch = requireBranch(ctx, p_pharmacy, p_branch);
+    if (typeof p_block_negative !== 'boolean') throw new ApiError('bad policy');
+    const now = nowIso();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO stock_bases (pharmacy_id, branch_id, block_negative, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT (pharmacy_id, branch_id) DO UPDATE SET block_negative = excluded.block_negative, updated_at = excluded.updated_at`).bind(p_pharmacy, branch, p_block_negative ? 1 : 0, now),
+      audit(env, ctx, 'stock_bases', 'update', null, { id: branch, pharmacy_id: p_pharmacy, block_negative: p_block_negative }),
+    ]);
+    return { block_negative: p_block_negative };
   },
   async is_app_admin(env, ctx) { return isAdmin(env, ctx); },
   async admin_pharmacies(env, ctx) {

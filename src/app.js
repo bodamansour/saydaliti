@@ -11,6 +11,7 @@ import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features
 import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
 import { readAll, showDataAlert, incompleteText } from './paged.js';
+import { reconcile, openingItems } from './stock-reconcile.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
@@ -2416,6 +2417,62 @@ async function cloudBackup() {
   out.tables.snapshots = snaps;
   return out;
 }
+// ---------- Stock kept by the server (Phase 2 M1) ----------
+// The branch the section works on: the one shown, or the only one.
+const stockBranch = () => (BRANCH === 'all' ? (BRANCHES.length === 1 ? BRANCHES[0] : null) : BRANCHES.find((b) => key(b.id) === BRANCH)) ?? null;
+async function refreshStockBox() {
+  const b = stockBranch();
+  $('stockOpen').disabled = $('stockCheck').disabled = $('stockBlock').disabled = !b || !isOnline();
+  if (!b) { $('stockState').textContent = 'اختار فرع من فوق الأول.'; return null; }
+  const r = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id });
+  if (r.error) { $('stockState').textContent = arabicError(r.error).message; return null; }
+  const st = r.data;
+  const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('stockState').textContent = !st.opened_at ? `فرع ${b.name}: رصيد السيرفر لسه ما بدأش.`
+    : st.stale ? `فرع ${b.name}: اترفع ملف جديد بعد آخر بداية (${t(st.opened_at)}). ابدأ تاني عشان رصيد السيرفر يمشي على الملف الجديد. لحد كده مش بيمنع بيع.`
+    : `فرع ${b.name}: رصيد السيرفر شغال من ${t(st.opened_at)}.${st.block_negative ? ' البيع بعد ما الرصيد يخلص ممنوع.' : ''}`;
+  $('stockBlock').checked = !!st.block_negative;
+  $('stockBlockWrap').hidden = !isOwner();
+  return st;
+}
+$('stockBox').addEventListener('toggle', () => { if ($('stockBox').open) refreshStockBox(); });
+$('stockOpen').addEventListener('click', async () => {
+  const b = stockBranch(); if (!b) return;
+  if (!confirm(`رصيد السيرفر لفرع ${b.name} هيبقى الأرقام اللي في البرنامج دلوقتي، وأي حركة بعدها بتتحسب لوحدها. تكمّل؟`)) return;
+  $('stockOpen').disabled = true;
+  try {
+    // The server's clock first, then fresh data: anything the server gets after that is added on top.
+    const st = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id });
+    if (st.error) throw arabicError(st.error);
+    $('stockState').textContent = 'بنحمّل آخر الأرقام…';
+    await Promise.all([loadSnapshots(), loadFeatures(), loadInventory()]);
+    setView();
+    const items = openingItems(branchData(b).items);
+    const r = await SESS.client.rpc('open_stock', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id, p_base_at: SNAP.get(key(b.id))?.at ?? null, p_watermark: st.data.server_now, p_items: items });
+    if (r.error) throw arabicError(r.error);
+    await refreshStockBox();
+    $('stockDiff').textContent = `اتسجل رصيد ${fmt(items.length)} صنف.`;
+  } catch (e) { $('stockState').textContent = `ما اتسجلش: ${e.message}`; }
+  $('stockOpen').disabled = false;
+});
+$('stockCheck').addEventListener('click', async () => {
+  const b = stockBranch(); if (!b) return;
+  $('stockDiff').textContent = 'بنقارن…';
+  const lv = await readAll(() => SESS.client.from('stock_levels').select('code, qty').eq('pharmacy_id', SESS.pharmacy.id).eq('branch_id', b.id).order('code'), { table: 'stock_levels', max: LOAD_MAX });
+  if (lv.error) { $('stockDiff').textContent = lv.error.incomplete ? incompleteText(lv.error) : arabicError(lv.error).message; return; }
+  const { diffs, checked } = reconcile(lv.data, branchData(b).items);
+  $('stockDiff').innerHTML = !diffs.length ? `<p class="note">${fmt(checked)} صنف: رصيد السيرفر هو نفس رصيد البرنامج.</p>`
+    : `<p class="note">${fmt(diffs.length)} صنف مختلف من ${fmt(checked)}. الفرق معناه إن فيه حركة ناقصة عند واحد منهم: شوف «حركة الصنف»، وبعدين ابدأ تاني لو الأرقام اللي في البرنامج صح.</p>`
+      + table(['الصنف', 'السيرفر', 'البرنامج', 'الفرق'], diffs.slice(0, 50).map((d) => `<tr><td>${esc(d.name)}</td><td class="n">${fmt(d.server, 2)}</td><td class="n">${fmt(d.app, 2)}</td><td class="n">${fmt(d.diff, 2)}</td></tr>`));
+});
+$('stockBlock').addEventListener('change', async (e) => {
+  const b = stockBranch(); if (!b) return;
+  const want = e.target.checked;
+  const r = await SESS.client.rpc('set_stock_policy', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id, p_block_negative: want });
+  if (r.error) { e.target.checked = !want; $('stockState').textContent = arabicError(r.error).message; return; }
+  await refreshStockBox();
+});
+
 $('cloudBackupBtn').addEventListener('click', async () => {
   if (!isOnline()) { $('cloudBackupMsg').textContent = 'النسخة الكاملة محتاجة نت.'; return; }
   $('cloudBackupBtn').disabled = true;
@@ -2878,6 +2935,7 @@ async function boot() {
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
+  $('stockBox').hidden = !['owner', 'stock'].includes(SESS.role) || !!SESS.local || !SESS.client?.cloudflare;
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();

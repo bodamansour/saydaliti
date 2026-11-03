@@ -136,6 +136,15 @@
           <span class="note" id="backupMsg" role="status"></span></div>
       </details>
 
+      <details class="help" id="stockBox" hidden>
+        <summary>الرصيد على السيرفر</summary>
+        <p>السيرفر بيسجّل كل حركة (بيع، مرتجع، مشتريات، جرد، تحويل) لحظة ما توصله. «ابدأ» بياخد الأرقام اللي ظاهرة في البرنامج دلوقتي للفرع ده كرصيد بداية، وأي حركة بعدها بتتحسب لوحدها. بعد ما ترفع ملف جديد من برنامج الصيدلية، ابدأ تاني.</p>
+        <p class="note" id="stockState" role="status"></p>
+        <div class="row"><button class="btn primary" type="button" id="stockOpen">ابدأ رصيد السيرفر من الأرقام الحالية</button><button class="btn" type="button" id="stockCheck">قارن رصيد السيرفر بالبرنامج</button></div>
+        <label class="checkline" id="stockBlockWrap"><input type="checkbox" id="stockBlock"> امنع البيع لو الرصيد على السيرفر هيقل عن صفر (الكاشير لازم يبقى متصل)</label>
+        <div id="stockDiff"></div>
+      </details>
+
       <details class="help" id="cloudBackupBox" hidden>
         <summary>نسخة احتياطية من كل بياناتك</summary>
         <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>

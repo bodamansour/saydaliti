@@ -414,6 +414,63 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
   await owner.waitForSelector('#app:not([hidden])');
 });
 
+test('stock on the server: the owner opens it from the app\'s numbers, they match, and a blocked branch refuses selling past zero', { skip }, async () => {
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+  await openTools(owner);
+  await owner.click('#stockBox summary');
+  assert.ok(await until(owner, async () => /لسه ما بدأش|شغال/.test(await text(owner, '#stockState'))), `state: ${await text(owner, '#stockState')}`);
+  await owner.click('#stockOpen');
+  assert.ok(await until(owner, async () => /اتسجل رصيد/.test(await text(owner, '#stockDiff')), 30000), await text(owner, '#stockState'));
+  await owner.click('#stockCheck');
+  assert.ok(await until(owner, async () => /نفس رصيد البرنامج/.test(await text(owner, '#stockDiff')), 30000), `the server and the app agree: ${await text(owner, '#stockDiff')}`);
+  await owner.check('#stockBlock');
+  assert.ok(await until(owner, async () => /ممنوع/.test(await text(owner, '#stockState'))), `blocked: ${await text(owner, '#stockState')}`);
+  // At the cashier: more boxes than the server has → refused before printing, nothing saved.
+  await owner.goto(`${BASE}/cashier.html`);
+  await owner.waitForSelector('#pos:not([hidden])');
+  await owner.evaluate(() => { window.print = () => {}; });
+  if (await owner.locator('#pinDlg[open]').count()) { await owner.fill('#pinIn', '1234'); await owner.click('#pinOk'); await owner.waitForTimeout(500); if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); } }
+  await owner.waitForTimeout(1500); // the branch's policy is read with the rest of the data
+  await owner.fill('#q', '6220000000001');
+  await owner.press('#q', 'Enter');
+  await owner.fill('[data-qty="0"]', '999');
+  await owner.press('[data-qty="0"]', 'Tab');
+  const before = (await owner.evaluate(() => JSON.parse(localStorage.getItem('sd-cf-auth')))).access_token;
+  const count = async () => owner.evaluate(async (tok) => (await (await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ op: 'select', table: 'pos_sales', cols: 'id', filters: [], limit: 1000 }) })).json()).data.length, before);
+  const n0 = await count();
+  await owner.keyboard.press('F2');
+  assert.ok(await until(owner, async () => /الرصيد على السيرفر مش كفاية/.test(await text(owner, '#posMsg'))), await text(owner, '#posMsg'));
+  assert.equal(await count(), n0, 'nothing saved');
+  assert.ok((await owner.locator('#cart tr').count()) > 0, 'the cart is kept to fix');
+  // The app's own number for this item is below zero by now (earlier tests), so even one box is refused…
+  await owner.fill('[data-qty="0"]', '1');
+  await owner.press('[data-qty="0"]', 'Tab');
+  await owner.keyboard.press('F2');
+  assert.ok(await until(owner, async () => /الرصيد على السيرفر مش كفاية/.test(await text(owner, '#posMsg'))), `below zero: ${await text(owner, '#posMsg')}`);
+  // …until a delivery of 5 boxes is recorded; then one box sells.
+  const pid = await owner.evaluate(async (tok) => {
+    const id = crypto.randomUUID();
+    const ph = JSON.parse(localStorage.getItem('saydaliti-member-v1')).pharmacy.id;
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ op: 'upsert', table: 'purchases', ignoreDuplicates: true, rows: [{ id, pharmacy_id: ph, received_on: new Date().toISOString().slice(0, 10), lines: [{ code: '6220000000001', qty: 5, cost: 10 }], total: 50 }] }) });
+    return (await r.json()).error ? null : id;
+  }, before);
+  assert.ok(pid, 'the delivery was recorded');
+  await owner.fill('[data-qty="0"]', '1');
+  await owner.press('[data-qty="0"]', 'Tab');
+  await owner.keyboard.press('F2');
+  assert.ok(await until(owner, async () => /الفاتورة اتسجلت/.test(await text(owner, '#posMsg'))), `one box: ${await text(owner, '#posMsg')}`);
+  assert.equal(await count(), n0 + 1);
+  // Back to the default for the next tests: selling below zero allowed.
+  await owner.goto(BASE);
+  await owner.waitForSelector('#app:not([hidden])');
+  await openTools(owner);
+  await owner.click('#stockBox summary');
+  await owner.waitForTimeout(800);
+  await owner.uncheck('#stockBlock');
+  assert.ok(await until(owner, async () => !/ممنوع/.test(await text(owner, '#stockState'))), `allowed again: ${await text(owner, '#stockState')}`);
+});
+
 test('a table too big to load whole is reported on screen, not used in part', { skip }, async () => {
   // The server here answers every page of stock adjustments with 1,000 rows: there is always more.
   const p = await newPage();

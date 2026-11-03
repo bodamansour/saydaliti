@@ -45,7 +45,7 @@ jobs:
       - name: Cloudflare server rules and the whole app on it
         env:
           WORKER_URL: http://localhost:8787
-        run: node --test worker/test/api.test.mjs e2e/cloudflare.e2e.mjs
+        run: node --test worker/test/api.test.mjs worker/test/stock.test.mjs e2e/cloudflare.e2e.mjs
 
   # The live sync with United on a real SQL Server, read by Windows PowerShell like on the pharmacy PC.
   united-sync:
