@@ -429,6 +429,9 @@ async function importBackup(env, ctx, pharmacyId, dump) {
     snaps += 1;
   }
   counts.snapshots = snaps;
+  // Moved-in sales, purchases and stock moves have no stock ledger rows: the server's stock of this
+  // pharmacy is stale until the owner opens it again (so nothing is blocked on wrong numbers).
+  await env.DB.prepare('UPDATE stock_bases SET stale = 1, updated_at = ? WHERE pharmacy_id = ?').bind(nowIso(), pharmacyId).run();
   // Where each old branch went, so the app can upload the snapshots of the backup itself.
   return { ...counts, branches: Object.fromEntries(oldBranches.map((x) => [x.id, ids.get(x.id)])) };
 }
@@ -504,6 +507,9 @@ async function timeFlags(env, row) {
     if (sh && t < Date.parse(sh.opened_at) - SKEW) flags.push('before_shift_opened');
     if (sh?.closed_at && t > Date.parse(sh.closed_at) + SKEW) flags.push('after_shift_closed');
   }
+  // Dated before the uploaded file the branch's stock starts from (an old offline receipt, or a clock set back).
+  const base = await one(env, 'SELECT base_at FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ?', row.pharmacy_id, row.branch_id ?? await mainBranch(env, row.pharmacy_id));
+  if (base?.base_at && t <= Date.parse(base.base_at)) flags.push('before_base');
   // A day already closed for this branch: the receipt changes totals the owner already signed off.
   const tz = (await one(env, 'SELECT timezone FROM pharmacies WHERE id = ?', row.pharmacy_id))?.timezone || 'Africa/Cairo';
   let day = null;

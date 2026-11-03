@@ -768,7 +768,10 @@ async function checkout() {
   if (!sentNow) await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
   try { refreshItems(); } catch (err) { console.error(err); }
   if (dev.autoPrint) printReceipt({ ...sale, return_no: RET?.sale.number });
-  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
+  // Say exactly what happened: confirmed by the server, or saved on this device and waiting (in a branch
+  // that blocks selling below zero, a waiting sale may still be refused when it arrives).
+  const state = sentNow ? ' · السيرفر أكّدها' : isOnline() ? '' : STOCK_POLICY.block ? ' (محفوظة على الجهاز ومستنية النت. الرصيد مش متأكَّد منه: لو صنف خلص على جهاز تاني، السيرفر ممكن يرفضها لما توصل)' : ' (هتترفع لما النت يرجع)';
+  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${state}`);
   newBill();
   renderDay();
   sync();
@@ -819,9 +822,13 @@ function renderDay() {
     ${sum.returns ? `<div><span>مرتجعات (${sum.returns})</span><span class="n">${fmt(sum.returned)}</span></div>` : ''}
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
     <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net)}</span></div>`;
+  // What a refused receipt means, said once above the list (it is never thrown away on its own).
+  const nRefused = list.filter((s) => REFUSED.has(s.id)).length;
+  $('dayRefused').hidden = !nRefused;
+  $('dayRefused').textContent = nRefused ? `${nRefused} فاتورة السيرفر رفضها: محفوظة على الجهاز ده بس، ومش داخلة في الرصيد ولا في حسابات الصيدلية لحد ما تتراجع. السبب جنب كل واحدة، والزرار الأحمر فوق بيحاول تاني أو بيوريك تعمل إيه.` : '';
   $('dayList').innerHTML = list.slice(0, 200).map((s) => `<tr class="${s.pending ? 'pend' : ''}"><td class="n">${esc(s.number)}</td>
     <td class="n">${new Date(s.sold_at).toLocaleString('ar-EG', q ? { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
-    <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
+    <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${REFUSED.has(s.id) ? ` <span class="pill crit" title="${esc(REFUSED.get(s.id))}">السيرفر رفضها</span><span class="cat err">${esc(REFUSED.get(s.id))}</span>` : s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
     <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
     <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || (q ? '<tr><td colspan="6" class="muted">مفيش فاتورة بالبحث ده على الجهاز ده. الفواتير القديمة كلها في اللوحة ← «الفواتير والمبيعات».</td></tr>' : '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>');
 }
@@ -838,6 +845,8 @@ function printDay() {
 }
 
 // ---------- Sync & status ----------
+// Receipt id → why the server refused it (from the device's refused list, src/offline.js).
+let REFUSED = new Map(), REFUSED_KEY = '';
 async function updateNet() {
   const q = await pending(), st = await stuck();
   const on = isOnline();
@@ -846,6 +855,10 @@ async function updateNet() {
   $('stuckChip').hidden = !st.length;
   $('stuckChip').textContent = `${st.length} حاجة مارضيتش تترفع — دوس هنا عشان تحاول تاني`;
   $('stuckChip').title = st.map((e) => `${describe(e)}: ${e.error || ''}`).join('\n');
+  // Receipts the server refused: kept on this device, shown as refused (not as waiting), with the reason.
+  const refused = new Map(st.filter((e) => e.payload?.table === 'pos_sales').map((e) => [e.payload.row?.id, e.error || '']));
+  const key = [...refused].map(([k, v]) => `${k}:${v}`).join('|');
+  if (key !== REFUSED_KEY) { REFUSED = refused; REFUSED_KEY = key; renderDay(); }
 }
 async function sync() {
   if (!SESS || !isOnline()) return updateNet();

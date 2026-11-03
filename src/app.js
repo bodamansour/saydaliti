@@ -889,7 +889,7 @@ function renderShifts() {
 const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم', pos_sales: 'فاتورة كاشير', return_approvals: 'موافقة مرتجع' };
 const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح', flag: 'وقت محتاج نظرة' };
 // Why a receipt's time was flagged by the server (worker/src/rpc.js timeFlags). Kept, never refused.
-const FLAG_TEXT = { time_not_number_day: 'وقتها مش في يوم رقمها (ساعة الجهاز اتغيرت؟)', before_shift_opened: 'قبل ما ورديتها تتفتح', after_shift_closed: 'بعد ما ورديتها اتقفلت', return_before_sale: 'مرتجع وقته قبل فاتورة البيع', after_day_closed: 'وصلت ليوم اتقفل خلاص' };
+const FLAG_TEXT = { time_not_number_day: 'وقتها مش في يوم رقمها (ساعة الجهاز اتغيرت؟)', before_shift_opened: 'قبل ما ورديتها تتفتح', after_shift_closed: 'بعد ما ورديتها اتقفلت', return_before_sale: 'مرتجع وقته قبل فاتورة البيع', after_day_closed: 'وصلت ليوم اتقفل خلاص', before_base: 'وقتها قبل آخر ملف اترفع من برنامج الصيدلية' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
   const show = (v) => (v === null || v === undefined || v === '' ? '—' : Array.isArray(v) ? `${v.length} سطر` : typeof v === 'object' ? '…' : String(v));

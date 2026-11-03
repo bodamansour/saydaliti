@@ -173,15 +173,118 @@ test('a new upload makes the levels stale (not enforced) until the next opening;
   const after = (await owner.rpc('stock_status', { p_pharmacy: P, p_branch: B })).data;
   assert.equal(after.stale, false);
   assert.equal(after.base_at, baseAt);
-  // A receipt made offline before the uploaded file's time: the file already holds it.
+  // Where selling below zero is blocked (B, since the test above), the server is the stock authority: a
+  // receipt dated before the uploaded file (an offline receipt, or a clock set back) still takes its box,
+  // and is flagged for the owner — a clock can't be used to sell without taking stock.
+  const back = sale({ sold_at: new Date(Date.now() - 2 * 3600000).toISOString() });
+  assert.equal((await device.insert('pos_sales', back)).error, null);
+  assert.deepEqual((await ledger(back.id)).map((r) => [r.qty, r.applied]), [[-1, -1]]);
+  assert.equal(await level('A1'), 4);
+  const flags = (await owner.select('audit_log', 'new_row', [['pharmacy_id', 'eq', P], ['row_id', 'eq', back.id], ['op', 'eq', 'flag']])).data.flatMap((r) => r.new_row.flags);
+  assert.ok(flags.includes('before_base'), JSON.stringify(flags));
+  // Where it is allowed (as before), the uploaded file already holds a receipt dated before it.
+  assert.equal((await owner.rpc('set_stock_policy', { p_pharmacy: P, p_branch: B, p_block_negative: false })).error, null);
   const old = sale({ sold_at: new Date(Date.now() - 2 * 3600000).toISOString() });
   assert.equal((await device.insert('pos_sales', old)).error, null);
   assert.deepEqual((await ledger(old.id)).map((r) => [r.qty, r.applied]), [[-1, 0]]);
-  assert.equal(await level('A1'), 5);
+  assert.equal(await level('A1'), 4);
+  assert.equal((await owner.rpc('set_stock_policy', { p_pharmacy: P, p_branch: B, p_block_negative: true })).error, null);
 });
 
 test('levels follow branch access: staff see only their branches', { skip }, async () => {
   const seen = (await phB2.select('stock_levels', 'branch_id', [['pharmacy_id', 'eq', P]])).data.map((r) => r.branch_id);
   assert.ok(seen.length > 0 && seen.every((b) => b === B2));
   assert.equal((await phB2.rpc('stock_status', { p_pharmacy: P, p_branch: B })).status, 403);
+});
+
+// ---------- Staging validation scenarios (owner decision: block selling below zero in the pilot) ----------
+// A fresh pharmacy per scenario, so each starts from known levels.
+async function blockedPharmacy(boxes = { A1: 1 }) {
+  const o = user(); await o.signUp();
+  const p = (await o.rpc('create_pharmacy', { p_name: `مخزون ${rnd()}` })).data;
+  const b = (await o.select('branches', 'id', [['pharmacy_id', 'eq', p]])).data[0].id;
+  const b2 = (await o.rpc('add_branch', { p_pharmacy: p, p_name: 'فرع ٢' })).data;
+  const dev = async (branches) => { const u = user(); await u.signUp(); const code = (await o.rpc('create_invite', { p_pharmacy: p, p_role: 'device', p_branch_ids: branches })).data; await u.rpc('join_pharmacy', { p_code: code }); return u; };
+  const open = async (branch, items) => {
+    const st = (await o.rpc('stock_status', { p_pharmacy: p, p_branch: branch })).data;
+    assert.equal((await o.rpc('open_stock', { p_pharmacy: p, p_branch: branch, p_watermark: st.server_now, p_items: Object.entries(items).map(([code, qty]) => ({ code, qty })) })).error, null);
+    assert.equal((await o.rpc('set_stock_policy', { p_pharmacy: p, p_branch: branch, p_block_negative: true })).error, null);
+  };
+  await open(b, boxes);
+  const lvl = async (code, branch = b) => (await o.select('stock_levels', 'qty', [['pharmacy_id', 'eq', p], ['branch_id', 'eq', branch], ['code', 'eq', code]])).data[0]?.qty ?? 0;
+  const sum = async (code, branch = b) => Math.round((await o.select('stock_ledger', 'applied', [['pharmacy_id', 'eq', p], ['branch_id', 'eq', branch], ['code', 'eq', code]])).data.reduce((a, r) => a + r.applied, 0) * 1e6) / 1e6;
+  const mk = (o2 = {}) => ({ id: uuid(), pharmacy_id: p, branch_id: b, number: `T-${rnd()}`, sold_at: now(), kind: 'sale', lines: [{ code: 'A1', qty: 1, price: 10 }], total: 10, paid: 10, ...o2 });
+  return { o, p, b, b2, dev, open, lvl, sum, mk };
+}
+
+test('offline sale vs a competing online sale of the last box: the offline one is refused on arrival, kept, and accepted after a restock', { skip }, async () => {
+  const { o, p, b, dev, lvl, mk } = await blockedPharmacy({ A1: 1 });
+  const a = await dev([b]), bDev = await dev([b]);
+  const offline = mk(); // made on device A with no connection: waiting in its queue
+  assert.equal((await bDev.insert('pos_sales', mk())).error, null, 'device B sells the last box online');
+  const arrive = await a.insert('pos_sales', offline); // A reconnects
+  assert.equal(arrive.status, 409);
+  assert.match(arrive.error.message, /insufficient stock: A1/);
+  assert.equal(await lvl('A1'), 0);
+  // Recoverable: after a delivery, the same receipt (same id) sent again from the refused list is accepted once.
+  assert.equal((await o.insert('purchases', { id: uuid(), pharmacy_id: p, branch_id: b, received_on: now().slice(0, 10), lines: [{ code: 'A1', qty: 3, cost: 5 }], total: 15 })).error, null);
+  assert.equal((await a.insert('pos_sales', offline)).error, null);
+  assert.equal((await a.insert('pos_sales', offline)).error, null, 'a duplicate retry');
+  assert.equal(await lvl('A1'), 2);
+});
+
+test('clock manipulation: a future time is refused; a time set back still takes the box and is flagged', { skip }, async () => {
+  const { o, p, lvl, mk, dev, b } = await blockedPharmacy({ A1: 2 });
+  const d = await dev([b]);
+  assert.match((await d.insert('pos_sales', mk({ sold_at: new Date(Date.now() + 86400000).toISOString() }))).error.message, /future/);
+  const back = mk({ sold_at: '2020-01-01T10:00:00.000Z' });
+  assert.equal((await d.insert('pos_sales', back)).error, null);
+  assert.equal(await lvl('A1'), 1, 'counted, whatever the clock said');
+  // Selling more than is left with a clock set back is still refused.
+  assert.match((await d.insert('pos_sales', mk({ sold_at: '2020-01-01T10:00:00.000Z', lines: [{ code: 'A1', qty: 2, price: 10 }], total: 20, paid: 20 }))).error.message, /insufficient stock/);
+  void o; void p;
+});
+
+test('stock adjustment at the same moment as a sale: one of the two valid outcomes, and the level always equals the ledger', { skip }, async () => {
+  for (let round = 0; round < 5; round++) {
+    const { o, p, b, dev, lvl, sum, mk } = await blockedPharmacy({ A1: 1 });
+    const d = await dev([b]);
+    const [saleR, moveR] = await Promise.all([
+      d.insert('pos_sales', mk()),
+      o.insert('stock_moves', { id: uuid(), pharmacy_id: p, branch_id: b, code: 'A1', qty: -1, kind: 'damaged', happened_at: now() }),
+    ]);
+    assert.equal(moveR.error, null, 'a correction by the owner is always recorded');
+    const level = await lvl('A1');
+    // The sale either came first (stored, the damage then takes the level to -1 and shows the discrepancy)
+    // or second (refused: nothing left).
+    if (saleR.error) { assert.match(saleR.error.message, /insufficient stock/); assert.equal(level, 0); }
+    else assert.equal(level, -1);
+    assert.equal(level, await sum('A1'));
+  }
+});
+
+test('a return at the same moment as a sale and a delivery: every movement counted once', { skip }, async () => {
+  const { o, p, b, dev, lvl, sum, mk } = await blockedPharmacy({ A1: 2 });
+  const d1 = await dev([b]), d2 = await dev([b]);
+  const first = mk();
+  assert.equal((await d1.insert('pos_sales', first)).error, null); // 2 → 1
+  const results = await Promise.all([
+    d2.insert('pos_sales', mk({ kind: 'return', return_of: first.id, total: -10, paid: -10 })), // +1
+    d1.insert('pos_sales', mk()), // −1
+    o.insert('purchases', { id: uuid(), pharmacy_id: p, branch_id: b, received_on: now().slice(0, 10), lines: [{ code: 'A1', qty: 5, cost: 5 }], total: 25 }), // +5
+  ]);
+  assert.ok(results.every((r) => !r.error), JSON.stringify(results.map((r) => r.error)));
+  assert.equal(await lvl('A1'), 6);
+  assert.equal(await sum('A1'), 6);
+});
+
+test('two branches, two devices each, racing for each branch\'s last box: exactly one sale per branch', { skip }, async () => {
+  const { b, b2, dev, open, lvl, mk } = await blockedPharmacy({ A1: 1 });
+  await open(b2, { A1: 1 });
+  const devs = await Promise.all([dev([b]), dev([b]), dev([b2]), dev([b2])]);
+  const r = await Promise.all(devs.map((d, i) => d.insert('pos_sales', mk({ branch_id: i < 2 ? b : b2 }))));
+  assert.equal(r.slice(0, 2).filter((x) => !x.error).length, 1, 'branch 1');
+  assert.equal(r.slice(2).filter((x) => !x.error).length, 1, 'branch 2');
+  assert.equal(await lvl('A1', b), 0);
+  assert.equal(await lvl('A1', b2), 0);
 });
