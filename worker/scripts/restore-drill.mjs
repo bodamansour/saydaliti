@@ -14,7 +14,7 @@ import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getPlatformProxy } from 'wrangler';
-import { runBackup, decryptBackup, restoreInto, verifyRestore, RETAIN } from '../src/backup.js';
+import { runBackup, decryptBackup, restoreInto, verifyRestore, backupHealth, RETAIN } from '../src/backup.js';
 
 const WORKER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [srcState, outFile] = process.argv.slice(2);
@@ -75,7 +75,26 @@ try {
   report.retention = { kept: okKeys.length, expired: expiredKeys.length,
     expired_files_present: (await Promise.all(expiredKeys.map((k) => src.env.FILES.head(k)))).filter(Boolean).length,
     kept_files_present: (await Promise.all(okKeys.map((k) => src.env.FILES.head(k)))).filter(Boolean).length };
-  report.result = report.verify.ok && report.tamper_check.detected && Object.values(report.negative).every(Boolean) && report.retention.kept === RETAIN && report.retention.expired_files_present === 0 && report.retention.kept_files_present === RETAIN ? 'PASS' : 'FAIL';
+  // Monitoring: a failed backup is recorded and flagged; a pharmacy with no backup is flagged.
+  let failedAsExpected = false;
+  try { await runBackup({ ...src.env, BACKUP_KEY: '' }, pick.id, { source: 'drill' }); } catch { failedAsExpected = true; }
+  const health = await backupHealth(src.env);
+  report.monitoring = {
+    failure_recorded: failedAsExpected && !!(await src.env.DB.prepare("SELECT 1 FROM backups WHERE pharmacy_id = ? AND status = 'failed'").bind(pick.id).first()),
+    failure_flagged: health.problems.some((x) => x.pharmacy_id === pick.id && x.problem === 'last attempt failed'),
+    no_backup_flagged: health.problems.some((x) => x.pharmacy_id !== pick.id && x.problem === 'no good backup'),
+    checked: health.checked,
+  };
+  // Key rotation end to end: a backup made with the key in use opens after rotating, with the old key kept.
+  const rotated = { ...src.env, BACKUP_KEY: `${vars.BACKUP_KEY}-rotated-0123456789`, BACKUP_KEYS_OLD: vars.BACKUP_KEY };
+  const lastOk = await src.env.DB.prepare("SELECT r2_key FROM backups WHERE pharmacy_id = ? AND status = 'ok' ORDER BY created_at DESC LIMIT 1").bind(pick.id).first();
+  const lastFile = await (await src.env.FILES.get(lastOk.r2_key)).arrayBuffer();
+  report.rotation = {
+    old_backup_opens_after_rotation: (await decryptBackup(rotated, pick.id, lastFile)).length > 0,
+    old_backup_without_old_key: await (async () => { try { await decryptBackup({ BACKUP_KEY: rotated.BACKUP_KEY }, pick.id, lastFile); return 'opened (unexpected)'; } catch (e) { return String(e.message); } })(),
+  };
+  report.result = report.verify.ok && report.tamper_check.detected && report.monitoring.failure_recorded && report.monitoring.failure_flagged && report.monitoring.no_backup_flagged
+    && report.rotation.old_backup_opens_after_rotation && /key not available/.test(report.rotation.old_backup_without_old_key) && Object.values(report.negative).every(Boolean) && report.retention.kept === RETAIN && report.retention.expired_files_present === 0 && report.retention.kept_files_present === RETAIN ? 'PASS' : 'FAIL';
 } catch (e) {
   report.result = 'FAIL'; report.error = String(e?.stack || e);
 } finally {
@@ -83,5 +102,5 @@ try {
   await rm(work, { recursive: true, force: true });
 }
 await writeFile(outFile, JSON.stringify(report, null, 2));
-console.log(JSON.stringify({ result: report.result, pharmacy: report.pharmacy, backup: report.backup, restore_ms: report.restore_ms, problems: report.verify?.problems, tamper_check: report.tamper_check, negative: report.negative, retention: report.retention, error: report.error }, null, 1));
+console.log(JSON.stringify({ result: report.result, pharmacy: report.pharmacy, backup: report.backup, restore_ms: report.restore_ms, problems: report.verify?.problems, tamper_check: report.tamper_check, negative: report.negative, retention: report.retention, monitoring: report.monitoring, rotation: report.rotation, error: report.error }, null, 1));
 process.exit(report.result === 'PASS' ? 0 : 1);

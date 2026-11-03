@@ -7,7 +7,7 @@ import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch,
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
 import { openStock } from './stock.js';
-import { runBackup } from './backup.js';
+import { runBackup, backupHealth } from './backup.js';
 
 const signedIn = (ctx) => { if (!ctx.user) throw new ApiError('not signed in', '42501', 401); };
 const isAdmin = async (env, ctx) => !!ctx.user && !!(await env.DB.prepare('SELECT 1 FROM app_admins WHERE user_id = ?').bind(ctx.user.id).first());
@@ -301,6 +301,11 @@ export const RPC = {
     if (recentOne.n >= 6) throw new ApiError('too many backups this hour', '429', 429);
     const r = await runBackup(env, p_pharmacy, { by: ctx.user.id, source: 'manual' });
     return { id: r.id, bytes: r.bytes, counts: r.counts };
+  },
+  // The app admin: which pharmacies' backups need a look (none, too old, or failing).
+  async admin_backup_health(env, ctx) {
+    await needAdmin(env, ctx);
+    return backupHealth(env);
   },
   async list_backups(env, ctx, { p_pharmacy }) {
     requireRole(ctx, p_pharmacy, ['owner']);

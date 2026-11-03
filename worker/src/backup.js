@@ -10,7 +10,6 @@ import { TABLES } from './schema.js';
 import { ApiError, nowIso, uuid } from './db.js';
 
 export const RETAIN = 14; // the newest good backups kept per pharmacy (older files are deleted)
-const MAGIC = new TextEncoder().encode('SDBK1');
 const enc = new TextEncoder(), dec = new TextDecoder();
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 export const sha256hex = async (text) => hex(await crypto.subtle.digest('SHA-256', typeof text === 'string' ? enc.encode(text) : text));
@@ -73,28 +72,48 @@ export async function summarize(dump) {
 }
 
 // ---------- Encryption ----------
-async function keyFor(env, pharmacyId) {
-  const secret = String(env.BACKUP_KEY || '');
-  if (secret.length < 32) throw new ApiError('server not configured: backup key missing', '503', 503);
+// File: "SDBK2" + 8-byte key id + 12-byte IV + AES-256-GCM(plain, additional data = pharmacy id).
+// The key id says which BACKUP_KEY made the file, so the key can be rotated: put the new key in
+// BACKUP_KEY and the previous ones in BACKUP_KEYS_OLD (comma-separated); files made with a retired key
+// still open. A file whose key is in neither is reported as such — it can't be opened by anyone.
+// (Files from before key ids, "SDBK1", are tried with every available key.)
+const MAGIC2 = enc.encode('SDBK2');
+const keysOf = (env) => [String(env?.BACKUP_KEY || ''), ...String(env?.BACKUP_KEYS_OLD || '').split(',').map((k) => k.trim())].filter((k) => k.length >= 32);
+export async function keyId(secret) { return new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(`saydaliti-backup-key-id:${secret}`))).slice(0, 8); }
+const sameBytes = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+async function aesKey(secret, pharmacyId) {
   const base = await crypto.subtle.importKey('raw', enc.encode(secret), 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode(String(pharmacyId)), info: enc.encode('saydaliti-backup-v1') }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 export async function encryptBackup(env, pharmacyId, text) {
+  const secret = String(env?.BACKUP_KEY || '');
+  if (secret.length < 32) throw new ApiError('server not configured: backup key missing', '503', 503);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(String(pharmacyId)) }, await keyFor(env, pharmacyId), enc.encode(text)));
-  const out = new Uint8Array(MAGIC.length + iv.length + ct.length);
-  out.set(MAGIC, 0); out.set(iv, MAGIC.length); out.set(ct, MAGIC.length + iv.length);
+  const kid = await keyId(secret);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(String(pharmacyId)) }, await aesKey(secret, pharmacyId), enc.encode(text)));
+  const out = new Uint8Array(MAGIC2.length + 8 + 12 + ct.length);
+  out.set(MAGIC2, 0); out.set(kid, 5); out.set(iv, 13); out.set(ct, 25);
   return out;
 }
 export async function decryptBackup(env, pharmacyId, bytes) {
   const b = new Uint8Array(bytes);
-  if (b.length < MAGIC.length + 12 + 16 || dec.decode(b.slice(0, MAGIC.length)) !== 'SDBK1') throw new ApiError('not a backup file');
-  try {
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.slice(MAGIC.length, MAGIC.length + 12), additionalData: enc.encode(String(pharmacyId)) },
-      await keyFor(env, pharmacyId), b.slice(MAGIC.length + 12));
-    return dec.decode(pt);
-  } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError('backup cannot be opened (wrong key, wrong pharmacy, or damaged)'); }
+  const head = dec.decode(b.slice(0, 5));
+  const keys = keysOf(env);
+  if (!keys.length) throw new ApiError('server not configured: backup key missing', '503', 503);
+  let tries, iv, ct;
+  if (head === 'SDBK2' && b.length >= 25 + 16) {
+    const kid = b.slice(5, 13);
+    tries = [];
+    for (const k of keys) if (sameBytes(await keyId(k), kid)) tries.push(k);
+    if (!tries.length) throw new ApiError(`backup key not available (key id ${hex(kid)}): this file was made with a key that is not in BACKUP_KEY or BACKUP_KEYS_OLD`);
+    iv = b.slice(13, 25); ct = b.slice(25);
+  } else if (head === 'SDBK1' && b.length >= 17 + 16) { tries = keys; iv = b.slice(5, 17); ct = b.slice(17); } else throw new ApiError('not a backup file');
+  for (const k of tries) {
+    try { return dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(String(pharmacyId)) }, await aesKey(k, pharmacyId), ct)); } catch { /* next key */ }
+  }
+  throw new ApiError('backup cannot be opened (wrong key, wrong pharmacy, or damaged)');
 }
+export async function keyIdOfFile(bytes) { const b = new Uint8Array(bytes); return dec.decode(b.slice(0, 5)) === 'SDBK2' ? hex(b.slice(5, 13)) : null; }
 
 // ---------- One backup: make, encrypt, store, list, keep the newest RETAIN ----------
 export async function runBackup(env, pharmacyId, { by = null, source = 'manual' } = {}) {
@@ -111,7 +130,7 @@ export async function runBackup(env, pharmacyId, { by = null, source = 'manual' 
     const back = await env.FILES.get(key);
     if (!back || (await sha256hex(await decryptBackup(env, pharmacyId, await back.arrayBuffer()))) !== sha) throw new Error('backup check after writing failed');
     await env.DB.prepare('INSERT INTO backups (id, pharmacy_id, created_at, status, r2_key, bytes, sha256, summary, created_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, pharmacyId, at, 'ok', key, file.length, sha, JSON.stringify({ counts: summary.counts, money: summary.money, blobs: summary.blobs }), by, source).run();
+      .bind(id, pharmacyId, at, 'ok', key, file.length, sha, JSON.stringify({ counts: summary.counts, money: summary.money, blobs: summary.blobs, key_id: await keyIdOfFile(file) }), by, source).run();
     await prune(env, pharmacyId);
     return { id, key, bytes: file.length, sha256: sha, counts: summary.counts };
   } catch (e) {
@@ -128,13 +147,35 @@ async function prune(env, pharmacyId) {
 }
 
 // The daily job (cron): every pharmacy, one at a time; a failure is listed and the others go on.
+// Afterwards the health check runs; any problem is logged as "BACKUP_ALERT {...}" (Cloudflare
+// observability can alert on it) and is shown to the owner and the app admin (list_backups,
+// admin_backup_health).
 export async function backupAll(env) {
-  if (!env.BACKUP_KEY) return { skipped: 'no BACKUP_KEY' };
+  if (!env.BACKUP_KEY) { console.error('BACKUP_ALERT', JSON.stringify({ problem: 'BACKUP_KEY not set: no backups are made' })); return { skipped: 'no BACKUP_KEY' }; }
   const out = { ok: 0, failed: 0 };
   for (const { id } of await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at')) {
     try { await runBackup(env, id, { source: 'daily' }); out.ok++; } catch { out.failed++; }
   }
-  return out;
+  const health = await backupHealth(env);
+  if (health.problems.length) console.error('BACKUP_ALERT', JSON.stringify(health));
+  return { ...out, problems: health.problems.length };
+}
+
+// Which pharmacies have no good backup, an old one (> STALE_HOURS), or a failure after the last good one.
+export const STALE_HOURS = 36;
+export async function backupHealth(env, now = Date.now()) {
+  const rows = await rowsOf(env, `SELECT p.id, p.name,
+      (SELECT max(created_at) FROM backups b WHERE b.pharmacy_id = p.id AND b.status = 'ok') AS last_ok,
+      (SELECT max(created_at) FROM backups b WHERE b.pharmacy_id = p.id AND b.status = 'failed') AS last_failed,
+      (SELECT error FROM backups b WHERE b.pharmacy_id = p.id AND b.status = 'failed' ORDER BY created_at DESC LIMIT 1) AS last_error
+    FROM pharmacies p ORDER BY p.created_at`);
+  const problems = [];
+  for (const r of rows) {
+    if (!r.last_ok) problems.push({ pharmacy_id: r.id, problem: 'no good backup' });
+    else if (now - Date.parse(r.last_ok) > STALE_HOURS * 3600000) problems.push({ pharmacy_id: r.id, problem: 'last good backup too old', last_ok: r.last_ok });
+    if (r.last_failed && (!r.last_ok || r.last_failed > r.last_ok)) problems.push({ pharmacy_id: r.id, problem: 'last attempt failed', at: r.last_failed, error: r.last_error });
+  }
+  return { checked: rows.length, problems, at: new Date(now).toISOString() };
 }
 
 // ---------- Restore into an empty database (disaster recovery) ----------
