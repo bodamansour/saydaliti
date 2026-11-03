@@ -99,12 +99,15 @@ export const TABLES = {
   index: [['pharmacy_id'], ['patient_id']] },
   pos_sales: { pk: 'id', read: ROLES_ALL, insert: SELLERS, refs: { branch_id: 'branches', customer_id: 'customers', employee_id: 'employees', shift_id: 'pos_shifts' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], number: ['text', { nn: true, max: 40 }], sold_at: ['ts', { nn: true }],
-    kind: ['text', { nn: true, def: 'sale', in: ['sale', 'return'] }], lines: ['json', { nn: true, array: [1, 300] }], total: ['num', { nn: true }],
-    discount: ['num', { nn: true, def: 0, min: 0 }], paid: ['num'], payment: ['text', { nn: true, def: 'cash', in: ['cash', 'card', 'wallet', 'credit'] }],
-    customer_id: ['id'], credit: ['num', { nn: true, def: 0 }], claim_no: ['text', { max: 60 }], return_of: ['id'], note: ['text', { max: 300 }],
+    kind: ['text', { nn: true, def: 'sale', in: ['sale', 'return'] }], lines: ['json', { nn: true, array: [1, 300] }], total: ['num', { nn: true, min: -99999999.99, maxv: 99999999.99 }],
+    discount: ['num', { nn: true, def: 0, min: 0, maxv: 99999999.99 }], paid: ['num', { min: -99999999.99, maxv: 99999999.99 }], payment: ['text', { nn: true, def: 'cash', in: ['cash', 'card', 'wallet', 'credit'] }],
+    customer_id: ['id'], credit: ['num', { nn: true, def: 0, min: -99999999.99, maxv: 99999999.99 }], claim_no: ['text', { max: 60 }], return_of: ['id'], note: ['text', { max: 300 }],
     employee_id: ['id'], employee_name: ['text', { max: 120 }], shift_id: ['id'], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
     // A home delivery: its fee (inside the total) and where it went.
-    delivery_fee: ['num', { min: 0, maxv: 99999, added: 4 }], delivery_to: ['text', { max: 200, trim: true, added: 4 }] },
+    delivery_fee: ['num', { min: 0, maxv: 99999, added: 4 }], delivery_to: ['text', { max: 200, trim: true, added: 4 }],
+    // The device that numbered the receipt (4 letters/digits, kept on that device across sign-outs).
+    // Receipts that carry it have a number unique in the pharmacy (index in migrations/0011).
+    receipt_device: ['text', { re: '^[A-HJ-NP-Z2-9]{4}$', added: 11 }] },
   index: [['pharmacy_id', 'sold_at'], ['branch_id', 'sold_at'], ['customer_id'], ['return_of'], ['pharmacy_id', 'number'], ['shift_id']] },
   pos_barcodes: { pk: 'id', read: ROLES_ALL, insert: SELLERS, del: OWNER, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], barcode: ['text', { nn: true, max: 64 }], code: ['text', { nn: true, max: 60 }],

@@ -2,6 +2,8 @@
 // no internet and no account needed. It answers the same calls the app makes to the online
 // database (from(...).select/eq/order/range/upsert/update/delete and the rpc functions), so every
 // screen works unchanged. One owner, one pharmacy.
+import { checkSaleRow, checkReturnAgainst } from './sale-rules.js';
+
 const DB_NAME = 'saydaliti-local-db'; // separate from the app's offline copy, which sign-out clears
 const USER = { id: '00000000-0000-4000-8000-000000000001', email: 'النسخة المحلية' };
 
@@ -85,6 +87,21 @@ export async function createLocalClient(name = DB_NAME) {
             if (same && q.ignore) continue;
             if (t === 'catalog_items' && [...table(t).values()].some((x) => x.code === r.code && x.id !== r.id && x.pharmacy_id === r.pharmacy_id)) return err('duplicate key value violates unique constraint');
             if (t === 'pos_barcodes' && [...table(t).values()].some((x) => x.barcode === r.barcode && x.id !== r.id)) return err('duplicate key value violates unique constraint');
+            // A receipt: the same rules as the online server (src/sale-rules.js), a number used once,
+            // and a receipt is never changed after it is saved (a mistake is fixed with a return).
+            if (t === 'pos_sales') {
+              if (same) continue;
+              try {
+                checkSaleRow(r);
+                if (r.kind === 'return' && r.return_of) {
+                  const o = table(t).get(String(r.return_of));
+                  if (!o || o.kind !== 'sale') return err('receipt not found');
+                  checkReturnAgainst(r, o, [...table(t).values()].filter((x) => x.kind === 'return' && x.return_of === r.return_of));
+                }
+              } catch (e) { return err(e.message); }
+              if ([...table(t).values()].some((x) => x.number === r.number && x.pharmacy_id === r.pharmacy_id)) return err('receipt number already used');
+              r.created_at = now();
+            }
             const saved = same ? { ...same, ...r } : r;
             await put(t, saved);
             const log = audit(t, same ? 'update' : 'insert', same || null, saved);

@@ -7,7 +7,7 @@ import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyC
 import { arabicError } from './supabase-store.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired, vatOf } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptPrefix, counterIn, isDeviceCode, newDeviceCode, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired, vatOf } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -641,6 +641,44 @@ async function findReceipt() {
   renderCart();
 }
 
+// ---------- Receipt numbers ----------
+// "YYMMDD-<tag>-<device>-<0001>". The device code is made once and kept on this device across
+// sign-outs (sign-out clears only the sd:/saydaliti- keys), so two devices never share numbers even
+// with the same tag; the server refuses a number already used. The day's counter is the highest of:
+// what this device saved, the receipts it holds, and the highest the server has for this prefix (so a
+// browser whose storage was cleared carries on instead of starting again at 1). A lock shared by the
+// tabs of this browser makes two tabs never take the same counter.
+const DEVICE_KEY = 'pos-device-v1', SEQ_KEY = 'pos-receipt-seq-v1';
+let DEVICE = null;
+const SERVER_SEQ = new Map(); // prefix → highest counter seen on the server
+function deviceCode() {
+  if (DEVICE) return DEVICE;
+  try { const v = localStorage.getItem(DEVICE_KEY); if (isDeviceCode(v)) return (DEVICE = v); } catch { /* blocked */ }
+  DEVICE = newDeviceCode();
+  try { localStorage.setItem(DEVICE_KEY, DEVICE); } catch { /* blocked: this page keeps it in memory */ }
+  return DEVICE;
+}
+const prefixFor = (d) => receiptPrefix(d, dev.tag, deviceCode());
+async function seedReceiptCounter(d = new Date()) {
+  if (!SESS || !isOnline()) return;
+  const p = prefixFor(d);
+  const r = await SESS.client.from('pos_sales').select('number').eq('pharmacy_id', SESS.pharmacy.id)
+    .gte('number', p).lt('number', `${p}~`).order('number', { ascending: false }).limit(1);
+  if (!r.error && r.data?.[0]) SERVER_SEQ.set(p, Math.max(SERVER_SEQ.get(p) || 0, counterIn(r.data[0].number, p)));
+}
+async function nextReceiptNumber(d) {
+  const p = prefixFor(d);
+  const take = () => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SEQ_KEY) || 'null'); } catch { /* blocked */ }
+    const held = SALES.reduce((m, x) => Math.max(m, counterIn(x.number, p)), 0);
+    const n = Math.max(saved?.prefix === p ? +saved.n || 0 : 0, held, SERVER_SEQ.get(p) || 0) + 1;
+    try { localStorage.setItem(SEQ_KEY, JSON.stringify({ prefix: p, n })); } catch { /* blocked */ }
+    return `${p}${String(n).padStart(4, '0')}`;
+  };
+  return navigator.locks?.request ? navigator.locks.request('saydaliti-receipt-number', take) : take();
+}
+
 // ---------- Checkout & printing ----------
 async function checkout() {
   if (!CART.length) return;
@@ -659,12 +697,11 @@ async function checkout() {
   if (MODE === 'sale' && CUST && sp.credit && +CUST.credit_limit > 0 && owedBy(CUST.id) + sp.credit > +CUST.credit_limit
     && !confirm(`«${CUST.name}» هيعدّي حد الآجل بتاعه (${fmt(CUST.credit_limit)} ج). تكمّل؟`)) return;
   const now = new Date();
-  const dayKey = `saydaliti-pos-count-${isoDay(now)}`;
-  let n = 1; try { n = (+localStorage.getItem(dayKey) || 0) + 1; localStorage.setItem(dayKey, String(n)); } catch { /* blocked */ }
+  const number = await nextReceiptNumber(now);
   const sign = MODE === 'return' ? -1 : 1;
   const sale = {
     id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
-    number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
+    number, receipt_device: deviceCode(), sold_at: now.toISOString(), kind: MODE,
     lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}), ...(l.bp ? { bp: l.bp } : {}), ...(+l.tax > 0 ? { tax: +l.tax } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
@@ -766,6 +803,7 @@ async function updateNet() {
 async function sync() {
   if (!SESS || !isOnline()) return updateNet();
   await flush(SESS.client, (entry, err) => msg(`ماترفعش: ${err.message}`, true));
+  seedReceiptCounter().catch(() => {});
   const q = [...(await pending()), ...(await stuck())]; // refused ones are still waiting
   const waiting = new Set(q.filter((e) => e.type === 'insert').map((e) => e.payload.row.id));
   let changed = false;
@@ -828,7 +866,7 @@ async function boot() {
 }
 async function reload() {
   await loadItems();
-  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers()]);
+  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers(), seedReceiptCounter().catch(() => {})]);
   $('custBox').hidden = !CUST_READY; // customers need database update 011
   refreshItems();
   if (!ITEMS.length) msg('لسه مفيش أصناف للفرع ده. صاحب الصيدلية يرفع دليل الأصناف من اللوحة، أو يضيف الأصناف من «كل الأصناف».', true);

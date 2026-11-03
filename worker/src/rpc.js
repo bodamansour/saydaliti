@@ -2,6 +2,7 @@
 // pharmacies and branches, employees and attendance, invites, uploads, the cashier's PIN and
 // returns, subscriptions and the admin page, and error reports.
 import { planOf, readPlans } from '../../src/plans.js';
+import { checkSaleRow, checkReturnAgainst } from '../../src/sale-rules.js';
 import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
@@ -380,17 +381,21 @@ export async function markRemindersSent(env, items) {
 
 // ---------- Rules on cashier receipts (were database triggers) ----------
 // A return names its sale receipt and can't take back more than that receipt sold.
+// Every receipt the cashier sends is checked here before it is stored (rules: src/sale-rules.js).
+// A return against a receipt is also checked against that receipt and its earlier returns; the
+// quantity and the receipt number are checked again inside the insert itself (db.js), atomically.
 export async function checkPosSale(ctx, env, row) {
-  if (row.kind !== 'return') { if (row.return_of) throw new ApiError('return_of is only for returns'); return; }
-  if (!row.return_of) return;
-  const o = await one(env, "SELECT lines, branch_id FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
+  try {
+    checkSaleRow(row);
+  } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
+  if (row.kind !== 'return' || !row.return_of) return;
+  const o = await one(env, "SELECT id, kind, lines, branch_id, discount, customer_id FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
   if (!o) throw new ApiError('receipt not found');
   if (requireBranch(ctx, row.pharmacy_id, o.branch_id) !== requireBranch(ctx, row.pharmacy_id, row.branch_id)) throw new ApiError('receipt belongs to another branch', '42501', 403);
-  // In boxes: a line sold by the strip or pill has qty of them and per = how many in a box.
-  const sum = (lines) => { const m = new Map(); for (const l of lines || []) m.set(String(l.code), (m.get(String(l.code)) || 0) + (+l.qty || 0) / (+l.per > 1 ? +l.per : 1)); return m; };
-  const sold = sum(JSON.parse(o.lines));
-  const back = new Map();
-  for (const p of await all(env, 'SELECT lines FROM pos_sales WHERE return_of = ? AND id <> ?', row.return_of, row.id)) for (const [k, v] of sum(JSON.parse(p.lines))) back.set(k, (back.get(k) || 0) + v);
-  for (const [code, q] of sum(row.lines)) if (q > (sold.get(code) || 0) - (back.get(code) || 0) + 0.0001) throw new ApiError('return more than sold');
+  const earlier = (await all(env, "SELECT lines FROM pos_sales WHERE return_of = ? AND pharmacy_id = ? AND kind = 'return' AND id <> ?", row.return_of, row.pharmacy_id, row.id))
+    .map((r) => ({ lines: JSON.parse(r.lines) }));
+  try {
+    checkReturnAgainst(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
+  } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
 }
 export { fromDb };
