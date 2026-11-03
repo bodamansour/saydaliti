@@ -47,7 +47,7 @@
 | CI on `34b9aa9` (Tests #129) | **success** (all jobs: unit, dashboard, Worker + stock + backup + browser on local D1/R2, Windows SQL Server sync) |
 | CI on `226519d` (Tests #130) | failure, 1 test: the approval browser test timed out waiting for a dialog after F2 (the cashier was still loading). Same code as `647e01c`, which passed. Test synchronization fixed in `34887a7`. |
 | CI on `647e01c` (Tests #131, Windows #105) | **success** |
-| CI on `34887a7` | see the session report |
+| CI on `34887a7` (Tests #132, Windows #106) and `ecd1e99` (Tests #133, Windows #107) | **success** |
 
 ## Phase 2 (authorized 2026-11-03: planning + isolated implementation; no production)
 
@@ -149,6 +149,7 @@ Phase 2 adds **0013_stock_ledger.sql** (stock_ledger, stock_levels, stock_bases,
 - Phase 2 M2: backups are not active in production until the owner creates the `BACKUP_KEY` secret and a copy is kept offline (without it the backups can't be opened). The daily job's CPU use on the current Cloudflare plan is untested.
 - Phase 2 M2: item photos are not in the backup; a restore is only into an empty database (auto-increment ids).
 - Intermittent test: the browser test of the no-receipt return approval failed twice locally without a captured reason (not reproduced in 6 runs); it now reports the screen state at each step.
+- Intermittent test (open): the first Cloudflare browser test (sign-up + item-file upload) failed 2 times in about 16 local runs (a 15 s wait; it normally takes 3.4 s; no server error in the Worker log). It hasn't been seen on CI. The step wasn't changed in this work. Cause not found.
 - Intermittent test: 1 failure in about 11 runs of the combined Worker + Cloudflare browser suite, at the item-file upload step of the first browser test (not changed in this phase); not reproduced in the next 8 runs; cause unknown.
 
 ## Architectural decisions
