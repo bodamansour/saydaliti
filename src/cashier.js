@@ -5,6 +5,7 @@ import { fromExport, startOfDay } from './core.js';
 import { qrSvg, whatsappLink } from './labels.js';
 import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
+import { readAll, showDataAlert } from './paged.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
 import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptPrefix, counterIn, isDeviceCode, newDeviceCode, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired, vatOf } from './pos.js';
@@ -56,6 +57,9 @@ const msg = (t, err = false) => { $('posMsg').innerHTML = err ? `<span class="er
 const today = () => startOfDay();
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// The most rows of one table the cashier loads (Phase 2 moves stock to the server and removes this).
+// A table bigger than this is not loaded in part: #dataAlert says so and the last full copy stays.
+const LOAD_MAX = 50000;
 // ---------- Loading ----------
 async function loadItems() {
   const cached = await kvGet(K.items());
@@ -79,15 +83,12 @@ async function loadStock() {
   const raw = await kvGet(K.stock(), { catalog: [], purchases: [], moves: [] });
   const cached = { ...raw, purchases: raw.purchases.filter(branchAllowed), moves: raw.moves.filter(branchAllowed) };
   if (!isOnline()) { STOCK = mergePendingItems(cached); return; }
+  // A table that can't be read whole leaves the last full copy in place; one that is too big to load
+  // here says so on screen (the stock shown would be wrong without its newest rows).
   const get = async (table, cols) => {
-    const rows = [];
-    for (let from = 0; from < 20000; from += 1000) {
-      const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order('created_at', { ascending: true }).range(from, from + 999);
-      if (error) return null;
-      rows.push(...data);
-      if (data.length < 1000) break;
-    }
-    return rows;
+    const { data, error } = await readAll(() => SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order('created_at', { ascending: true }), { table, max: LOAD_MAX });
+    if (error?.incomplete) { showDataAlert($('dataAlert'), error); }
+    return error ? null : data;
   };
   const [catalog, purchases, moves] = await Promise.all([
     (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, tax_pct, image_at, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
@@ -115,21 +116,16 @@ async function loadCustomers() {
   let next = cached;
   if (isOnline()) {
     // The server sends at most 1,000 rows at a time: read page by page.
-    const all = async (make) => {
-      const rows = [];
-      for (let from = 0; from < 200000; from += 1000) {
-        const r = await make().range(from, from + 999);
-        if (r.error) return { error: r.error };
-        rows.push(...r.data);
-        if (r.data.length < 1000) break;
-      }
-      return { data: rows };
+    const all = async (make, table) => {
+      const r = await readAll(make, { table, max: 200000 });
+      if (r.error?.incomplete) { showDataAlert($('dataAlert'), r.error); }
+      return r;
     };
     const [c, p, cr] = await Promise.all([
-      all(() => SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
-      all(() => SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
+      all(() => SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true }), 'customers'),
+      all(() => SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true }), 'customer_payments'),
       // Every bill on account, however old (not just those since the last upload), for the balance.
-      all(() => SESS.client.from('pos_sales').select('id, branch_id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true })),
+      all(() => SESS.client.from('pos_sales').select('id, branch_id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true }), 'pos_sales'),
     ]);
     const credit = cr.error ? null : cr.data.filter(branchAllowed);
     if (!c.error && !p.error) next = { customers: c.data, payments: p.data, credit: credit ?? cached.credit ?? [], ready: true };
@@ -172,17 +168,13 @@ async function loadSales() {
   let server = null;
   if (isOnline()) {
     // Every receipt since the last upload counts toward the shelf stock: read them page by page.
-    server = [];
-    for (let from = 0; from < 50000; from += 1000) {
-      const page = (cols) => SESS.client.from('pos_sales').select(cols)
-        .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }).range(from, from + 999);
-      let { data, error } = await page(`${SALE_COLS}, ${SALE_EXTRA[0]}`);
-      if (error && /column/i.test(error.message)) ({ data, error } = await page(`${SALE_COLS}, ${SALE_EXTRA[1]}`)); // update 013 not applied yet
-      if (error && /column/i.test(error.message)) ({ data, error } = await page(SALE_COLS)); // update 012 not applied yet
-      if (error) { server = null; break; }
-      server.push(...data);
-      if (data.length < 1000) break;
-    }
+    const read = (cols) => readAll(() => SESS.client.from('pos_sales').select(cols)
+      .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }), { table: 'pos_sales', max: LOAD_MAX });
+    let r = await read(`${SALE_COLS}, ${SALE_EXTRA[0]}`);
+    if (r.error && /column/i.test(r.error.message)) r = await read(`${SALE_COLS}, ${SALE_EXTRA[1]}`); // update 013 not applied yet
+    if (r.error && /column/i.test(r.error.message)) r = await read(SALE_COLS); // update 012 not applied yet
+    if (r.error?.incomplete) { showDataAlert($('dataAlert'), r.error); }
+    server = r.error ? null : r.data;
   }
   // Receipts made on this device and not uploaded yet — including any made while this was loading.
   const local = [...SALES, ...cached].filter((x, i, all) => x.pending && branchAllowed(x) && all.findIndex((y) => y.id === x.id) === i);
