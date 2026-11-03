@@ -6,7 +6,10 @@
 // quantities follow the app's own rules (src/inventory.js liveData):
 //   sale −qty/per · return +qty/per · purchase +(qty+bonus) · supplier return −qty · stock move ±qty
 // and a movement dated at or before the branch's base (the uploaded pharmacy-program file the levels
-// start from) changes nothing, because that file already holds it.
+// start from) changes nothing, because that file already holds it — EXCEPT in a branch that blocks
+// selling below zero and has opened its levels: there the server is the stock authority, so every
+// movement it receives counts (a device clock set back before the base can't make a sale take nothing;
+// such receipts are also flagged 'before_base', rpc.js timeFlags).
 import { ApiError, nowIso, uuid } from './db.js';
 
 const boxes = (l) => (+l.qty || 0) / (+l.per > 1 ? +l.per : 1);
@@ -39,10 +42,12 @@ export function ledgerStmt(env, ctx, table, row) {
   const at = iso(m.at);
   return env.DB.prepare(`INSERT OR IGNORE INTO stock_ledger (id, pharmacy_id, branch_id, code, qty, applied, kind, source_table, source_id, effective_at, received_at, created_by)
     SELECT ? || ':' || ? || ':' || json_extract(j.value, '$.i'), ?, ?, json_extract(j.value, '$.code'), json_extract(j.value, '$.qty'),
-      CASE WHEN ? > COALESCE((SELECT base_at FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ?), '') THEN json_extract(j.value, '$.qty') ELSE 0 END,
+      CASE WHEN ? > COALESCE((SELECT base_at FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ?), '')
+        OR EXISTS (SELECT 1 FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ? AND block_negative = 1 AND stale = 0 AND opened_at IS NOT NULL)
+        THEN json_extract(j.value, '$.qty') ELSE 0 END,
       ?, ?, ?, ?, ?, ?
     FROM json_each(?) j`)
-    .bind(table, String(row.id), row.pharmacy_id, branch, at, row.pharmacy_id, branch, m.kind, table, String(row.id), at, nowIso(), ctx.user?.id ?? null, JSON.stringify(lines));
+    .bind(table, String(row.id), row.pharmacy_id, branch, at, row.pharmacy_id, branch, row.pharmacy_id, branch, m.kind, table, String(row.id), at, nowIso(), ctx.user?.id ?? null, JSON.stringify(lines));
 }
 
 // Deleting a purchase or a stock move adds rows that undo exactly what it had added (history stays).
