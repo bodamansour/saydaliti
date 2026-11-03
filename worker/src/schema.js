@@ -198,6 +198,16 @@ export const TABLES = {
     reason: ['text', { nn: true, max: 300 }], cashier_employee_id: ['id', { nn: true }], cashier_name: ['text', { nn: true, max: 120 }],
     approver_employee_id: ['id', { nn: true }], approver_name: ['text', { nn: true, max: 120 }], approved_by_user: ['id'], created_at: ['ts', { nn: true }] },
   index: [['pharmacy_id', 'created_at']] },
+  // ---------- Stock kept by the server (Phase 2 M1, migrations/0013; written only by the server) ----------
+  stock_levels: { pk: ['pharmacy_id', 'branch_id', 'code'], added: 13, read: ROLES_ALL, cols: {
+    pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], code: ['text', { nn: true }], qty: ['num', { nn: true }], updated_at: ['ts', { nn: true }] } },
+  stock_ledger: { pk: 'id', added: 13, read: [...MANAGERS, 'stock'], cols: {
+    id: ['text', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], code: ['text', { nn: true }], qty: ['num', { nn: true }],
+    applied: ['num', { nn: true }], kind: ['text', { nn: true }], source_table: ['text', { nn: true }], source_id: ['text', { nn: true }],
+    effective_at: ['ts', { nn: true }], received_at: ['ts', { nn: true }], created_by: ['id'] } },
+  stock_bases: { pk: ['pharmacy_id', 'branch_id'], added: 13, read: ROLES_ALL, cols: {
+    pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], base_at: ['ts'], opened_at: ['ts'], stale: ['bool', { nn: true }],
+    block_negative: ['bool', { nn: true }], updated_at: ['ts', { nn: true }] } },
   client_errors: { pk: 'id', internal: true, cols: {
     id: ['serial'], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], pharmacy_id: ['id'], page: ['text'], message: ['text', { nn: true }],
     stack: ['text'], agent: ['text'], version: ['text'] },

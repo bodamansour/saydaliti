@@ -633,6 +633,15 @@ async function findReceipt() {
   renderCart();
 }
 
+// ---------- Stock kept by the server (Phase 2 M1) ----------
+// Whether this branch blocks selling below zero on the server (and its levels are in use).
+let STOCK_POLICY = { block: false };
+async function loadStockPolicy() {
+  if (!SESS?.client?.cloudflare || !isOnline()) return;
+  const r = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: BRANCH });
+  if (!r.error && r.data) STOCK_POLICY = { block: !!r.data.block_negative && !!r.data.opened_at && !r.data.stale };
+}
+
 // ---------- Receipt numbers ----------
 // "YYMMDD-<tag>-<device>-<0001>". The device code is made once and kept on this device across
 // sign-outs (sign-out clears only the sd:/saydaliti- keys), so two devices never share numbers even
@@ -744,9 +753,19 @@ async function checkout() {
     ...(CASHIER ? { employee_id: CASHIER.id, employee_name: CASHIER.name, ...(SHIFTS[CASHIER.id] ? { shift_id: SHIFTS[CASHIER.id].id } : {}) } : {}),
   };
   const custName = CUST?.name;
-  SALES.unshift({ ...sale, pending: true });
+  // Where the branch blocks selling below zero (stock kept by the server), a sale goes to the server
+  // first and is printed only once the server took it, so the last box is never sold twice. With no
+  // connection it is queued as always (and the server checks it when it arrives).
+  let sentNow = false;
+  if (MODE === 'sale' && STOCK_POLICY.block && isOnline()) {
+    msg('بنتأكد من الرصيد…');
+    const r = await SESS.client.from('pos_sales').upsert(sale, { onConflict: 'id', ignoreDuplicates: true });
+    if (r.error && !/fetch|network/i.test(r.error.message)) { msg(arabicError(r.error).message, true); return; }
+    sentNow = !r.error;
+  }
+  SALES.unshift({ ...sale, pending: !sentNow });
   await kvSet(K.sales(), SALES);
-  await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
+  if (!sentNow) await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
   try { refreshItems(); } catch (err) { console.error(err); }
   if (dev.autoPrint) printReceipt({ ...sale, return_no: RET?.sale.number });
   msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
@@ -832,6 +851,7 @@ async function sync() {
   if (!SESS || !isOnline()) return updateNet();
   await flush(SESS.client, (entry, err) => msg(`ماترفعش: ${err.message}`, true));
   seedReceiptCounter().catch(() => {});
+  loadStockPolicy().catch(() => {});
   const q = [...(await pending()), ...(await stuck())]; // refused ones are still waiting
   const waiting = new Set(q.filter((e) => e.type === 'insert').map((e) => e.payload.row.id));
   let changed = false;
@@ -894,7 +914,7 @@ async function boot() {
 }
 async function reload() {
   await loadItems();
-  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers(), seedReceiptCounter().catch(() => {})]);
+  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers(), seedReceiptCounter().catch(() => {}), loadStockPolicy().catch(() => {})]);
   $('custBox').hidden = !CUST_READY; // customers need database update 011
   refreshItems();
   if (!ITEMS.length) msg('لسه مفيش أصناف للفرع ده. صاحب الصيدلية يرفع دليل الأصناف من اللوحة، أو يضيف الأصناف من «كل الأصناف».', true);

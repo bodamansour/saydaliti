@@ -17,6 +17,7 @@ const MESSAGES = {
   'cashier must sign in with their PIN': 'الكاشير لازم يدخل برقمه السري الأول.',
   'approval not for this': 'الموافقة دي مش لنفس المرتجع. اطلب موافقة جديدة.',
   'already approved differently': 'المرتجع ده اتوافق عليه قبل كده ببيانات مختلفة.',
+  'insufficient stock': 'الرصيد على السيرفر مش كفاية للصنف ده (البيع بعد ما الرصيد يخلص ممنوع في الفرع ده). ظبط الرصيد أو سجّل الطلبية اللي وصلت الأول.',
   'receipt number already used': 'رقم الفاتورة ده اتسجل قبل كده لفاتورة تانية.',
   'sale total does not match its lines': 'إجمالي الفاتورة مش مطابق للأصناف والخصم.',
   'return price more than sold': 'سعر الصنف في المرتجع أكبر من سعره في فاتورة البيع.',
