@@ -292,7 +292,10 @@ test('cashier: a return, and a sale with no connection', async () => {
   await page.evaluate(() => { window.__DB.staff = [{ id: 'e1', name: 'منى', pin: '1111' }, { id: 'e2', name: 'د. كريم', pin: '2222', can_approve_returns: true }]; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
   await page.reload();
   await page.waitForSelector('#pos:not([hidden])');
+  // Wait until the cashier has loaded (loading starts a new bill in sale mode).
+  assert.ok(await until(async () => /صنف/.test(await text('#posMsg')), 15000));
   await page.click('#modeReturn');
+  await page.waitForSelector('#retBox:not([hidden])');
   await page.fill('#q', '303');
   await page.press('#q', 'Enter');
   await page.click('#retNoReceipt');
