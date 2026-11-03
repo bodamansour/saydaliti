@@ -154,6 +154,15 @@
   </form>
 </dialog>
 
+<dialog id="apprDlg" class="card">
+  <form id="apprForm" class="stack" novalidate>
+    <h3>موافقة المدير على المرتجع</h3>
+    <p class="note" id="apprNote"></p>
+    <input id="apprPin" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري للمدير">
+    <div class="row"><button class="btn primary" type="submit">وافق</button><button class="btn" type="button" id="apprCancel">إلغاء</button><span class="note" id="apprMsg" role="status"></span></div>
+  </form>
+</dialog>
+
 <dialog id="outDlg" class="card">
   <form id="outForm" class="stack" novalidate>
     <h3>فلوس خرجت من الدرج</h3>

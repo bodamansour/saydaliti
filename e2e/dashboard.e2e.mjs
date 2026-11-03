@@ -285,7 +285,34 @@ test('cashier: a return, and a sale with no connection', async () => {
   await page.click('#retNoReceipt');
   await page.fill('#retReason', 'بيعة قبل البرنامج');
   await page.keyboard.press('F2');
-  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140 && /بيعة قبل البرنامج/.test(x.note))));
+  // A return without the receipt needs a manager's PIN; with no staff set up there is nobody to approve.
+  assert.ok(await until(async () => /محتاج موافقة مدير/.test(await text('#posMsg'))));
+  assert.equal((await db('pos_sales')).length, 1, 'not saved without an approval');
+  // Staff with PINs: a cashier, and a manager the owner allowed to approve returns.
+  await page.evaluate(() => { window.__DB.staff = [{ id: 'e1', name: 'منى', pin: '1111' }, { id: 'e2', name: 'د. كريم', pin: '2222', can_approve_returns: true }]; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
+  await page.reload();
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.click('#modeReturn');
+  await page.fill('#q', '303');
+  await page.press('#q', 'Enter');
+  await page.click('#retNoReceipt');
+  await page.fill('#retReason', 'بيعة قبل البرنامج');
+  await page.keyboard.press('F2');
+  await page.waitForSelector('#pinDlg[open]'); // the cashier signs in first
+  await page.fill('#pinIn', '1111'); await page.click('#pinOk');
+  await page.waitForSelector('#openCashWrap:not([hidden])'); await page.fill('#openCash', '0'); await page.click('#pinOk');
+  assert.ok(await until(async () => /منى/.test(await text('#cashierChip'))));
+  await page.keyboard.press('F2');
+  await page.waitForSelector('#apprDlg[open]');
+  await page.fill('#apprPin', '1111'); // the cashier is not an approver
+  await page.click('#apprForm button[type=submit]');
+  assert.ok(await until(async () => /مش مسموح/.test(await text('#apprMsg'))));
+  await page.fill('#apprPin', '2222');
+  await page.click('#apprForm button[type=submit]');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140 && /بيعة قبل البرنامج/.test(x.note) && x.approval_id === 'ap1' && x.employee_id === 'e1')));
+  assert.equal((await db('return_approvals'))[0].approver_name, 'د. كريم');
+  // The later tests run with no staff, as before.
+  await page.evaluate(() => { window.__DB.staff = []; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
   await goOffline();
   await page.fill('#q', '101');
   await page.press('#q', 'Enter');

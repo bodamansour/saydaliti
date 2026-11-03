@@ -44,11 +44,13 @@ export const TABLES = {
     id: ['id', { nn: true, def: 'uuid' }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 80, trim: true }],
     created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id']] },
-  employees: { pk: 'id', read: MANAGERS, hidden: ['pin_hash'], update: OWNER, updCols: ['name', 'shift_start', 'shift_end', 'work_days', 'grace_minutes', 'active'], audit: true, cols: {
+  employees: { pk: 'id', read: MANAGERS, hidden: ['pin_hash'], update: OWNER, updCols: ['name', 'shift_start', 'shift_end', 'work_days', 'grace_minutes', 'active', 'can_approve_returns'], audit: true, cols: {
     id: ['id', { nn: true, def: 'uuid' }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 120, trim: true }], pin_hash: ['text', { nn: true }],
     shift_start: ['text', { nn: true, def: '09:00:00', max: 8 }], shift_end: ['text', { nn: true, def: '17:00:00', max: 8 }],
     work_days: ['json', { nn: true, def: [6, 0, 1, 2, 3, 4] }], grace_minutes: ['int', { nn: true, def: 15, min: 0, maxv: 600 }],
-    active: ['bool', { nn: true, def: true }], created_at: ['ts', { nn: true, def: 'now' }] },
+    active: ['bool', { nn: true, def: true }], created_at: ['ts', { nn: true, def: 'now' }],
+    // May approve a return without a receipt (with their own PIN at the cashier). Set by the owner.
+    can_approve_returns: ['bool', { nn: true, def: false, added: 12 }] },
   index: [['pharmacy_id']] },
   attendance: { pk: 'id', read: MANAGERS, update: OWNER, updCols: ['check_out', 'note'], cols: {
     id: ['serial'], pharmacy_id: ['id', { nn: true }], employee_id: ['id', { nn: true }], check_in: ['ts', { nn: true, def: 'now' }],
@@ -107,7 +109,9 @@ export const TABLES = {
     delivery_fee: ['num', { min: 0, maxv: 99999, added: 4 }], delivery_to: ['text', { max: 200, trim: true, added: 4 }],
     // The device that numbered the receipt (4 letters/digits, kept on that device across sign-outs).
     // Receipts that carry it have a number unique in the pharmacy (index in migrations/0011).
-    receipt_device: ['text', { re: '^[A-HJ-NP-Z2-9]{4}$', added: 11 }] },
+    receipt_device: ['text', { re: '^[A-HJ-NP-Z2-9]{4}$', added: 11 }],
+    // A return without a receipt: the manager's approval it was saved with (return_approvals).
+    approval_id: ['id', { added: 12 }] },
   index: [['pharmacy_id', 'sold_at'], ['branch_id', 'sold_at'], ['customer_id'], ['return_of'], ['pharmacy_id', 'number'], ['shift_id']] },
   pos_barcodes: { pk: 'id', read: ROLES_ALL, insert: SELLERS, del: OWNER, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], barcode: ['text', { nn: true, max: 64 }], code: ['text', { nn: true, max: 60 }],
@@ -187,6 +191,13 @@ export const TABLES = {
     assignee: ['text', { max: 120, trim: true }], due_on: ['date'], priority: ['text', { nn: true, def: 'medium', in: ['high', 'medium', 'low'] }],
     status: ['text', { nn: true, def: 'open', in: ['open', 'done'] }], ref: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }], done_at: ['ts'] },
   index: [['pharmacy_id', 'status']] },
+  // A manager's approval of one return without a receipt. Written only by the server
+  // (rpc approve_no_receipt_return, after checking the approver's PIN); never changed or removed.
+  return_approvals: { pk: 'id', added: 12, read: MANAGERS, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], return_id: ['id', { nn: true }], total: ['num', { nn: true }],
+    reason: ['text', { nn: true, max: 300 }], cashier_employee_id: ['id', { nn: true }], cashier_name: ['text', { nn: true, max: 120 }],
+    approver_employee_id: ['id', { nn: true }], approver_name: ['text', { nn: true, max: 120 }], approved_by_user: ['id'], created_at: ['ts', { nn: true }] },
+  index: [['pharmacy_id', 'created_at']] },
   client_errors: { pk: 'id', internal: true, cols: {
     id: ['serial'], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], pharmacy_id: ['id'], page: ['text'], message: ['text', { nn: true }],
     stack: ['text'], agent: ['text'], version: ['text'] },

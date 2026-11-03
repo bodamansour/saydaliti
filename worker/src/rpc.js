@@ -225,6 +225,42 @@ export const RPC = {
   },
 
   // ---------- Selling Saydaliti ----------
+  // A return without the original receipt, approved on the spot by a manager: an employee the owner
+  // marked "may approve returns" types their own PIN (checked here, with the same limit on wrong tries
+  // as every PIN). The approval is kept for this one return only: its id, the amount given back, the
+  // reason, the cashier (signed in with their PIN at the cashier) and the approver, who must be someone
+  // else. The return is then saved with approval_id, and checkPosSale makes sure it matches.
+  async approve_no_receipt_return(env, ctx, { p_pharmacy, p_branch = null, p_return_id, p_total, p_reason, p_cashier, p_pin }) {
+    requireRole(ctx, p_pharmacy, ['owner', 'device', 'pharmacist']);
+    const branch = requireBranch(ctx, p_pharmacy, p_branch);
+    const isId = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    if (!isId(p_return_id)) throw new ApiError('bad return id');
+    const total = Math.round(+p_total * 100) / 100;
+    if (!Number.isFinite(total) || total >= 0 || total < -99999999.99) throw new ApiError('bad return total');
+    const reason = String(p_reason ?? '').trim();
+    if (!reason || reason.length > 300) throw new ApiError('a return without a receipt needs a reason');
+    if (!isId(p_cashier)) throw new ApiError('the cashier must sign in with their PIN first');
+    const cashier = await one(env, 'SELECT id, name FROM employees WHERE id = ? AND pharmacy_id = ? AND active = 1', p_cashier, p_pharmacy);
+    if (!cashier) throw new ApiError('the cashier must sign in with their PIN first');
+    const approver = await pinEmployee(env, ctx, p_pharmacy, p_pin, 'wrong pin');
+    const can = await one(env, 'SELECT can_approve_returns FROM employees WHERE id = ?', approver.id);
+    if (!can?.can_approve_returns) throw new ApiError('this employee may not approve returns', '42501', 403);
+    if (approver.id === cashier.id) throw new ApiError('the approver must be another employee', '42501', 403);
+    // The same return asked again (a lost answer): the approval already given, if it is the same one.
+    const had = await one(env, 'SELECT id, pharmacy_id, total, cashier_employee_id, approver_name FROM return_approvals WHERE return_id = ?', p_return_id);
+    if (had) {
+      if (had.pharmacy_id !== p_pharmacy || Math.abs(had.total - total) > 0.005 || had.cashier_employee_id !== cashier.id) throw new ApiError('return already approved differently', '23505', 409);
+      return { approval_id: had.id, approver_name: had.approver_name };
+    }
+    const row = { id: uuid(), pharmacy_id: p_pharmacy, branch_id: branch, return_id: p_return_id, total, reason, cashier_employee_id: cashier.id, cashier_name: cashier.name,
+      approver_employee_id: approver.id, approver_name: approver.name, approved_by_user: ctx.user.id, created_at: nowIso() };
+    const cols = Object.keys(row);
+    await runBatch(env, [
+      env.DB.prepare(`INSERT INTO return_approvals (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).bind(...cols.map((c) => row[c])),
+      audit(env, ctx, 'return_approvals', 'insert', null, row),
+    ]);
+    return { approval_id: row.id, approver_name: approver.name };
+  },
   async is_app_admin(env, ctx) { return isAdmin(env, ctx); },
   async admin_pharmacies(env, ctx) {
     await needAdmin(env, ctx);
@@ -388,7 +424,8 @@ export async function checkPosSale(ctx, env, row) {
   try {
     checkSaleRow(row);
   } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
-  if (row.kind !== 'return' || !row.return_of) return;
+  if (row.kind === 'return' && !row.return_of) return checkApproval(env, row);
+  if (row.kind !== 'return') return;
   const o = await one(env, "SELECT id, kind, lines, branch_id, discount, customer_id FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
   if (!o) throw new ApiError('receipt not found');
   if (requireBranch(ctx, row.pharmacy_id, o.branch_id) !== requireBranch(ctx, row.pharmacy_id, row.branch_id)) throw new ApiError('receipt belongs to another branch', '42501', 403);
@@ -397,5 +434,15 @@ export async function checkPosSale(ctx, env, row) {
   try {
     checkReturnAgainst(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
   } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
+}
+// A return without a receipt must carry the manager's approval given for it (see
+// approve_no_receipt_return): same pharmacy, same return, same amount, same cashier.
+async function checkApproval(env, row) {
+  if (!row.approval_id) throw new ApiError('a return without a receipt needs a manager approval', '42501', 403);
+  if (!row.employee_id) throw new ApiError('the cashier must sign in with their PIN first', '42501', 403);
+  const a = await one(env, 'SELECT pharmacy_id, return_id, total, cashier_employee_id FROM return_approvals WHERE id = ?', String(row.approval_id));
+  if (!a || a.pharmacy_id !== row.pharmacy_id || a.return_id !== row.id) throw new ApiError('approval not for this return', '42501', 403);
+  if (Math.abs(a.total - +row.total) > 0.005) throw new ApiError('approval not for this amount', '42501', 403);
+  if (a.cashier_employee_id !== row.employee_id) throw new ApiError('approval not for this cashier', '42501', 403);
 }
 export { fromDb };

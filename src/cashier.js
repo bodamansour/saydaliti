@@ -671,6 +671,31 @@ async function nextReceiptNumber(d) {
   return navigator.locks?.request ? navigator.locks.request('saydaliti-receipt-number', take) : take();
 }
 
+// The manager's PIN for a return without a receipt. Resolves to { approval_id, approver_name }, or null
+// if cancelled. The PIN goes to the server once and is never kept on this device.
+function askApproval(returnId, total, reason) {
+  return new Promise((resolve) => {
+    const dlg = $('apprDlg');
+    $('apprNote').textContent = `مرتجع من غير فاتورة بـ ${fmt(-total)} ج — السبب: ${reason}. الكاشير: ${CASHIER.name}. المدير يكتب رقمه السري.`;
+    $('apprPin').value = ''; $('apprMsg').textContent = '';
+    const done = (v) => { $('apprForm').onsubmit = null; $('apprCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); focusSearch(); resolve(v); };
+    $('apprCancel').onclick = () => done(null);
+    dlg.oncancel = (e) => { e.preventDefault(); done(null); };
+    $('apprForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const pin = $('apprPin').value.trim();
+      $('apprPin').value = '';
+      if (!/^\d{4,6}$/.test(pin)) { $('apprMsg').textContent = 'الرقم السري 4 لـ 6 أرقام.'; return; }
+      $('apprMsg').textContent = 'بنتأكد…';
+      const r = await SESS.client.rpc('approve_no_receipt_return', { p_pharmacy: SESS.pharmacy.id, p_branch: BRANCH, p_return_id: returnId, p_total: total, p_reason: reason, p_cashier: CASHIER.id, p_pin: pin });
+      if (r.error) { $('apprMsg').textContent = arabicError(r.error).message; $('apprPin').focus(); return; }
+      done(r.data);
+    };
+    dlg.showModal();
+    $('apprPin').focus();
+  });
+}
+
 // ---------- Checkout & printing ----------
 async function checkout() {
   if (!CART.length) return;
@@ -686,20 +711,31 @@ async function checkout() {
     ($('retNoReceipt').checked ? $('retReason') : $('retNo')).focus();
     return;
   }
+  // A return without the receipt: a manager (an employee the owner allowed) approves it with their own
+  // PIN, checked by the server now, before the money is handed back (owner decision, 2026-11-03).
+  const saleId = crypto.randomUUID();
+  let approval = null;
+  if (MODE === 'return' && !RET) {
+    if (!STAFF.count) { msg('المرتجع من غير فاتورة محتاج موافقة مدير بالرقم السري. صاحب الصيدلية يضيف الموظفين من «الحضور والانصراف» ويسمح لمدير بالموافقة.', true); return; }
+    if (!CASHIER) { msg('الكاشير يدخل برقمه السري الأول، وبعدها المدير يوافق على المرتجع.', true); showPin(); return; }
+    if (!isOnline()) { msg('المرتجع من غير فاتورة محتاج نت عشان موافقة المدير.', true); return; }
+    approval = await askApproval(saleId, -t.total, $('retReason').value.trim());
+    if (!approval) return;
+  }
   if (MODE === 'sale' && CUST && sp.credit && +CUST.credit_limit > 0 && owedBy(CUST.id) + sp.credit > +CUST.credit_limit
     && !confirm(`«${CUST.name}» هيعدّي حد الآجل بتاعه (${fmt(CUST.credit_limit)} ج). تكمّل؟`)) return;
   const now = new Date();
   const number = await nextReceiptNumber(now);
   const sign = MODE === 'return' ? -1 : 1;
   const sale = {
-    id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
+    id: saleId, pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
     number, receipt_device: deviceCode(), sold_at: now.toISOString(), kind: MODE,
     lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}), ...(l.bp ? { bp: l.bp } : {}), ...(+l.tax > 0 ? { tax: +l.tax } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
     // A return says which receipt it came from, or why there was none (database update 012).
-    ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()}` }) : {}),
+    ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()} (موافقة: ${approval.approver_name})`.slice(0, 300), approval_id: approval.approval_id }) : {}),
     // An item sold while all its recorded stock had expired: what the cashier wrote (audited).
     ...(MODE === 'sale' && CART.some((l) => l.why) ? { note: CART.filter((l) => l.why).map((l) => `اتباع ورصيده منتهي: ${l.name} — ${l.why}`).join(' / ').slice(0, 300) } : {}),
     // A home delivery (database update 0004): the fee is inside the total.
@@ -1021,7 +1057,7 @@ $('rcLogo').addEventListener('change', async (e) => {
 $('rcLogoDel').addEventListener('click', () => { dev.logo = ''; saveDev(); showLogo(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
-  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open || $('heldDlg').open) return;
+  if ($('unknownDlg').open || $('custDlg').open || $('apprDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open || $('heldDlg').open) return;
   if (e.key === 'F4') { e.preventDefault(); holdBill(); return; }
   if (e.key === 'F2') { e.preventDefault(); checkout(); }
   if (e.key === 'Escape') { e.preventDefault(); if (!$('results').hidden) { showResults([]); $('q').value = ''; } else if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) newBill(); }

@@ -11,6 +11,12 @@ const MESSAGES = {
   'receipt not found': 'فاتورة البيع اللي المرتجع منها مش موجودة.',
   // The server's checks on a cashier receipt (src/sale-rules.js).
   'PIN secret missing': 'السيرفر محتاج إعداد (كود الكاشير). كلّم الدعم.',
+  'needs a manager approval': 'المرتجع من غير فاتورة محتاج موافقة مدير.',
+  'may not approve returns': 'الموظف ده مش مسموح له يوافق على المرتجع. صاحب الصيدلية يقدر يسمح له من «الحضور والانصراف».',
+  'approver must be another employee': 'الموافقة لازم تبقى من موظف تاني غير الكاشير.',
+  'cashier must sign in with their PIN': 'الكاشير لازم يدخل برقمه السري الأول.',
+  'approval not for this': 'الموافقة دي مش لنفس المرتجع. اطلب موافقة جديدة.',
+  'already approved differently': 'المرتجع ده اتوافق عليه قبل كده ببيانات مختلفة.',
   'receipt number already used': 'رقم الفاتورة ده اتسجل قبل كده لفاتورة تانية.',
   'sale total does not match its lines': 'إجمالي الفاتورة مش مطابق للأصناف والخصم.',
   'return price more than sold': 'سعر الصنف في المرتجع أكبر من سعره في فاتورة البيع.',
@@ -49,7 +55,7 @@ export function createSupabaseStore(client, pharmacyId) {
     kind: 'supabase',
     async listEmployees() {
       return must(await client.from('employees')
-        .select('id, name, shift_start, shift_end, work_days, grace_minutes, active, created_at')
+        .select('id, name, shift_start, shift_end, work_days, grace_minutes, active, can_approve_returns, created_at')
         .eq('pharmacy_id', pharmacyId).order('created_at'))
         .map((e) => ({ ...e, shift_start: e.shift_start.slice(0, 5), shift_end: e.shift_end.slice(0, 5) }));
     },

@@ -212,11 +212,55 @@ test('returns against a receipt: partial, the rest, never more, never above the 
   const ret = (c) => rcpt({ kind: 'return', return_of: onAcc.id, payment: 'credit', customer_id: c, credit: -100, total: -100, paid: 0 });
   assert.match((await device.insert('pos_sales', ret(other))).error.message, /another customer/);
   assert.equal((await device.insert('pos_sales', ret(cust))).error, null);
-  // A return with no receipt is allowed with a reason, and is written in the log of changes.
-  const loose = rcpt({ kind: 'return', lines: [{ code: 'Z1', qty: 1, price: 30 }], total: -30, paid: -30, note: 'مرتجع من غير فاتورة: العميل نسيها' });
-  assert.equal((await device.insert('pos_sales', loose)).error, null);
-  const log = (await owner.select('audit_log', 'table_name, op, row_id', [['pharmacy_id', 'eq', P], ['row_id', 'eq', loose.id]])).data;
-  assert.deepEqual(log, [{ table_name: 'pos_sales', op: 'insert', row_id: loose.id }]);
+});
+
+test('a return without a receipt needs a manager the owner allowed, approving with their own PIN', { skip }, async () => {
+  const cashierId = (await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'كاشير المرتجع', p_pin: '482915' })).data;
+  const managerId = (await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'مدير الوردية', p_pin: '593026' })).data;
+  const loose = (o = {}) => rcpt({ kind: 'return', lines: [{ code: 'Z1', qty: 1, price: 30 }], total: -30, paid: -30, note: 'مرتجع من غير فاتورة: العميل نسيها', employee_id: cashierId, ...o });
+  const approve = (ret, o = {}) => device.rpc('approve_no_receipt_return', { p_pharmacy: P, p_branch: B, p_return_id: ret.id, p_total: ret.total, p_reason: 'العميل نسي الفاتورة', p_cashier: cashierId, p_pin: '593026', ...o });
+
+  // No approval: refused, nothing stored.
+  const bare = loose();
+  assert.match((await device.insert('pos_sales', bare)).error.message, /needs a manager approval/);
+  // The manager is not allowed yet: refused.
+  assert.match((await approve(bare)).error.message, /may not approve returns/);
+  // Only the owner may allow it: the device's change is not applied (the data API ignores rows it may not change).
+  await device.db({ op: 'update', table: 'employees', patch: { can_approve_returns: true }, filters: [['id', 'eq', managerId]] });
+  assert.match((await approve(bare)).error.message, /may not approve returns/, 'still not allowed after the device tried');
+  assert.equal((await owner.db({ op: 'update', table: 'employees', patch: { can_approve_returns: true }, filters: [['id', 'eq', managerId]] })).error, null);
+  // Wrong PIN, the cashier approving their own return, no cashier, no reason: refused.
+  assert.match((await approve(bare, { p_pin: '000000' })).error.message, /wrong pin/);
+  assert.equal((await owner.db({ op: 'update', table: 'employees', patch: { can_approve_returns: true }, filters: [['id', 'eq', cashierId]] })).error, null);
+  assert.match((await approve(bare, { p_pin: '482915' })).error.message, /another employee/);
+  assert.match((await approve(bare, { p_cashier: uuid() })).error.message, /sign in with their PIN/);
+  assert.match((await approve(bare, { p_reason: '  ' })).error.message, /needs a reason/);
+  assert.match((await approve(bare, { p_total: 30 })).error.message, /bad return total/);
+  // Approved: the approval is for this return, this amount and this cashier only.
+  const ok = await approve(bare);
+  assert.equal(ok.error, null);
+  assert.equal(ok.data.approver_name, 'مدير الوردية');
+  const again = await approve(bare); // the same request again (a lost answer): the same approval
+  assert.equal(again.data.approval_id, ok.data.approval_id);
+  assert.match((await approve(bare, { p_total: -31 })).error.message, /approved differently/);
+  const other = loose({ approval_id: ok.data.approval_id });
+  assert.match((await device.insert('pos_sales', other)).error.message, /not for this return/, 'not reusable for another return');
+  assert.match((await device.insert('pos_sales', { ...bare, approval_id: ok.data.approval_id, total: -300, paid: -300, lines: [{ code: 'Z1', qty: 10, price: 30 }] })).error.message, /not for this amount/);
+  assert.match((await device.insert('pos_sales', { ...bare, approval_id: ok.data.approval_id, employee_id: managerId })).error.message, /not for this cashier/);
+  assert.match((await device.insert('pos_sales', { ...bare, approval_id: ok.data.approval_id, employee_id: undefined })).error.message, /sign in with their PIN/);
+  assert.equal((await device.insert('pos_sales', { ...bare, approval_id: ok.data.approval_id })).error, null);
+  // The record: the approval (who sold, who approved, why, how much) and the return, in the log of changes.
+  const appr = (await owner.select('return_approvals', 'return_id, total, reason, cashier_name, approver_name', [['id', 'eq', ok.data.approval_id]])).data[0];
+  assert.deepEqual(appr, { return_id: bare.id, total: -30, reason: 'العميل نسي الفاتورة', cashier_name: 'كاشير المرتجع', approver_name: 'مدير الوردية' });
+  const log = (await owner.select('audit_log', 'table_name', [['pharmacy_id', 'eq', P], ['row_id', 'in', [bare.id, ok.data.approval_id]]])).data.map((r) => r.table_name).sort();
+  assert.deepEqual(log, ['pos_sales', 'return_approvals']);
+  // Approvals are written only by the server: nobody can add or change one through the data API.
+  assert.equal((await owner.insert('return_approvals', { id: uuid(), pharmacy_id: P, return_id: uuid(), total: -1, reason: 'x', cashier_employee_id: cashierId, cashier_name: 'x', approver_employee_id: managerId, approver_name: 'x', created_at: now() })).status, 403);
+  assert.equal((await owner.db({ op: 'delete', table: 'return_approvals', filters: [['id', 'eq', ok.data.approval_id]] })).status, 403);
+  assert.equal((await device.select('return_approvals', 'id', [['pharmacy_id', 'eq', P]])).data?.length ?? 0, 0, 'the cashier device does not read the approvals');
+  // Stopped employees can't approve; and the later tests expect no other active employees here.
+  for (const id of [cashierId, managerId]) await owner.db({ op: 'update', table: 'employees', patch: { active: false }, filters: [['id', 'eq', id]] });
+  assert.match((await approve(loose())).error.message, /wrong pin|sign in with their PIN/);
 });
 
 test('receipt numbers: unique per pharmacy, also under concurrency; a repeated request is stored once', { skip }, async () => {
