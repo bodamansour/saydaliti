@@ -424,9 +424,10 @@ export async function checkPosSale(ctx, env, row) {
   try {
     checkSaleRow(row);
   } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
-  if (row.kind === 'return' && !row.return_of) return checkApproval(env, row);
-  if (row.kind !== 'return') return;
-  const o = await one(env, "SELECT id, kind, lines, branch_id, discount, customer_id FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
+  const flags = await timeFlags(env, row);
+  if (row.kind === 'return' && !row.return_of) { await checkApproval(env, row); return { flags }; }
+  if (row.kind !== 'return') return { flags };
+  const o = await one(env, "SELECT id, kind, lines, branch_id, discount, customer_id, sold_at FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
   if (!o) throw new ApiError('receipt not found');
   if (requireBranch(ctx, row.pharmacy_id, o.branch_id) !== requireBranch(ctx, row.pharmacy_id, row.branch_id)) throw new ApiError('receipt belongs to another branch', '42501', 403);
   const earlier = (await all(env, "SELECT lines FROM pos_sales WHERE return_of = ? AND pharmacy_id = ? AND kind = 'return' AND id <> ?", row.return_of, row.pharmacy_id, row.id))
@@ -434,6 +435,35 @@ export async function checkPosSale(ctx, env, row) {
   try {
     checkReturnAgainst(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
   } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
+  if (o.sold_at && Date.parse(row.sold_at) < Date.parse(o.sold_at) - SKEW) flags.push('return_before_sale');
+  return { flags };
+}
+
+// Signs that a receipt's time was set by hand or by a wrong clock. A receipt made offline arrives late
+// and that alone is normal, so nothing here refuses a receipt: the signs go to the log of changes
+// (op 'flag') for the owner to look at. Policy and edge cases: docs/architecture/OFFLINE_SYNC.md.
+const SKEW = 10 * 60000; // device clocks drift; the same 10 minutes the future check allows
+async function timeFlags(env, row) {
+  const flags = [];
+  const t = Date.parse(row.sold_at);
+  // The receipt number carries the day the device numbered it (YYMMDD, the device's own date).
+  const m = /^(\d{2})(\d{2})(\d{2})-/.exec(String(row.number));
+  if (m && row.receipt_device) {
+    const day = Date.UTC(2000 + +m[1], +m[2] - 1, +m[3]);
+    if (t < day - 86400000 || t > day + 2 * 86400000) flags.push('time_not_number_day');
+  }
+  // Inside the shift it says it was sold in.
+  if (row.shift_id) {
+    const sh = await one(env, 'SELECT opened_at, closed_at FROM pos_shifts WHERE id = ? AND pharmacy_id = ?', row.shift_id, row.pharmacy_id);
+    if (sh && t < Date.parse(sh.opened_at) - SKEW) flags.push('before_shift_opened');
+    if (sh?.closed_at && t > Date.parse(sh.closed_at) + SKEW) flags.push('after_shift_closed');
+  }
+  // A day already closed for this branch: the receipt changes totals the owner already signed off.
+  const tz = (await one(env, 'SELECT timezone FROM pharmacies WHERE id = ?', row.pharmacy_id))?.timezone || 'Africa/Cairo';
+  let day = null;
+  try { day = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t)); } catch { /* unknown zone */ }
+  if (day && await one(env, 'SELECT 1 FROM day_closes WHERE pharmacy_id = ? AND day = ? AND branch_id IS ?', row.pharmacy_id, day, row.branch_id ?? null)) flags.push('after_day_closed');
+  return flags;
 }
 // A return without a receipt must carry the manager's approval given for it (see
 // approve_no_receipt_return): same pharmacy, same return, same amount, same cashier.

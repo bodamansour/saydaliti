@@ -109,6 +109,14 @@ function guardedSaleInsert(env, row, cols, ignoreDuplicates) {
   return env.DB.prepare(sql).bind(...head, ...values);
 }
 
+// Is a stored receipt the same one as a receipt sent again? (Retries send the same row.)
+function sameReceipt(had, row) {
+  const lines = (v) => JSON.stringify(typeof v === 'string' ? JSON.parse(v) : v);
+  return had.pharmacy_id === row.pharmacy_id && had.kind === (row.kind ?? 'sale') && had.number === row.number
+    && Date.parse(had.sold_at) === Date.parse(row.sold_at) && Math.abs(+had.total - +row.total) < 0.005
+    && (had.return_of ?? null) === (row.return_of ?? null) && lines(had.lines) === lines(row.lines);
+}
+
 // ---------- Who may do what ----------
 // ctx: { user: { id } | null, roles: Map(pharmacyId → role), admin }
 const pharmaciesWith = (ctx, roles) => [...ctx.roles].filter(([, r]) => roles.includes(r)).map(([p]) => p);
@@ -265,9 +273,17 @@ export async function insert(ctx, env, q, hooks = {}) {
     requireRole(ctx, row.pharmacy_id, t.insert);
     if (t.cols.branch_id) requireBranch(ctx, row.pharmacy_id, row.branch_id);
     for (const [col, spec] of Object.entries(t.cols)) checkValue(table, col, spec, row[col]);
-    if (q.ignoreDuplicates && t.pk && row[t.pk] != null && await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
+    if (q.ignoreDuplicates && t.pk && row[t.pk] != null) {
+      if (table === 'pos_sales') {
+        // A receipt sent again (a retry after a lost answer) is the same receipt: skip it. The same id
+        // with different contents is not a retry: refuse it, so it is kept aside on the device with the
+        // reason instead of being silently dropped (src/offline.js).
+        const had = await env.DB.prepare('SELECT pharmacy_id, kind, number, sold_at, total, lines, return_of FROM pos_sales WHERE id = ?').bind(String(row.id)).first();
+        if (had) { if (sameReceipt(had, row)) continue; throw new ApiError('conflicting receipt id', '23505', 409); }
+      } else if (await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
+    }
     await checkRefs(env, t, row);
-    if (hooks.beforeInsert) await hooks.beforeInsert(table, row);
+    const found = hooks.beforeInsert ? await hooks.beforeInsert(table, row) : null;
     // A receipt's time of arrival is the server's, never the device's (sold_at is the device's).
     if (table === 'pos_sales') row.created_at = nowIso();
     const cols = Object.keys(row).filter((c) => row[c] !== undefined && t.cols[c][0] !== 'serial');
@@ -276,6 +292,8 @@ export async function insert(ctx, env, q, hooks = {}) {
       stmts.push(guardedSaleInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk)));
       // A return with no receipt is kept in the log of changes, with who made it.
       if (row.kind === 'return' && !row.return_of) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
+      // Times that need a look (checkPosSale): stored, never refused, in the log of changes.
+      if (found?.flags?.length) stmts.push(auditStmt(env, auditRow(ctx, table, 'flag', null, { id: row.id, pharmacy_id: row.pharmacy_id, number: row.number, sold_at: row.sold_at, received_at: row.created_at, flags: found.flags })));
     } else stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${q.ignoreDuplicates && t.pk ? ` ON CONFLICT(${t.pk}) DO NOTHING` : ''}`)
       .bind(...cols.map((c) => toDb(t.cols[c][0], row[c]))));
     if (t.audit) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));

@@ -287,6 +287,52 @@ test('receipt numbers: unique per pharmacy, also under concurrency; a repeated r
   assert.match(last.data[0].number, /^261103-K1-WXYZ-0004-/);
 });
 
+test('offline receipts: late ones are kept; a reused id with other contents is refused; odd times are flagged, not refused', { skip }, async () => {
+  const flagsOf = async (id) => (await owner.select('audit_log', 'op, new_row', [['pharmacy_id', 'eq', P], ['row_id', 'eq', id], ['op', 'eq', 'flag']])).data.flatMap((r) => r.new_row.flags);
+  // A retry with the same contents is the same receipt; the same id with other contents is a conflict.
+  const a = rcpt({});
+  assert.equal((await device.insert('pos_sales', a)).error, null);
+  assert.equal((await device.insert('pos_sales', a)).error, null, 'a retry');
+  const changed = await device.insert('pos_sales', { ...a, total: 50, paid: 50, lines: [{ code: 'A1', qty: 1, price: 50 }] });
+  assert.equal(changed.status, 409);
+  assert.match(changed.error.message, /conflicting receipt id/);
+  assert.equal((await device.insert('pos_sales', { ...a, number: `${a.number}-x` })).status, 409, 'same id, another number');
+  assert.equal((await owner.select('pos_sales', 'total', [['id', 'eq', a.id]])).data[0].total, 100, 'the stored receipt is unchanged');
+  // Made offline two weeks ago, numbered that day: stored with no flag (normal for offline work).
+  const old = new Date(Date.now() - 14 * 86400000);
+  const ymd = (d) => `${String(d.getUTCFullYear()).slice(2)}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+  const late = rcpt({ sold_at: old.toISOString(), number: `${ymd(old)}-K1-OFFL-${rnd()}`, receipt_device: 'QFFL' });
+  assert.equal((await device.insert('pos_sales', late)).error, null);
+  assert.deepEqual(await flagsOf(late.id), []);
+  // Numbered today but dated two weeks back: kept, and flagged for the owner.
+  const odd = rcpt({ sold_at: old.toISOString(), number: `${ymd(new Date())}-K1-QDDX-${rnd()}`, receipt_device: 'QDDX' });
+  assert.equal((await device.insert('pos_sales', odd)).error, null);
+  assert.deepEqual(await flagsOf(odd.id), ['time_not_number_day']);
+  // Sold "before" the shift it says it belongs to was opened.
+  const shift = { id: uuid(), pharmacy_id: P, branch_id: B, employee_name: 'سارة', opened_at: now(), opening_cash: 0 };
+  assert.equal((await device.insert('pos_shifts', shift)).error, null);
+  const early = rcpt({ shift_id: shift.id, sold_at: new Date(Date.now() - 2 * 86400000).toISOString() });
+  assert.equal((await device.insert('pos_sales', early)).error, null);
+  assert.deepEqual(await flagsOf(early.id), ['before_shift_opened']);
+  // A return dated before the sale it returns.
+  const sale = rcpt({});
+  assert.equal((await device.insert('pos_sales', sale)).error, null);
+  const back = rcpt({ kind: 'return', return_of: sale.id, sold_at: new Date(Date.now() - 86400000).toISOString(), total: -100, paid: -100 });
+  assert.equal((await device.insert('pos_sales', back)).error, null);
+  assert.deepEqual(await flagsOf(back.id), ['return_before_sale']);
+  // A receipt for a day the owner already closed.
+  const closedDay = new Date(Date.now() - 3 * 86400000);
+  const dayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(closedDay);
+  assert.equal((await owner.insert('day_closes', { id: uuid(), pharmacy_id: P, branch_id: B, day: dayStr, totals: { net: 0 } })).error, null);
+  const afterClose = rcpt({ sold_at: closedDay.toISOString() });
+  assert.equal((await device.insert('pos_sales', afterClose)).error, null, 'kept');
+  assert.deepEqual(await flagsOf(afterClose.id), ['after_day_closed']);
+  // A normal receipt gets no flag.
+  const fine = rcpt({ shift_id: shift.id });
+  assert.equal((await device.insert('pos_sales', fine)).error, null);
+  assert.deepEqual(await flagsOf(fine.id), []);
+});
+
 test('one request is all or nothing; the server time is kept, not the device\'s', { skip }, async () => {
   const before = await countSales();
   const a = rcpt({});
