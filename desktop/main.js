@@ -72,7 +72,7 @@ function createWindow() {
     width: 1280, height: 820, minWidth: 900, minHeight: 600,
     title: 'صيدليتي', backgroundColor: '#f3f5f8', autoHideMenuBar: true,
     icon: join(APP_DIR, 'icons', 'icon-512.png'),
-    webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
+    webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false },
   });
   win.loadURL(MODE ? home() : START);
   // On Windows 7/8 the pages drop the effects that are slow without the graphics card (html.lite in style.css).
@@ -124,7 +124,9 @@ async function backupDir() {
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
-ipcMain.handle('backup:save', async (_e, name, json, manual) => {
+// The backups hold all the pharmacy's data: only the program's own pages (or the pharmacy's website) may use them.
+ipcMain.handle('backup:save', async (e, name, json, manual) => {
+  if (!trusted(e)) throw new Error('not allowed');
   if (typeof json !== 'string' || !/^saydaliti-backup-[\d-]+\.json$/.test(name)) throw new Error('bad backup');
   const dir = await backupDir();
   const file = join(dir, manual ? name.replace('.json', `-${Date.now().toString(36)}.json`) : name);
@@ -133,7 +135,8 @@ ipcMain.handle('backup:save', async (_e, name, json, manual) => {
   for (const old of all.slice(0, Math.max(0, all.length - 30))) await fs.rm(join(dir, old), { force: true });
   return file;
 });
-ipcMain.handle('backup:latest', async () => {
+ipcMain.handle('backup:latest', async (e) => {
+  if (!trusted(e)) return null;
   const dir = await backupDir();
   const names = (await fs.readdir(dir)).filter((f) => /^saydaliti-backup-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
   if (!names.length) return null;
@@ -148,6 +151,7 @@ ipcMain.handle('mode:set', async (e, mode) => {
   return mode;
 });
 ipcMain.handle('print:silent', async (e) => {
+  if (!trusted(e)) return 'not allowed';
   // Receipt printing straight to the default printer (thermal printer), with no print window.
   const wc = e.sender;
   return new Promise((resolve) => wc.print({ silent: true, printBackground: true }, (ok, why) => resolve(ok ? 'ok' : why || 'failed')));

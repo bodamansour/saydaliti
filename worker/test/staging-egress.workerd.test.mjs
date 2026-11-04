@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { wranglerBin } from '../scripts/staging-guard.mjs';
 
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG = join(WORKER, 'wrangler.toml');
@@ -35,7 +36,8 @@ before(async () => {
   const esbuild = req(tools.esbuild);
   dir = mkdtempSync(join(tmpdir(), 'egress-workerd-'));
   // Schema: the real migrations, applied locally (--local: no Cloudflare call; telemetry off).
-  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--env', 'staging', '--persist-to', dir, '--config', CONFIG],
+  // The installed Wrangler run with this Node (not npx: it can download a package, and fails on Windows).
+  execFileSync(process.execPath, [wranglerBin(WORKER), 'd1', 'migrations', 'apply', 'DB', '--local', '--env', 'staging', '--persist-to', dir, '--config', CONFIG],
     { cwd: WORKER, stdio: 'pipe', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CLOUDFLARE_API_TOKEN: '' } });
   // The real Worker, wrapped with two probe routes that only this test has.
   const entry = join(dir, 'probe-entry.mjs');
