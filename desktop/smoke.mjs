@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const data = await mkdtemp(join(tmpdir(), 'saydaliti-desktop-'));
-const launch = () => electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' } });
+// Backups go to a temporary folder, never the real Documents/Saydaliti/backups of this computer.
+const BACKUPS = join(data, 'backups');
+const launch = () => electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_BACKUP_DIR: BACKUPS } });
 const errors = [];
 let app = await launch();
 let win = await app.firstWindow();
@@ -30,7 +32,9 @@ await win.click('#toolsBtn'); // backups live in «الإعدادات والأد
 await win.click('#localBox summary');
 await win.click('#backupBtn');
 await win.waitForFunction(() => /اتحفظت/.test(document.getElementById('backupMsg').textContent));
-console.log('backup:', await win.locator('#backupMsg').innerText());
+const backupMsg = await win.locator('#backupMsg').innerText();
+assert.ok(backupMsg.includes(BACKUPS), `backup saved in the temporary folder: ${backupMsg}`);
+console.log('backup:', backupMsg);
 await win.goto('app://saydaliti/cashier.html');
 await win.waitForSelector('#pos:not([hidden])');
 await win.screenshot({ path: join(data, 'cashier.png') });
@@ -68,7 +72,7 @@ await writeFile(fake, ['@m\t.\tGenius\t2026-10-25T10:00:00\tSQL Server 2000',
   '@@Item_Catalog\titm_id\titm_name_ar\titm_ismedicine\titm_def_pharm_price\titm_def_sell_price\titm_active\titm_unit1_unit2\titm_unit1_unit3', '@t\tn\ts\tn\tn\tn\ts\tn\tn',
   '1\tبانادول\t1\t40\t50\t1\t2\t20',
   '@@Item_Class_Store\titm_id\titm_qty\titm_expiry_date\tpharm_price\tsell_price', '@t\tn\tn\td\tn\tn', '1\t6\t2027-06-01T00:00:00\t40\t50'].join('\r\n'));
-app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_SITE: site, SAYDALITI_GENIUS_FAKE: fake } });
+app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_BACKUP_DIR: BACKUPS, SAYDALITI_SITE: site, SAYDALITI_GENIUS_FAKE: fake } });
 win = await app.firstWindow();
 win.on('pageerror', (e) => errors.push(e.message));
 await win.waitForSelector('#online', { timeout: 20000 });
@@ -94,7 +98,7 @@ assert.deepEqual(uploads[0].p_data.batches, [{ code: '1', qty: 6, expiry: '2027-
 assert.equal(g.off.enabled, false);
 await app.close();
 // Next time it opens online straight away.
-app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_SITE: site } });
+app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_BACKUP_DIR: BACKUPS, SAYDALITI_SITE: site } });
 win = await app.firstWindow();
 await win.waitForURL(`${site}/index.html`, { timeout: 20000 });
 await app.close();

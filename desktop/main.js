@@ -120,7 +120,8 @@ function menu() {
 
 // ---------- Backups: Documents\Saydaliti\backups, the newest 30 automatic ones are kept ----------
 async function backupDir() {
-  const dir = join(app.getPath('documents'), 'Saydaliti', 'backups');
+  // SAYDALITI_BACKUP_DIR: another folder (the tests use a temporary one, never the real Documents).
+  const dir = process.env.SAYDALITI_BACKUP_DIR || join(app.getPath('documents'), 'Saydaliti', 'backups');
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }

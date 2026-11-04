@@ -288,6 +288,25 @@ test('hidden columns (the PIN hash) cannot be read, filtered or sorted on', { sk
   assert.equal((await partner.select('employees', 'id,name', [['id', 'eq', emp]])).data.length, 1, 'visible columns still work');
 });
 
+// Changing the password needs the current one: a stolen session alone can't lock the owner out.
+test('changing the password needs the current password; it ends the other sessions', { skip }, async () => {
+  const u = user(); await u.signUp('password123');
+  // A second session of the same account (another device).
+  const second = (await user().call('/api/auth/signin', { email: u.email, password: 'password123' })).data.access_token;
+  const whoIs = async (t) => (await (await fetch(`${BASE}/api/auth/user`, { headers: { Authorization: `Bearer ${t}` } })).json()).data.user;
+  assert.ok(await whoIs(second));
+  assert.equal((await u.call('/api/auth/password', { password: 'newpassword1' })).status, 400, 'no current password');
+  assert.equal((await u.call('/api/auth/password', { password: 'newpassword1', current_password: 'wrong-pass' })).status, 400, 'wrong current password');
+  assert.equal((await user().call('/api/auth/password', { password: 'newpassword1', current_password: 'password123' })).status, 401, 'signed out');
+  const ok = await u.call('/api/auth/password', { password: 'newpassword1', current_password: 'password123' });
+  assert.equal(ok.error, null);
+  assert.match(ok.data.access_token, /^[0-9a-f]{64}$/);
+  assert.equal(await whoIs(second), null, 'the other session ended');
+  assert.ok(await whoIs(ok.data.access_token), 'the new session works');
+  assert.equal((await user().call('/api/auth/signin', { email: u.email, password: 'password123' })).status, 400, 'old password no longer works');
+  assert.equal((await user().call('/api/auth/signin', { email: u.email, password: 'newpassword1' })).error, null, 'new password works');
+});
+
 test('signing out ends the session', { skip }, async () => {
   const r = await owner.call('/api/auth/signout', {});
   assert.equal(r.error, null);
