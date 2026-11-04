@@ -5,7 +5,8 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    # main, plus the staging-hardening branch (it has no pull request; tests only, no secrets, no deploy).
+    branches: [main, staging-egress-isolation]
   # Also run by the production release (cloudflare.yml) on the commit being released.
   workflow_call:
 
