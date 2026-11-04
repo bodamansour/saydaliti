@@ -16,6 +16,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # PowerShell (used by test/genius-live.test.js when installed) must not send usage data.
+      POWERSHELL_TELEMETRY_OPTOUT: '1'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
