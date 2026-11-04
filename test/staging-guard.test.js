@@ -209,11 +209,28 @@ test('config: the staging schedule must be exactly the backup cron, and BACKUP_C
     'MORNING_CRON equal to the staging cron': staging((p) => p.replace('MORNING_CRON = "0 6 * * *"', 'MORNING_CRON = "*/30 * * * *"')),
   };
   for (const [what, text] of Object.entries(cases)) assert.ok(checkConfig(text).some((p) => /cron/i.test(p)), what);
+  // The staging marker that turns off outside services: required on staging, forbidden on production.
+  const marker = {
+    'no DEPLOY_ENV': staging((p) => p.replace(/DEPLOY_ENV = "staging"\n/, '')),
+    'DEPLOY_ENV production': staging((p) => p.replace('DEPLOY_ENV = "staging"', 'DEPLOY_ENV = "production"')),
+    'production [vars] sets DEPLOY_ENV': toml.replace('[vars]\n', '[vars]\nDEPLOY_ENV = "staging"\n'),
+    'a WhatsApp token in staging vars': staging((p) => p.replace('DEPLOY_ENV = "staging"', 'DEPLOY_ENV = "staging"\nWHATSAPP_TOKEN = "x"')),
+    'an AI key in staging vars': staging((p) => p.replace('DEPLOY_ENV = "staging"', 'DEPLOY_ENV = "staging"\nANTHROPIC_API_KEY = "x"')),
+  };
+  for (const [what, text] of Object.entries(marker)) assert.ok(checkConfig(text).some((p) => /DEPLOY_ENV|must not set/.test(p)), what);
   assert.deepEqual(checkConfig(toml), []);
 });
 
 test('code: the staging cron may reach only the backups (never the patient reminders or the morning report)', () => {
-  const good = `export default { async scheduled(event, env, ctx) {
+  const good = `import { isolateEnv, guardedFetch } from './egress.js';
+  function internalFetch(env) { return async (u, init) => { if (String(u).startsWith('internal://')) return null; return guardedFetch(env)(u, init); }; }
+  export default {
+  async fetch(req, env) {
+    env = isolateEnv(env);
+    return new Response('');
+  },
+  async scheduled(event, env, ctx) {
+    env = isolateEnv(env);
     const e = jobEnv(env);
     if (event.cron === env.BACKUP_CRON) { ctx.waitUntil(backupAll(env).then((r) => console.log(r))); return; }
     if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e }));
@@ -229,6 +246,12 @@ test('code: the staging cron may reach only the backups (never the patient remin
     'reminders before the backup check': good.replace('const e = jobEnv(env);', 'const e = jobEnv(env); ctx.waitUntil(runReminders({ env: e }));'),
     'backup check on another variable': good.replace('env.BACKUP_CRON', 'env.MORNING_CRON'),
     'no scheduled handler': 'export default { fetch() {} };',
+    // The outside-service kill switch (worker/src/egress.js) must be wired in.
+    'scheduled without isolateEnv': good.replace('  async scheduled(event, env, ctx) {\n    env = isolateEnv(env);', '  async scheduled(event, env, ctx) {'),
+    'fetch without isolateEnv': good.replace('  async fetch(req, env) {\n    env = isolateEnv(env);', '  async fetch(req, env) {'),
+    'isolateEnv after a job starts': good.replace('    env = isolateEnv(env);\n    const e', '    const e').replace("else ctx.waitUntil(runReminders({ env: e }));", "else ctx.waitUntil(runReminders({ env: e }));\n    env = isolateEnv(env);"),
+    'jobs use the raw fetch': good.replace('return guardedFetch(env)(u, init);', 'return fetch(u, init);'),
+    'egress.js not imported': good.replace("import { isolateEnv, guardedFetch } from './egress.js';", ''),
   };
   for (const [what, src] of Object.entries(bad)) assert.ok(checkScheduledHandler(src).length > 0, what);
 });
