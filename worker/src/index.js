@@ -96,8 +96,9 @@ async function api(req, env, url) {
     return json({ data: null, error: null });
   }
   if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
-  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req), error: null });
-  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req), error: null });
+  // The AI calls go through guardedFetch: refused on staging (egress.js), the real fetch on production.
+  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
+  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
   if (path === '/api/db') {
     const q = await body(req);
     const ctx = await contextOf(env, req);
@@ -158,7 +159,7 @@ const jobEnv = (env) => ({ ...env, SUPABASE_URL: 'internal://db', SUPABASE_PUBLI
 
 export default {
   async fetch(req, env) {
-    env = isolateEnv(env); // staging: no outside-service credentials (egress.js)
+    env = isolateEnv(env); // staging: only allowlisted keys, and no request leaves the Worker (egress.js)
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rest/')) {
       try { return await api(req, env, url); } catch (e) { return fail(e); }
@@ -166,7 +167,7 @@ export default {
     return env.ASSETS.fetch(req);
   },
   async scheduled(event, env, ctx) {
-    env = isolateEnv(env); // staging: no outside-service credentials (egress.js)
+    env = isolateEnv(env); // staging: only allowlisted keys, and no request leaves the Worker (egress.js)
     const e = jobEnv(env);
     if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('morning', JSON.stringify(r))));
     else ctx.waitUntil(runReminders({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('reminders', JSON.stringify(r))));
