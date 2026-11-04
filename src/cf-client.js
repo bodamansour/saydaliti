@@ -89,7 +89,7 @@ export function createCloudflareClient() {
       },
       async signInWithPassword({ email, password }) { return signedIn(await call('/api/auth/signin', { email, password })); },
       async signUp({ email, password }) { return signedIn(await call('/api/auth/signup', { email, password })); },
-      async updateUser({ password }) { return signedIn(await call('/api/auth/password', { password })); },
+      async updateUser({ password, currentPassword }) { return signedIn(await call('/api/auth/password', { password, current_password: currentPassword })); },
       async signOut() { const r = await call('/api/auth/signout', {}); write(null); return { error: r.error && !/Failed to fetch/.test(r.error.message) ? r.error : null }; },
       onAuthStateChange() { return { data: { subscription: { unsubscribe() {} } } }; },
     },

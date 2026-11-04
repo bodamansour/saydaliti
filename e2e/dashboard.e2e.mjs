@@ -796,10 +796,12 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.waitForSelector('html[dir=ltr]');
   await page.waitForSelector('#app:not([hidden])');
   assert.equal(await page.getAttribute('html', 'lang'), 'en');
+  // The label only (.lbl): a section's button also shows its count of urgent items (.cnt) when it has any.
+  let labels = [];
   assert.ok(await until(async () => {
-    const labels = await page.locator('#sections .sec').allInnerTexts();
+    labels = (await page.locator('#sections .sec .lbl').allInnerTexts()).map((x) => x.trim());
     return labels.includes('Summary') && labels.includes('Stock');
-  }, 10000));
+  }, 10000), `section labels: ${JSON.stringify(labels)}`);
   await shot('english-dashboard');
   await page.goto(`${base}cashier.html`);
   await page.waitForSelector('#pos:not([hidden])');
