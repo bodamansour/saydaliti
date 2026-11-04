@@ -11,6 +11,7 @@ import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeS
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
 import { backupAll } from './backup.js';
+import { isolateEnv, guardedFetch } from './egress.js';
 import { runMorning } from '../../src/morning-job.js';
 import { runReminders } from '../../src/reminders-job.js';
 
@@ -70,7 +71,7 @@ async function api(req, env, url) {
     if (what === 'signup') return json({ data: await signUp(env, await body(req, 10000), ip), error: null });
     if (what === 'signin') return json({ data: await signIn(env, await body(req, 10000), ip), error: null });
     if (what === 'signout') { const u = await userOf(env, req); await signOut(env, u?.token); return json({ data: null, error: null }); }
-    if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000)), error: null }); }
+    if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000), ip), error: null }); }
     throw new ApiError('not found', '404', 404);
   }
   if (path === '/api/ai/status') return json({ data: { enabled: !!env.ANTHROPIC_API_KEY }, error: null });
@@ -98,8 +99,9 @@ async function api(req, env, url) {
     return json({ data: null, error: null });
   }
   if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
-  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req), error: null });
-  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req), error: null });
+  // The AI calls go through guardedFetch: refused on staging (egress.js), the real fetch on production.
+  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
+  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
   if (path === '/api/db') {
     const q = await body(req);
     const ctx = await contextOf(env, req);
@@ -153,13 +155,14 @@ function internalFetch(env) {
         : name === 'mark_reminders_sent' ? await markRemindersSent(env, args.p_items) : null;
       return new Response(JSON.stringify(data), { status: 200 });
     }
-    return fetch(u, init);
+    return guardedFetch(env)(u, init);
   };
 }
 const jobEnv = (env) => ({ ...env, SUPABASE_URL: 'internal://db', SUPABASE_PUBLISHABLE_KEY: 'internal', REPORT_SECRET: 'internal' });
 
 export default {
   async fetch(req, env) {
+    env = isolateEnv(env); // staging: only allowlisted keys, and no request leaves the Worker (egress.js)
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rest/')) {
       try { return await api(req, env, url); } catch (e) { return fail(e); }
@@ -167,6 +170,7 @@ export default {
     return env.ASSETS.fetch(req);
   },
   async scheduled(event, env, ctx) {
+    env = isolateEnv(env); // staging: only allowlisted keys, and no request leaves the Worker (egress.js)
     const e = jobEnv(env);
     // The daily encrypted backups (only with the BACKUP_KEY secret set; see backup.js).
     if (event.cron === env.BACKUP_CRON) { ctx.waitUntil(backupAll(env).then((r) => console.log('backups', JSON.stringify(r)))); return; }

@@ -114,13 +114,14 @@ test('values: numbers, dates, yes/no, text and nothing', () => {
   assert.deepEqual(tables.get('T')[0], { a: 1.5, b: '2026-10-25T09:30:00', c: true, d: 'بانادول', e: null });
 });
 
-// The PowerShell part, where PowerShell is installed (CI on Windows also runs it on a real SQL Server).
-const PWSH = ['pwsh', '/opt/pwsh/pwsh'].find((p) => { try { execFileSync(p, ['-NoProfile', '-c', '1']); return true; } catch { return false; } });
+// The PowerShell part, where PowerShell is installed (CI on Windows also runs it on a real SQL Server). On Windows
+// this is Windows PowerShell (powershell.exe), the one the program itself runs (desktop/main.js).
+const PWSH = [...(process.platform === 'win32' ? ['powershell.exe'] : []), 'pwsh', '/opt/pwsh/pwsh'].find((p) => { try { execFileSync(p, ['-NoProfile', '-c', '1']); return true; } catch { return false; } });
 test('genius-live.ps1 writes a table the way genius-live.js reads it', { skip: !PWSH && 'PowerShell not installed' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gl-'));
   const out = join(dir, 'out.txt');
   const script = fileURLToPath(new URL('../desktop/genius-live.ps1', import.meta.url));
-  await writeFile(join(dir, 't.ps1'), `
+  await writeFile(join(dir, 't.ps1'), `﻿
 . '${script}'
 $t = New-Object System.Data.DataTable
 [void]$t.Columns.Add('itm_id', [decimal]); [void]$t.Columns.Add('itm_name_ar', [string]); [void]$t.Columns.Add('itm_expiry_date', [DateTime]); [void]$t.Columns.Add('qnty', [double]); [void]$t.Columns.Add('ok', [bool])
@@ -130,7 +131,7 @@ $w = New-Object System.IO.StreamWriter('${out}', $false, (New-Object System.Text
 [void](Write-Block $w 'Item_Catalog' $t.CreateDataReader())
 $w.Close()
 `);
-  execFileSync(PWSH, ['-NoProfile', '-File', join(dir, 't.ps1')], { env: { ...process.env, LANG: 'de_DE.UTF-8' } });
+  execFileSync(PWSH, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(dir, 't.ps1')], { env: { ...process.env, LANG: 'de_DE.UTF-8' } });
   const { tables } = parseLive(await readFile(out, 'utf8'));
   assert.deepEqual(tables.get('Item_Catalog'), [
     { itm_id: 5001, itm_name_ar: 'بانادول إكسترا', itm_expiry_date: '2027-06-01T13:05:00', qnty: 2.5, ok: true },

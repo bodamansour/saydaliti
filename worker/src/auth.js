@@ -91,8 +91,16 @@ export async function signOut(env, token) {
   if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
 }
 
-export async function changePassword(env, user, { password }) {
+// The current password is asked again, so a stolen or forgotten-open session can't lock the owner out.
+// Wrong tries count against the same limit as sign-in.
+export async function changePassword(env, user, { password, current_password }, ip = 'local') {
   if (String(password || '').length < 8) throw new ApiError('Password should be at least 8 characters. weak_password', 'weak_password');
+  if (await tooMany(env, `in:${user.email}`, 10, 15) || await tooMany(env, `ip:${ip}`, 30, 15)) throw new ApiError('Too many attempts. Request rate limit reached', 'over_request_rate_limit', 429);
+  const u = await env.DB.prepare('SELECT pw_hash FROM users WHERE id = ?').bind(user.id).first();
+  if (!u || !(await checkPassword(String(current_password || ''), u.pw_hash))) {
+    await note(env, `in:${user.email}`); await note(env, `ip:${ip}`);
+    throw new ApiError('Current password is wrong', 'invalid_credentials', 400);
+  }
   await env.DB.batch([
     env.DB.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').bind(await hashPassword(password, env), user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
