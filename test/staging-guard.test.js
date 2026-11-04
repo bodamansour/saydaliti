@@ -7,7 +7,7 @@ import { join, isAbsolute } from 'node:path';
 import { symlinkSync } from 'node:fs';
 const PH = '11111111-2222-4333-8444-555555555555', BK = 'abcdef12-0000-4000-8000-000000000000';
 import { tmpdir } from 'node:os';
-import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, checkScheduledHandler, readBackupRequest, backupKeyOk, backupSelect, STAGING, PRODUCTION, WORKER, CONFIG, BACKUP_FILE, BACKUP_DIR } from '../worker/scripts/staging-guard.mjs';
+import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, wranglerBin, checkScheduledHandler, readBackupRequest, backupKeyOk, backupSelect, STAGING, PRODUCTION, WORKER, CONFIG, BACKUP_FILE, BACKUP_DIR } from '../worker/scripts/staging-guard.mjs';
 
 const toml = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
 const staging = (fn) => toml.replace(/^\[env\.staging\][\s\S]*$/m, (part) => fn(part));
@@ -315,11 +315,29 @@ test('the backup-check script never has Cloudflare access: no token, no remote w
   assert.match(code, /if \(process\.env\.CLOUDFLARE_API_TOKEN\) \{[^}]*process\.exit\(2\)/, 'it refuses to run with the token');
   assert.doesNotMatch(code.replace("process.env.CLOUDFLARE_API_TOKEN", ''), /CLOUDFLARE|api\.cloudflare\.com/);
   assert.doesNotMatch(code, /--remote|checkWranglerArgs|guardedArgv|staging-guard\.mjs['"]\s*\)|r2['"],\s*['"]object|fetch-backup/);
-  for (const line of code.split('\n').filter((l) => /['"]wrangler['"]/.test(l) && /execFile|spawn/.test(l))) {
+  const wranglerLines = code.split('\n').filter((l) => /['"]wrangler['"]|wranglerBin\(\)/.test(l) && /execFile|spawn/.test(l));
+  assert.ok(wranglerLines.length >= 1, 'the local restore runs Wrangler');
+  for (const line of wranglerLines) {
     assert.match(line, /'--local'/); assert.match(line, /'--config', CONFIG/);
   }
   // The downloaded file is read only from the guard's fixed constant; the command line can't name it.
   assert.match(code, /readFile\(BACKUP_FILE\)/);
   assert.doesNotMatch(code, /readFile\((arg|process\.argv)/);
   assert.match(code, /meta\.sha256 !== sha256/, 'checks the file is the one the guard downloaded');
+});
+
+// Windows (execFileSync cannot start npx.cmd without a shell) and supply chain (npx downloads the latest Wrangler
+// when none is installed): every script and test that runs Wrangler uses the one installed from the lockfile.
+test('Wrangler is never started through npx; the guard refuses when the installed Wrangler is missing', () => {
+  for (const f of ['../worker/scripts/staging-guard.mjs', '../worker/scripts/staging-backup-check.mjs', '../worker/test/staging-egress.workerd.test.mjs']) {
+    const code = readFileSync(new URL(f, import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(code, /(execFile|execFileSync|spawn|spawnSync|exec|execSync)\(\s*['"]npx/, f);
+  }
+  const t = mkdtempSync(join(tmpdir(), 'guard-bin-'));
+  try {
+    assert.throws(() => wranglerBin(t), /not installed/);
+    mkdirSync(join(t, 'node_modules', 'wrangler', 'bin'), { recursive: true });
+    writeFileSync(join(t, 'node_modules', 'wrangler', 'bin', 'wrangler.js'), '');
+    assert.equal(wranglerBin(t), join(t, 'node_modules', 'wrangler', 'bin', 'wrangler.js'));
+  } finally { rmSync(t, { recursive: true, force: true }); }
 });

@@ -68,7 +68,7 @@ async function api(req, env, url) {
     if (what === 'signup') return json({ data: await signUp(env, await body(req, 10000), ip), error: null });
     if (what === 'signin') return json({ data: await signIn(env, await body(req, 10000), ip), error: null });
     if (what === 'signout') { const u = await userOf(env, req); await signOut(env, u?.token); return json({ data: null, error: null }); }
-    if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000)), error: null }); }
+    if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000), ip), error: null }); }
     throw new ApiError('not found', '404', 404);
   }
   if (path === '/api/ai/status') return json({ data: { enabled: !!env.ANTHROPIC_API_KEY }, error: null });

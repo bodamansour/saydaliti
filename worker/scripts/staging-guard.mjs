@@ -274,7 +274,15 @@ export function guardedArgv(args, { markerOk = false, worker = WORKER } = {}) {
   assertSingleConfig(worker);
   return ['wrangler', ...checkWranglerArgs(args, { markerOk }), '--config', join(resolve(worker), 'wrangler.toml')];
 }
-const wrangler = (args, opts) => execFileSync('npx', guardedArgv(args, { markerOk: opts?.markerOk }), { cwd: WORKER, ...opts?.exec });
+// The Wrangler installed by `npm ci` in worker/ (exact version from package-lock.json), run with this Node. Never
+// `npx wrangler`: npx downloads the latest Wrangler from the registry when none is installed, and on Windows
+// `npx` is a .cmd file that execFileSync cannot start without a shell.
+export function wranglerBin(worker = WORKER) {
+  const bin = join(resolve(worker), 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+  if (!existsSync(bin)) fail('the Worker tools are not installed (run npm ci in worker/); refusing to fetch Wrangler with npx');
+  return bin;
+}
+const wrangler = (args, opts) => execFileSync(process.execPath, [wranglerBin(), ...guardedArgv(args, { markerOk: opts?.markerOk }).slice(1)], { cwd: WORKER, ...opts?.exec });
 
 export function markerValid(sha = process.env.GITHUB_SHA || 'local') {
   if (!existsSync(MARKER)) return false;
