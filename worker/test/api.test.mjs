@@ -275,6 +275,19 @@ test('a full backup moves into a new, empty pharmacy', { skip }, async () => {
   assert.match((await mover.rpc('import_backup', { p_pharmacy: NP, p_dump: dump })).error.message, /not empty/);
 });
 
+// A hidden column (the employees' PIN hash) is never readable, and can't be used to filter or sort either —
+// that would reveal it one guess at a time.
+test('hidden columns (the PIN hash) cannot be read, filtered or sorted on', { skip }, async () => {
+  const emp = (await owner.rpc('add_employee', { p_pharmacy: P, p_name: 'موظف الكود', p_pin: String(100000 + Math.floor(Math.random() * 900000)) })).data;
+  assert.ok(emp, 'employee added');
+  assert.equal((await owner.select('employees', 'id,pin_hash')).status, 403);
+  assert.equal((await partner.select('employees', 'id', [['pin_hash', 'neq', 'x']])).status, 403);
+  assert.equal((await partner.select('employees', 'id', [['pin_hash', 'notnull']])).status, 403);
+  assert.equal((await partner.select('employees', 'id', [], { order: { col: 'pin_hash' } })).status, 403);
+  assert.equal((await owner.db({ op: 'update', table: 'employees', patch: { active: true }, filters: [['pin_hash', 'neq', 'x']] })).status, 403);
+  assert.equal((await partner.select('employees', 'id,name', [['id', 'eq', emp]])).data.length, 1, 'visible columns still work');
+});
+
 test('signing out ends the session', { skip }, async () => {
   const r = await owner.call('/api/auth/signout', {});
   assert.equal(r.error, null);

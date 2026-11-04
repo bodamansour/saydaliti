@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: 22
       - name: SQL Server
-        uses: potatoqualitee/mssqlsuite@v2
+        uses: potatoqualitee/mssqlsuite@bc850f242e5fe551e36cea6fa4bed608c58fa489 # v2
         with:
           install: sqlengine
           version: 2019
