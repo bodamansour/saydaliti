@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getPlatformProxy } from 'wrangler';
 import { runBackup, decryptBackup, restoreInto, verifyRestore, backupHealth, RETAIN } from '../src/backup.js';
+import { wranglerBin } from './staging-guard.mjs';
 
 const WORKER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [srcState, outFile] = process.argv.slice(2);
@@ -24,7 +25,7 @@ const work = await mkdtemp(join(tmpdir(), 'saydaliti-drill-'));
 const SRC = join(work, 'source'), DST = join(work, 'target');
 await cp(resolve(srcState), SRC, { recursive: true });
 // A separate, empty database with every migration.
-execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', DST], { cwd: WORKER, stdio: 'pipe' });
+execFileSync(process.execPath, [wranglerBin(WORKER), 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', DST], { cwd: WORKER, stdio: 'pipe' });
 const vars = Object.fromEntries((await readFile(join(WORKER, '.dev.vars'), 'utf8')).split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 if (!vars.BACKUP_KEY) throw new Error('worker/.dev.vars has no BACKUP_KEY (local test key)');
 const open = async (dir) => { const p = await getPlatformProxy({ configPath: join(WORKER, 'wrangler.toml'), persist: { path: join(dir, 'v3') } }); return { p, env: { ...p.env, BACKUP_KEY: vars.BACKUP_KEY } }; };

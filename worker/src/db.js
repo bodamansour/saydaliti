@@ -22,6 +22,13 @@ const colSpec = (t, table, col) => {
   if (!IDENT.test(String(col)) || !t.cols[col]) throw new ApiError(`column ${table}.${col} does not exist`, '42703');
   return t.cols[col];
 };
+// A hidden column (e.g. employees.pin_hash) is never read, and also can't be filtered or sorted on: a filter
+// like pin_hash = <guess> or an ORDER BY would reveal it one row at a time.
+const visibleSpec = (t, table, col) => {
+  const spec = colSpec(t, table, col);
+  if ((t.hidden || []).includes(col)) throw new ApiError(`permission denied for column ${col}`, '42501', 403);
+  return spec;
+};
 
 // ---------- Values in and out of SQLite ----------
 export function toDb(type, v) {
@@ -186,7 +193,7 @@ function whereOf(t, table, filters = []) {
   const parts = [], args = [];
   for (const f of filters) {
     const [col, op, val] = f;
-    const [type] = colSpec(t, table, col);
+    const [type] = visibleSpec(t, table, col);
     if (op === 'eq') { if (val === null) parts.push(`${col} IS NULL`); else { parts.push(`${col} = ?`); args.push(toDb(type, val)); } }
     else if (op === 'neq') { parts.push(`${col} <> ?`); args.push(toDb(type, val)); }
     else if (op === 'gte') { parts.push(`${col} >= ?`); args.push(toDb(type, val)); }
@@ -226,7 +233,7 @@ export async function select(ctx, env, q) {
   const w = whereOf(t, table, q.filters);
   const where = [scope.sql, ...w.parts].filter(Boolean);
   let sql = `SELECT ${[...new Set([...cols, ...(blob ? [t.pk] : [])])].join(', ')} FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`;
-  if (q.order) { colSpec(t, table, q.order.col); sql += ` ORDER BY ${q.order.col} ${q.order.asc === false ? 'DESC' : 'ASC'}`; }
+  if (q.order) { visibleSpec(t, table, q.order.col); sql += ` ORDER BY ${q.order.col} ${q.order.asc === false ? 'DESC' : 'ASC'}`; }
   const lim = q.range ? Math.max(0, q.range[1] - q.range[0] + 1) : q.limit;
   const n = Math.min(lim ?? 1000, 1000); // like the server's 1,000-row pages
   sql += ` LIMIT ${n}${q.range ? ` OFFSET ${Math.max(0, +q.range[0] | 0)}` : ''}`;

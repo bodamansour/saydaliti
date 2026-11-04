@@ -18,6 +18,10 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 
 let server, base, browser, ctx, page;
 const errors = [];
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
+const blocked = [];   // external requests refused by the route
+const escaped = [];   // connections that reached the browser-level trap
+let trap;
 
 before(async () => {
   server = createServer(async (req, res) => {
@@ -29,19 +33,32 @@ before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://localhost:${server.address().port}/`;
   const stub = await readFile(join(ROOT, 'e2e/supabase-stub.js'), 'utf8');
-  browser = await chromium.launch();
+  // Nothing may leave this computer. Two layers:
+  // 1. Browser level: every non-loopback connection Chromium makes (WebSocket included, which page/context
+  //    routes do not see) goes to a local trap that records it and closes it.
+  trap = createServer((req, res) => { escaped.push(`${req.method} ${req.url}`); res.destroy(); });
+  trap.on('connect', (req, sock) => { escaped.push(`CONNECT ${req.url}`); sock.destroy(); });
+  await new Promise((r) => trap.listen(0, '127.0.0.1', r));
+  browser = await chromium.launch({ proxy: { server: `http://127.0.0.1:${trap.address().port}`, bypass: 'localhost,127.0.0.1' } });
   ctx = await browser.newContext({ locale: 'ar-EG', viewport: { width: 1200, height: 900 }, acceptDownloads: true });
+  // 2. Request level: anything not for this computer is refused (registered first, so the stubs below win).
+  //    Playwright 1.63 routes the service worker's own requests here too (checked in the test at the end).
+  await ctx.route('**/*', (r) => {
+    const u = new URL(r.request().url());
+    if (LOCAL_HOSTS.has(u.hostname)) return r.fallback();
+    blocked.push(u.href);
+    return r.abort('blockedbyclient');
+  });
   await ctx.route('**/api/config', (r) => r.fulfill({ json: { configured: true, url: 'https://stub.supabase.test', key: 'pk_test' } }));
   await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
-  // The Excel library comes from the local copy; fonts are skipped.
+  // The Excel library comes from the local copy; fonts are refused by the catch-all route above.
   const xlsx = await readFile(join(ROOT, 'node_modules/xlsx/dist/xlsx.full.min.js'), 'utf8');
   await ctx.route('https://cdn.sheetjs.com/**', (r) => r.fulfill({ contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: xlsx }));
-  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
   page.on('dialog', (d) => d.accept());
 });
-after(async () => { await browser?.close(); server?.close(); });
+after(async () => { await browser?.close(); server?.close(); trap?.close(); });
 
 const text = (sel, p = page) => p.locator(sel).first().innerText();
 const db = (k) => page.evaluate((k) => window.__DB?.[k] ?? [], k);
@@ -809,11 +826,12 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.waitForSelector('html[dir=ltr]');
   await page.waitForSelector('#app:not([hidden])');
   assert.equal(await page.getAttribute('html', 'lang'), 'en');
+  // The label only (.lbl): a section's button also shows its count of urgent items (.cnt) when it has any.
+  let labels = [];
   assert.ok(await until(async () => {
-    // The section names only (a section may also show a count of urgent items next to its name).
-    const labels = await page.locator('#sections .sec .lbl').allInnerTexts();
+    labels = (await page.locator('#sections .sec .lbl').allInnerTexts()).map((x) => x.trim());
     return labels.includes('Summary') && labels.includes('Stock');
-  }, 10000));
+  }, 10000), `section labels: ${JSON.stringify(labels)}`);
   await shot('english-dashboard');
   await page.goto(`${base}cashier.html`);
   await page.waitForSelector('#pos:not([hidden])');
@@ -827,4 +845,30 @@ test('English interface: the button switches the dashboard and cashier to Englis
 
 test('no script errors', () => {
   assert.deepEqual(errors, []);
+});
+
+test('no request leaves this computer: external fetch, raw IP, WebSocket and the service worker are refused; localhost works', async () => {
+  await page.goto(base);
+  const r = await page.evaluate(async () => {
+    const t = async (fn) => { try { return await fn(); } catch { return 'failed'; } };
+    const ws = (url) => new Promise((ok) => { const w = new WebSocket(url); w.onopen = () => { w.close(); ok('open'); }; w.onerror = () => ok('failed'); setTimeout(() => ok('timeout'), 5000); });
+    return {
+      localhost: await t(async () => (await fetch('./index.html')).status),
+      external: await t(async () => (await fetch('https://egress-probe.invalid/x')).status),
+      raw_ip: await t(async () => (await fetch('http://203.0.113.7/x')).status),
+      websocket: await ws('wss://egress-probe.invalid/'),
+      // fonts.gstatic.com is one of the hosts sw.js fetches itself (not the page).
+      via_service_worker: navigator.serviceWorker.controller ? await t(async () => (await fetch('https://fonts.gstatic.com/egress-probe.woff2')).status) : 'no sw',
+    };
+  });
+  assert.equal(r.localhost, 200, 'localhost still works');
+  for (const k of ['external', 'raw_ip', 'websocket', 'via_service_worker']) assert.equal(r[k], 'failed', `${k}: ${r[k]}`);
+  assert.ok(blocked.includes('https://egress-probe.invalid/x') && blocked.includes('http://203.0.113.7/x'), 'refused by the route');
+  assert.ok(blocked.includes('https://fonts.gstatic.com/egress-probe.woff2'), 'the service worker request went through the route');
+  assert.deepEqual(escaped, ['CONNECT egress-probe.invalid:443'], 'only the probe WebSocket reached the browser trap, and it was closed there');
+  // Over the whole run the app asked only for the web fonts and the stub database address (public.js reads the
+  // public prices straight from it); both refused. Any new external host fails this test.
+  const EXPECTED = ['fonts.googleapis.com', 'fonts.gstatic.com', 'stub.supabase.test', 'egress-probe.invalid', '203.0.113.7'];
+  const hosts = [...new Set(blocked.map((u) => new URL(u).hostname))];
+  assert.deepEqual(hosts.filter((h) => !EXPECTED.includes(h)), [], `unexpected external hosts: ${hosts}`);
 });

@@ -47,7 +47,7 @@ jobs:
           path: desktop/dist/Saydaliti-Setup.exe
       - name: Publish on the desktop-latest release
         if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
         with:
           tag_name: desktop-latest
           name: صيدليتي — برنامج الكمبيوتر
