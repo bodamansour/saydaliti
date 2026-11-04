@@ -1,0 +1,188 @@
+# STAGING validation on Cloudflare (isolated; synthetic data only). Never touches production:
+#   - job `preflight` has NO secrets: isolation tests + the wrangler.toml guard (worker/scripts/staging-guard.mjs),
+#   - job `deploy` runs only after it, only in the protected GitHub environment `staging` (required reviewer),
+#     only for the repository owner, only from the Phase 2 branch (not main until PR #51 is merged), and only
+#     with the staging token (CLOUDFLARE_STAGING_API_TOKEN — no fallback to the production CLOUDFLARE_API_TOKEN),
+#   - the token is given to single steps that only run the guard (never to npm ci, the build, Playwright,
+#     the test suites or other scripts) — checked by test/staging-isolation.test.js,
+#   - before any write, `staging-guard.mjs remote` proves (read-only) that the token's account holds the staging
+#     D1 and R2; every wrangler call then goes through `staging-guard.mjs run`, which adds --env staging,
+#     allows only listed commands, refuses production names/ids, and refuses writes without that proof.
+# The deploy job runs only from a manual run (Actions → Run workflow, typing STAGING). A push of
+# .github/staging-run runs the credential-free preflight only. Never triggered by pull requests,
+# schedules or other workflows. Docs: docs/deployment/STAGING.md.
+name: Cloudflare staging validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type STAGING to deploy the current commit to the isolated staging environment'
+        required: true
+  push:
+    branches: [ccr-94719aa6-7k3i5e]
+    paths: ['.github/staging-run']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-staging
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight (no credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Explicit request
+        env:
+          EVENT: ${{ github.event_name }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$CONFIRM" != "STAGING" ]; then
+            echo "::error::type STAGING to run the staging deployment"; exit 1
+          fi
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Isolation tests and the wrangler.toml guard
+        run: |
+          node --test test/staging-isolation.test.js test/staging-guard.test.js
+          node worker/scripts/staging-guard.mjs config
+
+  deploy:
+    name: Staging deploy and validation
+    needs: preflight
+    # Manual runs only (a push of the request file runs the preflight alone). Owner only, and only from the
+    # Phase 2 branch: main's code would run the patient reminders on the staging cron (the guard refuses it too),
+    # so main is added back only after PR #51 is merged. Never a pull request (no such trigger above either).
+    if: github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.ref == 'refs/heads/ccr-94719aa6-7k3i5e'
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # No secrets at job level. Each secret is given only to the steps below that need it.
+    env:
+      CLOUDFLARE_STAGING_TOKEN_SOURCE: CLOUDFLARE_STAGING_API_TOKEN
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_STAGING_ACCOUNT_ID }}
+      GUARD: node scripts/staging-guard.mjs
+    steps:
+      - name: Staging settings are present (names only, values never printed)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+          STAGING_BACKUP_KEY: ${{ secrets.STAGING_BACKUP_KEY }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing secret:CLOUDFLARE_STAGING_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing variable:CLOUDFLARE_STAGING_ACCOUNT_ID"
+          [ -n "$STAGING_BACKUP_KEY" ] || missing="$missing secret:STAGING_BACKUP_KEY"
+          if [ -n "$missing" ]; then echo "::error::Missing:$missing (see docs/deployment/STAGING.md)"; exit 1; fi
+          if [ ${#STAGING_BACKUP_KEY} -lt 32 ]; then echo "::error::STAGING_BACKUP_KEY must be at least 32 characters"; exit 1; fi
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install the Worker tools
+        working-directory: worker
+        run: npm ci
+      - name: Build the site files (no credentials)
+        working-directory: worker
+        run: npm run build
+      - name: Guard — wrangler.toml, then (read-only) the token's account holds the staging D1 and R2
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: $GUARD remote
+      - name: Migrations on the staging database
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: |
+          $GUARD run -- d1 migrations list DB --remote
+          $GUARD run -- d1 migrations apply DB --remote
+      - name: Deploy the staging Worker
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: |
+          set -o pipefail
+          $GUARD run -- deploy | tee deploy.log
+      - name: The staging URL from the deploy output (no credentials)
+        working-directory: worker
+        run: |
+          url=$(grep -oE 'https://saydaliti-staging\.[a-z0-9-]+\.workers\.dev' deploy.log | head -1)
+          [ -n "$url" ] || { echo "::error::no staging URL in the deploy output"; exit 1; }
+          echo "STAGING_URL=$url" >> "$GITHUB_ENV"
+          echo "::notice::staging URL $url"
+      - name: Staging secrets on the Worker (BACKUP_KEY from the GitHub secret; PIN_PEPPER random, staging only)
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+          STAGING_BACKUP_KEY: ${{ secrets.STAGING_BACKUP_KEY }}
+        run: |
+          set -o pipefail
+          printf '%s' "$STAGING_BACKUP_KEY" | $GUARD run -- secret put BACKUP_KEY >/dev/null
+          $GUARD run -- secret list --format json > names.json
+          if ! node -e "process.exit(JSON.parse(require('fs').readFileSync('names.json','utf8')).some(s=>s.name==='PIN_PEPPER')?0:1)"; then
+            openssl rand -hex 32 | tr -d '\n' | $GUARD run -- secret put PIN_PEPPER >/dev/null
+          fi
+          node -e "console.log('staging secret names:', JSON.parse(require('fs').readFileSync('names.json','utf8')).map(s=>s.name).join(', '))"
+          rm -f names.json
+      - name: The staging Worker answers
+        run: for i in $(seq 1 40); do curl -sf "$STAGING_URL/api/config" && exit 0; sleep 3; done; exit 1
+      - name: Real D1 — applied migrations in order, the stock trigger and tables exist, nothing pending
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: |
+          $GUARD run -- d1 execute DB --remote --command "SELECT id, name, applied_at FROM d1_migrations ORDER BY id"
+          $GUARD run -- d1 execute DB --remote --command "SELECT type, name FROM sqlite_master WHERE (type = 'trigger') OR (type = 'table' AND (name LIKE 'stock_%' OR name IN ('backups', 'return_approvals'))) ORDER BY type, name"
+          $GUARD run -- d1 migrations list DB --remote
+      - name: Cloudflare — the staging Worker's cron schedules (read-only)
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: $GUARD schedules
+      - name: Browser for the UI tests
+        run: npx playwright install --with-deps chromium
+      - name: Test suites against the staging Worker (synthetic accounts and data)
+        env:
+          WORKER_URL: ${{ env.STAGING_URL }}
+        run: node --test worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs 2>&1 | tee staging-tests.log; exit ${PIPESTATUS[0]}
+      # The backup check, in three steps. The script never holds the Cloudflare token; only the guard downloads,
+      # and only the one backup the first step made, to a fixed file (worker/.staging-backup/backup.sdbk).
+      - name: Backup on Cloudflare — make a backup on the staging Worker (no credentials)
+        id: backup_prepare
+        if: always() && env.STAGING_URL != ''
+        working-directory: worker
+        run: node scripts/staging-backup-check.mjs prepare 300
+      - name: Backup on Cloudflare — download that backup from the staging R2 bucket (guard only)
+        id: backup_fetch
+        if: always() && steps.backup_prepare.outcome == 'success'
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+        run: $GUARD fetch-backup
+      - name: Backup on Cloudflare — open, refuse wrong key/pharmacy/changed byte, restore locally, verify (no Cloudflare access)
+        if: always() && steps.backup_fetch.outcome == 'success'
+        working-directory: worker
+        env:
+          STAGING_BACKUP_KEY: ${{ secrets.STAGING_BACKUP_KEY }}
+        run: node scripts/staging-backup-check.mjs verify ../staging-backup-report.json
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-reports
+          path: |
+            staging-backup-report.json
+            staging-tests.log
+          if-no-files-found: ignore
