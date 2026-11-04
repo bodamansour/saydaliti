@@ -36,3 +36,37 @@ crons = ["0 6 * * *", "15 * * * *"]
 
 [observability]
 enabled = true
+
+# ---------- STAGING (isolated; synthetic data only) ----------
+# Its own Worker, D1 database and R2 bucket — never the production ones above. Deployed only by
+# .github/workflows/staging.yml with the staging-only token; test/staging-isolation.test.js fails if
+# any staging binding points at a production resource.
+[env.staging]
+name = "saydaliti-staging"
+workers_dev = true
+
+[env.staging.vars]
+MORNING_CRON = "0 6 * * *"
+# Backups every 30 minutes on staging, so the schedule can be observed (production: daily at 01:30 UTC).
+BACKUP_CRON = "*/30 * * * *"
+PBKDF2_ITER = "10000"
+SITE_URL = "https://saydaliti-staging.mosaedapp.workers.dev"
+# The test suites create many accounts.
+SIGNUP_PER_HOUR = "10000"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "saydaliti-staging"
+database_id = "0ba7c0dd-645e-453e-9999-a316a828e175"
+migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "FILES"
+bucket_name = "saydaliti-files-staging"
+
+[env.staging.triggers]
+# Only the backup job on staging (no WhatsApp jobs).
+crons = ["*/30 * * * *"]
+
+[env.staging.observability]
+enabled = true
