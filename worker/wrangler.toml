@@ -46,6 +46,9 @@ name = "saydaliti-staging"
 workers_dev = true
 
 [env.staging.vars]
+# Marks this Worker as staging: worker/src/egress.js then strips every outside-service credential (WhatsApp,
+# AI) and refuses outbound requests from the scheduled jobs, so staging can never message a real patient.
+DEPLOY_ENV = "staging"
 MORNING_CRON = "0 6 * * *"
 # Backups every 30 minutes on staging, so the schedule can be observed (production: daily at 01:30 UTC).
 BACKUP_CRON = "*/30 * * * *"

@@ -10,6 +10,7 @@ import { signUp, signIn, signOut, userOf, changePassword } from './auth.js';
 import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
+import { isolateEnv, guardedFetch } from './egress.js';
 import { runMorning } from '../../src/morning-job.js';
 import { runReminders } from '../../src/reminders-job.js';
 
@@ -150,13 +151,14 @@ function internalFetch(env) {
         : name === 'mark_reminders_sent' ? await markRemindersSent(env, args.p_items) : null;
       return new Response(JSON.stringify(data), { status: 200 });
     }
-    return fetch(u, init);
+    return guardedFetch(env)(u, init);
   };
 }
 const jobEnv = (env) => ({ ...env, SUPABASE_URL: 'internal://db', SUPABASE_PUBLISHABLE_KEY: 'internal', REPORT_SECRET: 'internal' });
 
 export default {
   async fetch(req, env) {
+    env = isolateEnv(env); // staging: no outside-service credentials (egress.js)
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rest/')) {
       try { return await api(req, env, url); } catch (e) { return fail(e); }
@@ -164,6 +166,7 @@ export default {
     return env.ASSETS.fetch(req);
   },
   async scheduled(event, env, ctx) {
+    env = isolateEnv(env); // staging: no outside-service credentials (egress.js)
     const e = jobEnv(env);
     if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('morning', JSON.stringify(r))));
     else ctx.waitUntil(runReminders({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('reminders', JSON.stringify(r))));
