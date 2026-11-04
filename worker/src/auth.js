@@ -35,8 +35,13 @@ export async function checkPassword(password, stored) {
 }
 
 // A PIN (4–6 digits) is checked against every employee of the pharmacy, so it uses a fast salted
-// hash with a server-side secret; the server limits wrong tries (pin_attempts).
-export const hashPin = async (env, pharmacyId, pin) => sha256(`${env.PIN_PEPPER || 'saydaliti'}:${pharmacyId}:${pin}`);
+// hash with a server-side secret; the server limits wrong tries (pin_attempts). Without the secret a
+// PIN hash could be reversed by trying all 1,111,000 PINs, so the server refuses PIN work instead of
+// falling back to a known value (the release workflow also checks the secret exists before deploying).
+export const hashPin = async (env, pharmacyId, pin) => {
+  if (typeof env?.PIN_PEPPER !== 'string' || !env.PIN_PEPPER) throw new ApiError('server not configured: PIN secret missing', '503', 503);
+  return sha256(`${env.PIN_PEPPER}:${pharmacyId}:${pin}`);
+};
 
 async function tooMany(env, k, max, minutes) {
   const since = new Date(Date.now() - minutes * 60000).toISOString();
@@ -86,8 +91,16 @@ export async function signOut(env, token) {
   if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
 }
 
-export async function changePassword(env, user, { password }) {
+// The current password is asked again, so a stolen or forgotten-open session can't lock the owner out.
+// Wrong tries count against the same limit as sign-in.
+export async function changePassword(env, user, { password, current_password }, ip = 'local') {
   if (String(password || '').length < 8) throw new ApiError('Password should be at least 8 characters. weak_password', 'weak_password');
+  if (await tooMany(env, `in:${user.email}`, 10, 15) || await tooMany(env, `ip:${ip}`, 30, 15)) throw new ApiError('Too many attempts. Request rate limit reached', 'over_request_rate_limit', 429);
+  const u = await env.DB.prepare('SELECT pw_hash FROM users WHERE id = ?').bind(user.id).first();
+  if (!u || !(await checkPassword(String(current_password || ''), u.pw_hash))) {
+    await note(env, `in:${user.email}`); await note(env, `ip:${ip}`);
+    throw new ApiError('Current password is wrong', 'invalid_credentials', 400);
+  }
   await env.DB.batch([
     env.DB.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').bind(await hashPassword(password, env), user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),

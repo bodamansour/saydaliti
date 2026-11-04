@@ -28,7 +28,7 @@ WORKER_URL=http://localhost:8787 node --test worker/test/api.test.mjs e2e/cloudf
 
 ## النشر
 
-بيحصل لوحده من `.github/workflows/cloudflare.yml` مع كل push على main. محتاج سرّين في GitHub:
+يدوي بس: من GitHub Actions ← «Cloudflare production release» ← Run workflow على `main` واكتب `DEPLOY-PRODUCTION` (الدمج في main مبقاش بينشر). التفاصيل في `docs/deployment/DEPLOYMENT_AND_RELEASE.md`. محتاج سرّين في GitHub:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`

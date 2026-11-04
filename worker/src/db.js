@@ -2,6 +2,7 @@
 // and this checks it against the rules in schema.js before running it on D1 — the same checks the
 // Supabase database did with row-level security. Anything not allowed is refused, never trimmed.
 import { TABLES } from './schema.js';
+import { ledgerStmt, reversalStmt, branchKey, needOf } from './stock.js';
 
 export class ApiError extends Error {
   constructor(message, code = 'P0001', status = 400) { super(message); this.code = code; this.status = status; }
@@ -20,6 +21,13 @@ export function tableOf(name, { allowInternal = false } = {}) {
 const colSpec = (t, table, col) => {
   if (!IDENT.test(String(col)) || !t.cols[col]) throw new ApiError(`column ${table}.${col} does not exist`, '42703');
   return t.cols[col];
+};
+// A hidden column (e.g. employees.pin_hash) is never read, and also can't be filtered or sorted on: a filter
+// like pin_hash = <guess> or an ORDER BY would reveal it one row at a time.
+const visibleSpec = (t, table, col) => {
+  const spec = colSpec(t, table, col);
+  if ((t.hidden || []).includes(col)) throw new ApiError(`permission denied for column ${col}`, '42501', 403);
+  return spec;
 };
 
 // ---------- Values in and out of SQLite ----------
@@ -79,10 +87,18 @@ function withDefaults(t, row) {
   return out;
 }
 
-function guardedReturnInsert(env, row, cols, ignoreDuplicates) {
+// A receipt is inserted only if, at that moment (one SQL statement, so two requests can't both pass):
+//   • no other receipt of the pharmacy has the same number, and
+//   • for a return against a receipt: what it takes back, plus every earlier return of that receipt,
+//     is no more than the receipt sold (counted in boxes).
+// Otherwise its id is NULL and SQLite refuses the row (NOT NULL), which insert() turns into an error.
+function guardedSaleInsert(env, row, cols, ignoreDuplicates, branch = null, need = []) {
+  const isReturn = row.kind === 'return' && !!row.return_of;
   const code = (line) => `CAST(json_extract(${line}.value, '$.code') AS TEXT)`;
   const qty = (line) => `COALESCE(CAST(json_extract(${line}.value, '$.qty') AS REAL), 0) / CASE WHEN CAST(json_extract(${line}.value, '$.per') AS REAL) > 1 THEN CAST(json_extract(${line}.value, '$.per') AS REAL) ELSE 1 END`;
-  const sql = `WITH source_sale AS (
+  const ctes = [], head = [];
+  if (isReturn) {
+    ctes.push(`source_sale AS (
       SELECT lines FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'
     ), sold AS (
       SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM source_sale sale, json_each(sale.lines) line GROUP BY code
@@ -91,12 +107,46 @@ function guardedReturnInsert(env, row, cols, ignoreDuplicates) {
       WHERE p.kind = 'return' AND p.return_of = ? AND p.pharmacy_id = ? AND p.id <> ? GROUP BY code
     ), requested AS (
       SELECT ${code('line')} AS code, SUM(${qty('line')}) AS qty FROM json_each(?) line GROUP BY code
-    )
+    )`);
+    head.push(row.return_of, row.pharmacy_id, row.return_of, row.pharmacy_id, row.id, JSON.stringify(row.lines));
+  }
+  // Selling below zero, where the branch blocks it (stock kept by the server, Phase 2 M1): the levels
+  // are read in the same statement that stores the receipt, so two devices can't both take the last box.
+  const checkStock = !!branch && need.length > 0;
+  if (checkStock) { ctes.push("need AS (SELECT json_extract(value, '$.code') AS code, json_extract(value, '$.qty') AS qty FROM json_each(?))"); head.push(JSON.stringify(need)); }
+  const retOk = isReturn ? ' AND EXISTS (SELECT 1 FROM source_sale) AND NOT EXISTS (SELECT 1 FROM requested r LEFT JOIN sold s ON s.code IS r.code LEFT JOIN returned b ON b.code IS r.code WHERE r.qty > COALESCE(s.qty, 0) - COALESCE(b.qty, 0) + 0.0001)' : '';
+  const stockOk = checkStock ? ` AND NOT (EXISTS (SELECT 1 FROM stock_bases sb WHERE sb.pharmacy_id = ? AND sb.branch_id = ? AND sb.block_negative = 1 AND sb.stale = 0 AND sb.opened_at IS NOT NULL)
+      AND EXISTS (SELECT 1 FROM need n LEFT JOIN stock_levels lv ON lv.pharmacy_id = ? AND lv.branch_id = ? AND lv.code = n.code WHERE COALESCE(lv.qty, 0) - n.qty < -0.0001))` : '';
+  const numberOk = 'NOT EXISTS (SELECT 1 FROM pos_sales d WHERE d.pharmacy_id = ? AND d.number = ? AND d.id <> ?)';
+  // The same receipt already stored (a retry racing the first request): let ON CONFLICT skip it.
+  const already = 'EXISTS (SELECT 1 FROM pos_sales x WHERE x.id = ?)';
+  const sql = `${ctes.length ? `WITH ${ctes.join(', ')}` : ''}
     INSERT INTO pos_sales (${cols.join(', ')})
-    SELECT ${cols.map((c) => c === 'id' ? 'CASE WHEN EXISTS (SELECT 1 FROM source_sale) AND NOT EXISTS (SELECT 1 FROM requested r LEFT JOIN sold s ON s.code IS r.code LEFT JOIN returned b ON b.code IS r.code WHERE r.qty > COALESCE(s.qty, 0) - COALESCE(b.qty, 0) + 0.0001) THEN ? ELSE NULL END' : '?').join(', ')}
+    SELECT ${cols.map((c) => c === 'id' ? `CASE WHEN ${already} OR (${numberOk}${retOk}${stockOk}) THEN ? ELSE NULL END` : '?').join(', ')}
     ${ignoreDuplicates ? 'ON CONFLICT(id) DO NOTHING' : ''}`;
-  const values = cols.map((c) => c === 'id' ? row.id : toDb(TABLES.pos_sales.cols[c][0], row[c]));
-  return env.DB.prepare(sql).bind(row.return_of, row.pharmacy_id, row.return_of, row.pharmacy_id, row.id, JSON.stringify(row.lines), ...values);
+  const idArgs = [row.id, row.pharmacy_id, row.number, row.id, ...(checkStock ? [row.pharmacy_id, branch, row.pharmacy_id, branch] : []), row.id];
+  const values = cols.flatMap((c) => c === 'id' ? idArgs : [toDb(TABLES.pos_sales.cols[c][0], row[c])]);
+  return env.DB.prepare(sql).bind(...head, ...values);
+}
+
+// Is a stored receipt the same one as a receipt sent again? (Retries send the same row.)
+function sameReceipt(had, row) {
+  const lines = (v) => JSON.stringify(typeof v === 'string' ? JSON.parse(v) : v);
+  return had.pharmacy_id === row.pharmacy_id && had.kind === (row.kind ?? 'sale') && had.number === row.number
+    && Date.parse(had.sold_at) === Date.parse(row.sold_at) && Math.abs(+had.total - +row.total) < 0.005
+    && (had.return_of ?? null) === (row.return_of ?? null) && lines(had.lines) === lines(row.lines);
+}
+
+// The first item a sale would take below zero, when its branch blocks that (else null).
+async function shortOf(env, pharmacyId, branch, need) {
+  if (!branch || !need.length) return null;
+  const b = await env.DB.prepare('SELECT 1 FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ? AND block_negative = 1 AND stale = 0 AND opened_at IS NOT NULL').bind(pharmacyId, branch).first();
+  if (!b) return null;
+  for (const n of need) {
+    const lv = await env.DB.prepare('SELECT qty FROM stock_levels WHERE pharmacy_id = ? AND branch_id = ? AND code = ?').bind(pharmacyId, branch, n.code).first();
+    if ((lv?.qty ?? 0) - n.qty < -0.0001) return n.code;
+  }
+  return null;
 }
 
 // ---------- Who may do what ----------
@@ -143,7 +193,7 @@ function whereOf(t, table, filters = []) {
   const parts = [], args = [];
   for (const f of filters) {
     const [col, op, val] = f;
-    const [type] = colSpec(t, table, col);
+    const [type] = visibleSpec(t, table, col);
     if (op === 'eq') { if (val === null) parts.push(`${col} IS NULL`); else { parts.push(`${col} = ?`); args.push(toDb(type, val)); } }
     else if (op === 'neq') { parts.push(`${col} <> ?`); args.push(toDb(type, val)); }
     else if (op === 'gte') { parts.push(`${col} >= ?`); args.push(toDb(type, val)); }
@@ -183,7 +233,7 @@ export async function select(ctx, env, q) {
   const w = whereOf(t, table, q.filters);
   const where = [scope.sql, ...w.parts].filter(Boolean);
   let sql = `SELECT ${[...new Set([...cols, ...(blob ? [t.pk] : [])])].join(', ')} FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`;
-  if (q.order) { colSpec(t, table, q.order.col); sql += ` ORDER BY ${q.order.col} ${q.order.asc === false ? 'DESC' : 'ASC'}`; }
+  if (q.order) { visibleSpec(t, table, q.order.col); sql += ` ORDER BY ${q.order.col} ${q.order.asc === false ? 'DESC' : 'ASC'}`; }
   const lim = q.range ? Math.max(0, q.range[1] - q.range[0] + 1) : q.limit;
   const n = Math.min(lim ?? 1000, 1000); // like the server's 1,000-row pages
   sql += ` LIMIT ${n}${q.range ? ` OFFSET ${Math.max(0, +q.range[0] | 0)}` : ''}`;
@@ -246,7 +296,7 @@ export async function insert(ctx, env, q, hooks = {}) {
   const list = Array.isArray(q.rows) ? q.rows : [q.rows];
   if (!list.length || list.length > 500) throw new ApiError('bad rows');
   const stmts = [];
-  let guardedReturn = false;
+  const guarded = [];
   for (const raw of list) {
     if (!raw || typeof raw !== 'object') throw new ApiError('bad row');
     for (const k of Object.keys(raw)) colSpec(t, table, k);
@@ -255,20 +305,53 @@ export async function insert(ctx, env, q, hooks = {}) {
     requireRole(ctx, row.pharmacy_id, t.insert);
     if (t.cols.branch_id) requireBranch(ctx, row.pharmacy_id, row.branch_id);
     for (const [col, spec] of Object.entries(t.cols)) checkValue(table, col, spec, row[col]);
-    if (q.ignoreDuplicates && t.pk && row[t.pk] != null && await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
+    if (q.ignoreDuplicates && t.pk && row[t.pk] != null) {
+      if (table === 'pos_sales') {
+        // A receipt sent again (a retry after a lost answer) is the same receipt: skip it. The same id
+        // with different contents is not a retry: refuse it, so it is kept aside on the device with the
+        // reason instead of being silently dropped (src/offline.js).
+        const had = await env.DB.prepare('SELECT pharmacy_id, kind, number, sold_at, total, lines, return_of FROM pos_sales WHERE id = ?').bind(String(row.id)).first();
+        if (had) { if (sameReceipt(had, row)) continue; throw new ApiError('conflicting receipt id', '23505', 409); }
+      } else if (await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${t.pk} = ?`).bind(String(row[t.pk])).first()) continue;
+    }
     await checkRefs(env, t, row);
-    if (hooks.beforeInsert) await hooks.beforeInsert(table, row);
+    const found = hooks.beforeInsert ? await hooks.beforeInsert(table, row) : null;
+    // A receipt's time of arrival is the server's, never the device's (sold_at is the device's).
+    if (table === 'pos_sales') row.created_at = nowIso();
     const cols = Object.keys(row).filter((c) => row[c] !== undefined && t.cols[c][0] !== 'serial');
-    if (table === 'pos_sales' && row.kind === 'return' && row.return_of) {
-      guardedReturn = true;
-      stmts.push(guardedReturnInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk)));
+    if (table === 'pos_sales') {
+      guarded.push(row);
+      stmts.push(guardedSaleInsert(env, row, cols, !!(q.ignoreDuplicates && t.pk), branchKey(ctx, row), needOf(row)));
+      // A return with no receipt is kept in the log of changes, with who made it.
+      if (row.kind === 'return' && !row.return_of) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
+      // Times that need a look (checkPosSale): stored, never refused, in the log of changes.
+      if (found?.flags?.length) stmts.push(auditStmt(env, auditRow(ctx, table, 'flag', null, { id: row.id, pharmacy_id: row.pharmacy_id, number: row.number, sold_at: row.sold_at, received_at: row.created_at, flags: found.flags })));
     } else stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${q.ignoreDuplicates && t.pk ? ` ON CONFLICT(${t.pk}) DO NOTHING` : ''}`)
       .bind(...cols.map((c) => toDb(t.cols[c][0], row[c]))));
     if (t.audit) stmts.push(auditStmt(env, auditRow(ctx, table, 'insert', null, row)));
+    // The stock this record moves, in the same atomic batch (stock.js; INSERT OR IGNORE, so a retry adds nothing).
+    const ledger = ledgerStmt(env, ctx, table, row);
+    if (ledger) stmts.push(ledger);
   }
   if (stmts.length) {
     try { await runBatch(env, stmts); } catch (e) {
-      if (guardedReturn && /NOT NULL constraint failed: pos_sales\.id/i.test(String(e?.message))) throw new ApiError('return more than sold');
+      if (guarded.length && /NOT NULL constraint failed: pos_sales\.id/i.test(String(e?.message))) {
+        // Which guard refused it: the number already used, or a return of more than is left.
+        // (Nothing of this request was stored: the whole batch was rolled back.)
+        const inRequest = new Set();
+        for (const r of guarded) {
+          const k = `${r.pharmacy_id}\n${r.number}`;
+          if (inRequest.has(k)) throw new ApiError('receipt number already used', '23505', 409);
+          inRequest.add(k);
+          if (await env.DB.prepare('SELECT 1 FROM pos_sales WHERE pharmacy_id = ? AND number = ? AND id <> ?').bind(r.pharmacy_id, r.number, r.id).first()) throw new ApiError('receipt number already used', '23505', 409);
+        }
+        // Not enough stock where the branch blocks selling below zero.
+        for (const r of guarded) {
+          const short = await shortOf(env, r.pharmacy_id, branchKey(ctx, r), needOf(r));
+          if (short) throw new ApiError(`insufficient stock: ${short}`, '23514', 409);
+        }
+        throw guarded.some((r) => r.kind === 'return' && r.return_of) ? new ApiError('return more than sold') : new ApiError('receipt number already used', '23505', 409);
+      }
       throw e;
     }
   }
@@ -328,6 +411,9 @@ export async function remove(ctx, env, q) {
     stmts.push(env.DB.prepare(`DELETE FROM ${child} WHERE ${col} IN (${marks})`).bind(...ids));
   }
   for (const [child, col] of Object.entries(t.setNull || {})) stmts.push(env.DB.prepare(`UPDATE ${child} SET ${col} = NULL WHERE ${col} IN (${marks})`).bind(...ids));
+  // A deleted purchase or stock move: the stock it added or took is undone by new ledger rows (stock.js).
+  const reversal = reversalStmt(env, ctx, table, ids);
+  if (reversal) stmts.push(reversal);
   stmts.push(env.DB.prepare(`DELETE FROM ${table} WHERE ${t.pk} IN (${marks})`).bind(...ids));
   if (t.audit) for (const g of gone) stmts.push(auditStmt(env, auditRow(ctx, table, 'delete', fromDb(t, g), null)));
   await runBatch(env, stmts);

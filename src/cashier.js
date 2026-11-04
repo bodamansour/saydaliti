@@ -5,9 +5,10 @@ import { fromExport, startOfDay } from './core.js';
 import { qrSvg, whatsappLink } from './labels.js';
 import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
+import { readAll, showDataAlert } from './paged.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, describe, onOutboxChange, isOnline, registerServiceWorker } from './offline.js';
 import { matchSale, itemsSold } from './sales-report.js';
-import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptNumber, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired, vatOf } from './pos.js';
+import { normalize as normalizeText, lookup, cartTotals, pctOff, changeDue, receiptPrefix, counterIn, isDeviceCode, newDeviceCode, expiryWarning, daySummary, PAYMENTS, returnableLines, scanDigits, boxQty, unitsOf, unitLabel, unitPrice, alternativesOf, pricesOf, allExpired, vatOf } from './pos.js';
 import { liveData, newItemCode } from './inventory.js';
 import { splitBill, customerBalances } from './accounts.js';
 import { pinVerifier, matchPin, shiftSummary, cashDifference } from './shifts.js';
@@ -56,6 +57,9 @@ const msg = (t, err = false) => { $('posMsg').innerHTML = err ? `<span class="er
 const today = () => startOfDay();
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// The most rows of one table the cashier loads (Phase 2 moves stock to the server and removes this).
+// A table bigger than this is not loaded in part: #dataAlert says so and the last full copy stays.
+const LOAD_MAX = 50000;
 // ---------- Loading ----------
 async function loadItems() {
   const cached = await kvGet(K.items());
@@ -79,15 +83,12 @@ async function loadStock() {
   const raw = await kvGet(K.stock(), { catalog: [], purchases: [], moves: [] });
   const cached = { ...raw, purchases: raw.purchases.filter(branchAllowed), moves: raw.moves.filter(branchAllowed) };
   if (!isOnline()) { STOCK = mergePendingItems(cached); return; }
+  // A table that can't be read whole leaves the last full copy in place; one that is too big to load
+  // here says so on screen (the stock shown would be wrong without its newest rows).
   const get = async (table, cols) => {
-    const rows = [];
-    for (let from = 0; from < 20000; from += 1000) {
-      const { data, error } = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order('created_at', { ascending: true }).range(from, from + 999);
-      if (error) return null;
-      rows.push(...data);
-      if (data.length < 1000) break;
-    }
-    return rows;
+    const { data, error } = await readAll(() => SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order('created_at', { ascending: true }), { table, max: LOAD_MAX });
+    if (error?.incomplete) { showDataAlert($('dataAlert'), error); }
+    return error ? null : data;
   };
   const [catalog, purchases, moves] = await Promise.all([
     (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, tax_pct, image_at, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, maker, min_qty, created_at, updated_at')) ?? (await get('catalog_items', 'id, code, name, category, price, cost, barcode, strips, pills, generic, created_at, updated_at')) ?? get('catalog_items', 'id, code, name, category, price, cost, barcode, created_at, updated_at'),
@@ -115,21 +116,16 @@ async function loadCustomers() {
   let next = cached;
   if (isOnline()) {
     // The server sends at most 1,000 rows at a time: read page by page.
-    const all = async (make) => {
-      const rows = [];
-      for (let from = 0; from < 200000; from += 1000) {
-        const r = await make().range(from, from + 999);
-        if (r.error) return { error: r.error };
-        rows.push(...r.data);
-        if (r.data.length < 1000) break;
-      }
-      return { data: rows };
+    const all = async (make, table) => {
+      const r = await readAll(make, { table, max: 200000 });
+      if (r.error?.incomplete) { showDataAlert($('dataAlert'), r.error); }
+      return r;
     };
     const [c, p, cr] = await Promise.all([
-      all(() => SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
-      all(() => SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true })),
+      all(() => SESS.client.from('customers').select('id, name, phone, kind, coverage_pct, credit_limit, active').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true }), 'customers'),
+      all(() => SESS.client.from('customer_payments').select('id, customer_id, amount, paid_on').eq('pharmacy_id', SESS.pharmacy.id).order('id', { ascending: true }), 'customer_payments'),
       // Every bill on account, however old (not just those since the last upload), for the balance.
-      all(() => SESS.client.from('pos_sales').select('id, branch_id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true })),
+      all(() => SESS.client.from('pos_sales').select('id, branch_id, customer_id, credit, sold_at, kind').eq('pharmacy_id', SESS.pharmacy.id).not('customer_id', 'is', null).order('id', { ascending: true }), 'pos_sales'),
     ]);
     const credit = cr.error ? null : cr.data.filter(branchAllowed);
     if (!c.error && !p.error) next = { customers: c.data, payments: p.data, credit: credit ?? cached.credit ?? [], ready: true };
@@ -172,17 +168,13 @@ async function loadSales() {
   let server = null;
   if (isOnline()) {
     // Every receipt since the last upload counts toward the shelf stock: read them page by page.
-    server = [];
-    for (let from = 0; from < 50000; from += 1000) {
-      const page = (cols) => SESS.client.from('pos_sales').select(cols)
-        .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }).range(from, from + 999);
-      let { data, error } = await page(`${SALE_COLS}, ${SALE_EXTRA[0]}`);
-      if (error && /column/i.test(error.message)) ({ data, error } = await page(`${SALE_COLS}, ${SALE_EXTRA[1]}`)); // update 013 not applied yet
-      if (error && /column/i.test(error.message)) ({ data, error } = await page(SALE_COLS)); // update 012 not applied yet
-      if (error) { server = null; break; }
-      server.push(...data);
-      if (data.length < 1000) break;
-    }
+    const read = (cols) => readAll(() => SESS.client.from('pos_sales').select(cols)
+      .eq('pharmacy_id', SESS.pharmacy.id).gte('sold_at', since).order('sold_at', { ascending: false }), { table: 'pos_sales', max: LOAD_MAX });
+    let r = await read(`${SALE_COLS}, ${SALE_EXTRA[0]}`);
+    if (r.error && /column/i.test(r.error.message)) r = await read(`${SALE_COLS}, ${SALE_EXTRA[1]}`); // update 013 not applied yet
+    if (r.error && /column/i.test(r.error.message)) r = await read(SALE_COLS); // update 012 not applied yet
+    if (r.error?.incomplete) { showDataAlert($('dataAlert'), r.error); }
+    server = r.error ? null : r.data;
   }
   // Receipts made on this device and not uploaded yet — including any made while this was loading.
   const local = [...SALES, ...cached].filter((x, i, all) => x.pending && branchAllowed(x) && all.findIndex((y) => y.id === x.id) === i);
@@ -641,6 +633,78 @@ async function findReceipt() {
   renderCart();
 }
 
+// ---------- Stock kept by the server (Phase 2 M1) ----------
+// Whether this branch blocks selling below zero on the server (and its levels are in use).
+let STOCK_POLICY = { block: false };
+async function loadStockPolicy() {
+  if (!SESS?.client?.cloudflare || !isOnline()) return;
+  const r = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: BRANCH });
+  if (!r.error && r.data) STOCK_POLICY = { block: !!r.data.block_negative && !!r.data.opened_at && !r.data.stale };
+}
+
+// ---------- Receipt numbers ----------
+// "YYMMDD-<tag>-<device>-<0001>". The device code is made once and kept on this device across
+// sign-outs (sign-out clears only the sd:/saydaliti- keys), so two devices never share numbers even
+// with the same tag; the server refuses a number already used. The day's counter is the highest of:
+// what this device saved, the receipts it holds, and the highest the server has for this prefix (so a
+// browser whose storage was cleared carries on instead of starting again at 1). A lock shared by the
+// tabs of this browser makes two tabs never take the same counter.
+const DEVICE_KEY = 'pos-device-v1', SEQ_KEY = 'pos-receipt-seq-v1';
+let DEVICE = null;
+const SERVER_SEQ = new Map(); // prefix → highest counter seen on the server
+function deviceCode() {
+  if (DEVICE) return DEVICE;
+  try { const v = localStorage.getItem(DEVICE_KEY); if (isDeviceCode(v)) return (DEVICE = v); } catch { /* blocked */ }
+  DEVICE = newDeviceCode();
+  try { localStorage.setItem(DEVICE_KEY, DEVICE); } catch { /* blocked: this page keeps it in memory */ }
+  return DEVICE;
+}
+const prefixFor = (d) => receiptPrefix(d, dev.tag, deviceCode());
+async function seedReceiptCounter(d = new Date()) {
+  if (!SESS || !isOnline()) return;
+  const p = prefixFor(d);
+  const r = await SESS.client.from('pos_sales').select('number').eq('pharmacy_id', SESS.pharmacy.id)
+    .gte('number', p).lt('number', `${p}~`).order('number', { ascending: false }).limit(1);
+  if (!r.error && r.data?.[0]) SERVER_SEQ.set(p, Math.max(SERVER_SEQ.get(p) || 0, counterIn(r.data[0].number, p)));
+}
+async function nextReceiptNumber(d) {
+  const p = prefixFor(d);
+  const take = () => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SEQ_KEY) || 'null'); } catch { /* blocked */ }
+    const held = SALES.reduce((m, x) => Math.max(m, counterIn(x.number, p)), 0);
+    const n = Math.max(saved?.prefix === p ? +saved.n || 0 : 0, held, SERVER_SEQ.get(p) || 0) + 1;
+    try { localStorage.setItem(SEQ_KEY, JSON.stringify({ prefix: p, n })); } catch { /* blocked */ }
+    return `${p}${String(n).padStart(4, '0')}`;
+  };
+  return navigator.locks?.request ? navigator.locks.request('saydaliti-receipt-number', take) : take();
+}
+
+// The manager's PIN for a return without a receipt. Resolves to { approval_id, approver_name }, or null
+// if cancelled. The PIN goes to the server once and is never kept on this device.
+function askApproval(returnId, total, reason) {
+  return new Promise((resolve) => {
+    const dlg = $('apprDlg');
+    $('apprNote').textContent = `مرتجع من غير فاتورة بـ ${fmt(-total)} ج — السبب: ${reason}. الكاشير: ${CASHIER.name}. المدير يكتب رقمه السري.`;
+    $('apprPin').value = ''; $('apprMsg').textContent = '';
+    const done = (v) => { $('apprForm').onsubmit = null; $('apprCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); focusSearch(); resolve(v); };
+    $('apprCancel').onclick = () => done(null);
+    dlg.oncancel = (e) => { e.preventDefault(); done(null); };
+    $('apprForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const pin = $('apprPin').value.trim();
+      $('apprPin').value = '';
+      if (!/^\d{4,6}$/.test(pin)) { $('apprMsg').textContent = 'الرقم السري 4 لـ 6 أرقام.'; return; }
+      $('apprMsg').textContent = 'بنتأكد…';
+      const r = await SESS.client.rpc('approve_no_receipt_return', { p_pharmacy: SESS.pharmacy.id, p_branch: BRANCH, p_return_id: returnId, p_total: total, p_reason: reason, p_cashier: CASHIER.id, p_pin: pin });
+      if (r.error) { $('apprMsg').textContent = arabicError(r.error).message; $('apprPin').focus(); return; }
+      done(r.data);
+    };
+    dlg.showModal();
+    $('apprPin').focus();
+  });
+}
+
 // ---------- Checkout & printing ----------
 async function checkout() {
   if (!CART.length) return;
@@ -656,21 +720,31 @@ async function checkout() {
     ($('retNoReceipt').checked ? $('retReason') : $('retNo')).focus();
     return;
   }
+  // A return without the receipt: a manager (an employee the owner allowed) approves it with their own
+  // PIN, checked by the server now, before the money is handed back (owner decision, 2026-11-03).
+  const saleId = crypto.randomUUID();
+  let approval = null;
+  if (MODE === 'return' && !RET) {
+    if (!STAFF.count) { msg('المرتجع من غير فاتورة محتاج موافقة مدير بالرقم السري. صاحب الصيدلية يضيف الموظفين من «الحضور والانصراف» ويسمح لمدير بالموافقة.', true); return; }
+    if (!CASHIER) { msg('الكاشير يدخل برقمه السري الأول، وبعدها المدير يوافق على المرتجع.', true); showPin(); return; }
+    if (!isOnline()) { msg('المرتجع من غير فاتورة محتاج نت عشان موافقة المدير.', true); return; }
+    approval = await askApproval(saleId, -t.total, $('retReason').value.trim());
+    if (!approval) return;
+  }
   if (MODE === 'sale' && CUST && sp.credit && +CUST.credit_limit > 0 && owedBy(CUST.id) + sp.credit > +CUST.credit_limit
     && !confirm(`«${CUST.name}» هيعدّي حد الآجل بتاعه (${fmt(CUST.credit_limit)} ج). تكمّل؟`)) return;
   const now = new Date();
-  const dayKey = `saydaliti-pos-count-${isoDay(now)}`;
-  let n = 1; try { n = (+localStorage.getItem(dayKey) || 0) + 1; localStorage.setItem(dayKey, String(n)); } catch { /* blocked */ }
+  const number = await nextReceiptNumber(now);
   const sign = MODE === 'return' ? -1 : 1;
   const sale = {
-    id: crypto.randomUUID(), pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
-    number: receiptNumber(now, (dev.tag || 'K1').toUpperCase(), n), sold_at: now.toISOString(), kind: MODE,
+    id: saleId, pharmacy_id: SESS.pharmacy.id, branch_id: BRANCH,
+    number, receipt_device: deviceCode(), sold_at: now.toISOString(), kind: MODE,
     lines: CART.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.qty, discount: +l.discount || 0, ...(+l.per > 1 ? { per: +l.per, unit: l.unit || 'strip' } : {}), ...(l.bp ? { bp: l.bp } : {}), ...(+l.tax > 0 ? { tax: +l.tax } : {}) })),
     total: sign * t.total, discount: t.discount, paid: sign * paid, payment: PAYMENT === 'credit' && sp.now ? 'cash' : PAYMENT, created_by: SESS.user.id,
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
     // A return says which receipt it came from, or why there was none (database update 012).
-    ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()}` }) : {}),
+    ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()} (موافقة: ${approval.approver_name})`.slice(0, 300), approval_id: approval.approval_id }) : {}),
     // An item sold while all its recorded stock had expired: what the cashier wrote (audited).
     ...(MODE === 'sale' && CART.some((l) => l.why) ? { note: CART.filter((l) => l.why).map((l) => `اتباع ورصيده منتهي: ${l.name} — ${l.why}`).join(' / ').slice(0, 300) } : {}),
     // A home delivery (database update 0004): the fee is inside the total.
@@ -679,12 +753,25 @@ async function checkout() {
     ...(CASHIER ? { employee_id: CASHIER.id, employee_name: CASHIER.name, ...(SHIFTS[CASHIER.id] ? { shift_id: SHIFTS[CASHIER.id].id } : {}) } : {}),
   };
   const custName = CUST?.name;
-  SALES.unshift({ ...sale, pending: true });
+  // Where the branch blocks selling below zero (stock kept by the server), a sale goes to the server
+  // first and is printed only once the server took it, so the last box is never sold twice. With no
+  // connection it is queued as always (and the server checks it when it arrives).
+  let sentNow = false;
+  if (MODE === 'sale' && STOCK_POLICY.block && isOnline()) {
+    msg('بنتأكد من الرصيد…');
+    const r = await SESS.client.from('pos_sales').upsert(sale, { onConflict: 'id', ignoreDuplicates: true });
+    if (r.error && !/fetch|network/i.test(r.error.message)) { msg(arabicError(r.error).message, true); return; }
+    sentNow = !r.error;
+  }
+  SALES.unshift({ ...sale, pending: !sentNow });
   await kvSet(K.sales(), SALES);
-  await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
+  if (!sentNow) await enqueue('insert', { table: 'pos_sales', row: sale }); // the money record is saved before anything else
   try { refreshItems(); } catch (err) { console.error(err); }
   if (dev.autoPrint) printReceipt({ ...sale, return_no: RET?.sale.number });
-  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${isOnline() ? '' : ' (هتترفع لما النت يرجع)'}`);
+  // Say exactly what happened: confirmed by the server, or saved on this device and waiting (in a branch
+  // that blocks selling below zero, a waiting sale may still be refused when it arrives).
+  const state = sentNow ? ' · السيرفر أكّدها' : isOnline() ? '' : STOCK_POLICY.block ? ' (محفوظة على الجهاز ومستنية النت. الرصيد مش متأكَّد منه: لو صنف خلص على جهاز تاني، السيرفر ممكن يرفضها لما توصل)' : ' (هتترفع لما النت يرجع)';
+  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${state}`);
   newBill();
   renderDay();
   sync();
@@ -735,9 +822,13 @@ function renderDay() {
     ${sum.returns ? `<div><span>مرتجعات (${sum.returns})</span><span class="n">${fmt(sum.returned)}</span></div>` : ''}
     ${Object.entries(sum.byPayment).map(([k, v]) => `<div><span>${esc(PAYMENTS.find(([p]) => p === k)?.[1] ?? k)}</span><span class="n">${fmt(v)}</span></div>`).join('')}
     <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net)}</span></div>`;
+  // What a refused receipt means, said once above the list (it is never thrown away on its own).
+  const nRefused = list.filter((s) => REFUSED.has(s.id)).length;
+  $('dayRefused').hidden = !nRefused;
+  $('dayRefused').textContent = nRefused ? `${nRefused} فاتورة السيرفر رفضها: محفوظة على الجهاز ده بس، ومش داخلة في الرصيد ولا في حسابات الصيدلية لحد ما تتراجع. السبب جنب كل واحدة، والزرار الأحمر فوق بيحاول تاني أو بيوريك تعمل إيه.` : '';
   $('dayList').innerHTML = list.slice(0, 200).map((s) => `<tr class="${s.pending ? 'pend' : ''}"><td class="n">${esc(s.number)}</td>
     <td class="n">${new Date(s.sold_at).toLocaleString('ar-EG', q ? { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' })}${s.employee_name ? `<span class="cat">${esc(s.employee_name)}</span>` : ''}</td>
-    <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
+    <td>${s.kind === 'return' ? '<span class="pill warn">مرتجع</span>' : 'بيع'}${REFUSED.has(s.id) ? ` <span class="pill crit" title="${esc(REFUSED.get(s.id))}">السيرفر رفضها</span><span class="cat err">${esc(REFUSED.get(s.id))}</span>` : s.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td>
     <td class="n">${fmt(s.total)}<span class="cat">${esc((s.lines || []).map((l) => `${l.qty}${+l.per > 1 ? ` ${unitLabel(l)}` : ''}× ${l.name}`).join('، ').slice(0, 90))}</span></td><td>${esc(PAYMENTS.find(([k]) => k === s.payment)?.[1] ?? '')}</td>
     <td class="row"><button class="btn" data-reprint="${esc(s.id)}">اطبع</button>${s.kind === 'sale' ? `<button class="btn" data-retid="${esc(s.id)}">مرتجع منها</button>` : ''}</td></tr>`).join('') || (q ? '<tr><td colspan="6" class="muted">مفيش فاتورة بالبحث ده على الجهاز ده. الفواتير القديمة كلها في اللوحة ← «الفواتير والمبيعات».</td></tr>' : '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده.</td></tr>');
 }
@@ -754,6 +845,8 @@ function printDay() {
 }
 
 // ---------- Sync & status ----------
+// Receipt id → why the server refused it (from the device's refused list, src/offline.js).
+let REFUSED = new Map(), REFUSED_KEY = '';
 async function updateNet() {
   const q = await pending(), st = await stuck();
   const on = isOnline();
@@ -762,10 +855,16 @@ async function updateNet() {
   $('stuckChip').hidden = !st.length;
   $('stuckChip').textContent = `${st.length} حاجة مارضيتش تترفع — دوس هنا عشان تحاول تاني`;
   $('stuckChip').title = st.map((e) => `${describe(e)}: ${e.error || ''}`).join('\n');
+  // Receipts the server refused: kept on this device, shown as refused (not as waiting), with the reason.
+  const refused = new Map(st.filter((e) => e.payload?.table === 'pos_sales').map((e) => [e.payload.row?.id, e.error || '']));
+  const key = [...refused].map(([k, v]) => `${k}:${v}`).join('|');
+  if (key !== REFUSED_KEY) { REFUSED = refused; REFUSED_KEY = key; renderDay(); }
 }
 async function sync() {
   if (!SESS || !isOnline()) return updateNet();
   await flush(SESS.client, (entry, err) => msg(`ماترفعش: ${err.message}`, true));
+  seedReceiptCounter().catch(() => {});
+  loadStockPolicy().catch(() => {});
   const q = [...(await pending()), ...(await stuck())]; // refused ones are still waiting
   const waiting = new Set(q.filter((e) => e.type === 'insert').map((e) => e.payload.row.id));
   let changed = false;
@@ -828,7 +927,7 @@ async function boot() {
 }
 async function reload() {
   await loadItems();
-  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers()]);
+  await Promise.all([loadBarcodes(), loadSales(), loadStock(), loadCustomers(), seedReceiptCounter().catch(() => {}), loadStockPolicy().catch(() => {})]);
   $('custBox').hidden = !CUST_READY; // customers need database update 011
   refreshItems();
   if (!ITEMS.length) msg('لسه مفيش أصناف للفرع ده. صاحب الصيدلية يرفع دليل الأصناف من اللوحة، أو يضيف الأصناف من «كل الأصناف».', true);
@@ -991,7 +1090,7 @@ $('rcLogo').addEventListener('change', async (e) => {
 $('rcLogoDel').addEventListener('click', () => { dev.logo = ''; saveDev(); showLogo(); });
 $('deviceTag').addEventListener('input', (e) => { dev.tag = e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'K1'; saveDev(); });
 addEventListener('keydown', (e) => {
-  if ($('unknownDlg').open || $('custDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open || $('heldDlg').open) return;
+  if ($('unknownDlg').open || $('custDlg').open || $('apprDlg').open || $('pinDlg').open || $('shiftDlg').open || $('outDlg').open || $('heldDlg').open) return;
   if (e.key === 'F4') { e.preventDefault(); holdBill(); return; }
   if (e.key === 'F2') { e.preventDefault(); checkout(); }
   if (e.key === 'Escape') { e.preventDefault(); if (!$('results').hidden) { showResults([]); $('q').value = ''; } else if (!CART.length || confirm('تمسح الفاتورة اللي مفتوحة؟')) newBill(); }

@@ -7,7 +7,7 @@ import { join, isAbsolute } from 'node:path';
 import { symlinkSync } from 'node:fs';
 const PH = '11111111-2222-4333-8444-555555555555', BK = 'abcdef12-0000-4000-8000-000000000000';
 import { tmpdir } from 'node:os';
-import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, checkScheduledHandler, readBackupRequest, backupKeyOk, backupSelect, STAGING, PRODUCTION, WORKER, CONFIG, BACKUP_FILE, BACKUP_DIR } from '../worker/scripts/staging-guard.mjs';
+import { checkConfig, checkWranglerArgs, verifyRemote, alternativeConfigs, guardedArgv, wranglerBin, checkScheduledHandler, readBackupRequest, backupKeyOk, backupSelect, STAGING, PRODUCTION, WORKER, CONFIG, BACKUP_FILE, BACKUP_DIR } from '../worker/scripts/staging-guard.mjs';
 
 const toml = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
 const staging = (fn) => toml.replace(/^\[env\.staging\][\s\S]*$/m, (part) => fn(part));
@@ -209,11 +209,28 @@ test('config: the staging schedule must be exactly the backup cron, and BACKUP_C
     'MORNING_CRON equal to the staging cron': staging((p) => p.replace('MORNING_CRON = "0 6 * * *"', 'MORNING_CRON = "*/30 * * * *"')),
   };
   for (const [what, text] of Object.entries(cases)) assert.ok(checkConfig(text).some((p) => /cron/i.test(p)), what);
+  // The staging marker that turns off outside services: required on staging, forbidden on production.
+  const marker = {
+    'no DEPLOY_ENV': staging((p) => p.replace(/DEPLOY_ENV = "staging"\n/, '')),
+    'DEPLOY_ENV production': staging((p) => p.replace('DEPLOY_ENV = "staging"', 'DEPLOY_ENV = "production"')),
+    'production [vars] sets DEPLOY_ENV': toml.replace('[vars]\n', '[vars]\nDEPLOY_ENV = "staging"\n'),
+    'a WhatsApp token in staging vars': staging((p) => p.replace('DEPLOY_ENV = "staging"', 'DEPLOY_ENV = "staging"\nWHATSAPP_TOKEN = "x"')),
+    'an AI key in staging vars': staging((p) => p.replace('DEPLOY_ENV = "staging"', 'DEPLOY_ENV = "staging"\nANTHROPIC_API_KEY = "x"')),
+  };
+  for (const [what, text] of Object.entries(marker)) assert.ok(checkConfig(text).some((p) => /DEPLOY_ENV|must not set/.test(p)), what);
   assert.deepEqual(checkConfig(toml), []);
 });
 
 test('code: the staging cron may reach only the backups (never the patient reminders or the morning report)', () => {
-  const good = `export default { async scheduled(event, env, ctx) {
+  const good = `import { isolateEnv, guardedFetch } from './egress.js';
+  function internalFetch(env) { return async (u, init) => { if (String(u).startsWith('internal://')) return null; return guardedFetch(env)(u, init); }; }
+  export default {
+  async fetch(req, env) {
+    env = isolateEnv(env);
+    return new Response('');
+  },
+  async scheduled(event, env, ctx) {
+    env = isolateEnv(env);
     const e = jobEnv(env);
     if (event.cron === env.BACKUP_CRON) { ctx.waitUntil(backupAll(env).then((r) => console.log(r))); return; }
     if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e }));
@@ -229,6 +246,12 @@ test('code: the staging cron may reach only the backups (never the patient remin
     'reminders before the backup check': good.replace('const e = jobEnv(env);', 'const e = jobEnv(env); ctx.waitUntil(runReminders({ env: e }));'),
     'backup check on another variable': good.replace('env.BACKUP_CRON', 'env.MORNING_CRON'),
     'no scheduled handler': 'export default { fetch() {} };',
+    // The outside-service kill switch (worker/src/egress.js) must be wired in.
+    'scheduled without isolateEnv': good.replace('  async scheduled(event, env, ctx) {\n    env = isolateEnv(env);', '  async scheduled(event, env, ctx) {'),
+    'fetch without isolateEnv': good.replace('  async fetch(req, env) {\n    env = isolateEnv(env);', '  async fetch(req, env) {'),
+    'isolateEnv after a job starts': good.replace('    env = isolateEnv(env);\n    const e', '    const e').replace("else ctx.waitUntil(runReminders({ env: e }));", "else ctx.waitUntil(runReminders({ env: e }));\n    env = isolateEnv(env);"),
+    'jobs use the raw fetch': good.replace('return guardedFetch(env)(u, init);', 'return fetch(u, init);'),
+    'egress.js not imported': good.replace("import { isolateEnv, guardedFetch } from './egress.js';", ''),
   };
   for (const [what, src] of Object.entries(bad)) assert.ok(checkScheduledHandler(src).length > 0, what);
 });
@@ -292,11 +315,29 @@ test('the backup-check script never has Cloudflare access: no token, no remote w
   assert.match(code, /if \(process\.env\.CLOUDFLARE_API_TOKEN\) \{[^}]*process\.exit\(2\)/, 'it refuses to run with the token');
   assert.doesNotMatch(code.replace("process.env.CLOUDFLARE_API_TOKEN", ''), /CLOUDFLARE|api\.cloudflare\.com/);
   assert.doesNotMatch(code, /--remote|checkWranglerArgs|guardedArgv|staging-guard\.mjs['"]\s*\)|r2['"],\s*['"]object|fetch-backup/);
-  for (const line of code.split('\n').filter((l) => /['"]wrangler['"]/.test(l) && /execFile|spawn/.test(l))) {
+  const wranglerLines = code.split('\n').filter((l) => /['"]wrangler['"]|wranglerBin\(\)/.test(l) && /execFile|spawn/.test(l));
+  assert.ok(wranglerLines.length >= 1, 'the local restore runs Wrangler');
+  for (const line of wranglerLines) {
     assert.match(line, /'--local'/); assert.match(line, /'--config', CONFIG/);
   }
   // The downloaded file is read only from the guard's fixed constant; the command line can't name it.
   assert.match(code, /readFile\(BACKUP_FILE\)/);
   assert.doesNotMatch(code, /readFile\((arg|process\.argv)/);
   assert.match(code, /meta\.sha256 !== sha256/, 'checks the file is the one the guard downloaded');
+});
+
+// Windows (execFileSync cannot start npx.cmd without a shell) and supply chain (npx downloads the latest Wrangler
+// when none is installed): every script and test that runs Wrangler uses the one installed from the lockfile.
+test('Wrangler is never started through npx; the guard refuses when the installed Wrangler is missing', () => {
+  for (const f of ['../worker/scripts/staging-guard.mjs', '../worker/scripts/staging-backup-check.mjs', '../worker/scripts/restore-drill.mjs', '../worker/test/staging-egress.workerd.test.mjs']) {
+    const code = readFileSync(new URL(f, import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(code, /(execFile|execFileSync|spawn|spawnSync|exec|execSync)\(\s*['"]npx/, f);
+  }
+  const t = mkdtempSync(join(tmpdir(), 'guard-bin-'));
+  try {
+    assert.throws(() => wranglerBin(t), /not installed/);
+    mkdirSync(join(t, 'node_modules', 'wrangler', 'bin'), { recursive: true });
+    writeFileSync(join(t, 'node_modules', 'wrangler', 'bin', 'wrangler.js'), '');
+    assert.equal(wranglerBin(t), join(t, 'node_modules', 'wrangler', 'bin', 'wrangler.js'));
+  } finally { rmSync(t, { recursive: true, force: true }); }
 });

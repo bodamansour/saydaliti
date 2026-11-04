@@ -11,7 +11,7 @@
 
 ## النشر الآلي
 
-الدفع إلى `main` يشغل `.github/workflows/cloudflare.yml`: تثبيت حزم Worker، تطبيق ترحيلات D1 البعيدة، ثم بناء الأصول ونشر Worker. إذا لم توجد مفاتيح Cloudflare، يتوقف النشر مع تنبيه. لا تعدّل migration سبق تطبيقه؛ أضف ملفًا جديدًا.
+**تغيّر في 2026-11-03:** النشر للإنتاج بقى يدوي بس (`workflow_dispatch` مع كتابة `DEPLOY-PRODUCTION`)، والدمج في `main` مبقاش بينشر ولا بيعدّل قاعدة البيانات. التفاصيل في [`deployment/DEPLOYMENT_AND_RELEASE.md`](deployment/DEPLOYMENT_AND_RELEASE.md). لا تعدّل migration سبق تطبيقه؛ أضف ملفًا جديدًا.
 
 ## تشغيل محلي على Windows
 
@@ -36,7 +36,7 @@ node --test worker/test/api.test.mjs e2e/cloudflare.e2e.mjs
 
 ## Windows وAndroid
 
-- دفع تغييرات `src/`, ملفات HTML أو `desktop/` يشغل Workflow Windows. ينتج مثبتًا عاديًا ونسخة Win7/32-bit في Release `desktop-latest`.
+- دفع تغييرات `src/`, ملفات HTML أو `desktop/` يشغل Workflow Windows. ينتج مثبت Windows 10/11 (64 بت) في Release `desktop-latest`. ويندوز 7 و8 و32 بت مش مدعومين (Electron 22 منتهي الدعم).
 - Workflow Android يبني APK من `mobile/`. من دون مفاتيح توقيع Android المخصصة، قد لا يقبل الهاتف التحديث فوق APK سابق؛ راجع رسالة Workflow قبل التوزيع.
 
 ## الإطلاق والاستعادة

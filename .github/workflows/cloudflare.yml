@@ -58,6 +58,9 @@ jobs:
         run: |
           if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set: nothing published."; exit 1; fi
       - uses: actions/checkout@v5
+        with:
+          # This job holds the production Cloudflare token: no GitHub token left in .git/config for later steps.
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22

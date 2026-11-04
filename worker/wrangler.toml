@@ -25,14 +25,16 @@ bucket_name = "saydaliti-files"
 
 [vars]
 MORNING_CRON = "0 6 * * *"
+# 01:30 UTC = 03:30 Cairo: the daily encrypted backups (worker/src/backup.js; needs the BACKUP_KEY secret).
+BACKUP_CRON = "30 1 * * *"
 # Password hashing strength: 10000 fits the free Workers plan; raise to 100000 on Workers Paid
 # (each account is redone at its next sign-in).
 PBKDF2_ITER = "10000"
 SITE_URL = "https://saydaliti.mosaedapp.workers.dev"
 
 [triggers]
-# 06:00 UTC = 09:00 Cairo: morning report. Every hour at :15: patient reminders.
-crons = ["0 6 * * *", "15 * * * *"]
+# 06:00 UTC = 09:00 Cairo: morning report. Every hour at :15: patient reminders. 01:30 UTC: backups.
+crons = ["0 6 * * *", "15 * * * *", "30 1 * * *"]
 
 [observability]
 enabled = true
@@ -46,6 +48,9 @@ name = "saydaliti-staging"
 workers_dev = true
 
 [env.staging.vars]
+# Marks this Worker as staging: worker/src/egress.js then strips every outside-service credential (WhatsApp,
+# AI) and refuses outbound requests from the scheduled jobs, so staging can never message a real patient.
+DEPLOY_ENV = "staging"
 MORNING_CRON = "0 6 * * *"
 # Backups every 30 minutes on staging, so the schedule can be observed (production: daily at 01:30 UTC).
 BACKUP_CRON = "*/30 * * * *"

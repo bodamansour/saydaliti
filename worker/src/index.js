@@ -10,6 +10,8 @@ import { signUp, signIn, signOut, userOf, changePassword } from './auth.js';
 import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
+import { backupAll } from './backup.js';
+import { isolateEnv, guardedFetch } from './egress.js';
 import { runMorning } from '../../src/morning-job.js';
 import { runReminders } from '../../src/reminders-job.js';
 
@@ -17,6 +19,8 @@ const SECURITY = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Frame-Options': 'SAMEORIGIN',
+  // API answers are data, never a page: nothing in them may run or be framed.
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
 };
 const json = (body, status = 200) => new Response(typeof body === 'string' ? body : JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY },
@@ -67,7 +71,7 @@ async function api(req, env, url) {
     if (what === 'signup') return json({ data: await signUp(env, await body(req, 10000), ip), error: null });
     if (what === 'signin') return json({ data: await signIn(env, await body(req, 10000), ip), error: null });
     if (what === 'signout') { const u = await userOf(env, req); await signOut(env, u?.token); return json({ data: null, error: null }); }
-    if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000)), error: null }); }
+    if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000), ip), error: null }); }
     throw new ApiError('not found', '404', 404);
   }
   if (path === '/api/ai/status') return json({ data: { enabled: !!env.ANTHROPIC_API_KEY }, error: null });
@@ -82,7 +86,7 @@ async function api(req, env, url) {
       requireRole(ctx, p, ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock']);
       const obj = await env.FILES.get(k);
       if (!obj) throw new ApiError('not found', '404', 404);
-      return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=86400' } });
+      return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=86400', ...SECURITY } });
     }
     requireRole(ctx, p, ['owner', 'stock']);
     if (req.method === 'DELETE') { await env.FILES.delete(k); return json({ data: null, error: null }); }
@@ -95,15 +99,16 @@ async function api(req, env, url) {
     return json({ data: null, error: null });
   }
   if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
-  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req), error: null });
-  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req), error: null });
+  // The AI calls go through guardedFetch: refused on staging (egress.js), the real fetch on production.
+  if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
+  if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
   if (path === '/api/db') {
     const q = await body(req);
     const ctx = await contextOf(env, req);
     if (q.op === 'select') { const r = await select(ctx, env, q); return json(rowsJson(r.rows, r.blob)); }
     if (q.op === 'insert' || q.op === 'upsert') {
       await insert(ctx, env, q, { beforeInsert: async (table, row) => {
-        if (table === 'pos_sales') await checkPosSale(ctx, env, row);
+        if (table === 'pos_sales') return checkPosSale(ctx, env, row);
         // The cashier device records only money taken out of the drawer; other expenses are the owner's.
         if (table === 'expenses' && !['owner', 'accountant'].includes(ctx.roles.get(row.pharmacy_id)) && row.kind !== 'withdrawal') throw new ApiError('not allowed', '42501', 403);
       } });
@@ -150,13 +155,14 @@ function internalFetch(env) {
         : name === 'mark_reminders_sent' ? await markRemindersSent(env, args.p_items) : null;
       return new Response(JSON.stringify(data), { status: 200 });
     }
-    return fetch(u, init);
+    return guardedFetch(env)(u, init);
   };
 }
 const jobEnv = (env) => ({ ...env, SUPABASE_URL: 'internal://db', SUPABASE_PUBLISHABLE_KEY: 'internal', REPORT_SECRET: 'internal' });
 
 export default {
   async fetch(req, env) {
+    env = isolateEnv(env); // staging: only allowlisted keys, and no request leaves the Worker (egress.js)
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rest/')) {
       try { return await api(req, env, url); } catch (e) { return fail(e); }
@@ -164,7 +170,10 @@ export default {
     return env.ASSETS.fetch(req);
   },
   async scheduled(event, env, ctx) {
+    env = isolateEnv(env); // staging: only allowlisted keys, and no request leaves the Worker (egress.js)
     const e = jobEnv(env);
+    // The daily encrypted backups (only with the BACKUP_KEY secret set; see backup.js).
+    if (event.cron === env.BACKUP_CRON) { ctx.waitUntil(backupAll(env).then((r) => console.log('backups', JSON.stringify(r)))); return; }
     if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('morning', JSON.stringify(r))));
     else ctx.waitUntil(runReminders({ env: e, fetchFn: internalFetch(env) }).then((r) => console.log('reminders', JSON.stringify(r))));
   },

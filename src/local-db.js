@@ -2,6 +2,8 @@
 // no internet and no account needed. It answers the same calls the app makes to the online
 // database (from(...).select/eq/order/range/upsert/update/delete and the rpc functions), so every
 // screen works unchanged. One owner, one pharmacy.
+import { checkSaleRow, checkReturnAgainst } from './sale-rules.js';
+
 const DB_NAME = 'saydaliti-local-db'; // separate from the app's offline copy, which sign-out clears
 const USER = { id: '00000000-0000-4000-8000-000000000001', email: 'النسخة المحلية' };
 
@@ -53,7 +55,7 @@ export async function createLocalClient(name = DB_NAME) {
   const mainBranch = (pid) => branches(pid)[0]?.id ?? null;
 
   // Who changed what, like the online database's log (database update 013).
-  const AUDITED = new Set(['catalog_items', 'purchases', 'stock_moves', 'supplier_payments', 'customers', 'customer_payments', 'expenses', 'pos_shifts', 'employees']);
+  const AUDITED = new Set(['return_approvals', 'catalog_items', 'purchases', 'stock_moves', 'supplier_payments', 'customers', 'customer_payments', 'expenses', 'pos_shifts', 'employees']);
   const strip = (r) => { if (!r) return null; const { pin_hash, ...x } = r; return x; };
   const audit = (t, op, before, after) => {
     if (!AUDITED.has(t)) return [];
@@ -85,6 +87,26 @@ export async function createLocalClient(name = DB_NAME) {
             if (same && q.ignore) continue;
             if (t === 'catalog_items' && [...table(t).values()].some((x) => x.code === r.code && x.id !== r.id && x.pharmacy_id === r.pharmacy_id)) return err('duplicate key value violates unique constraint');
             if (t === 'pos_barcodes' && [...table(t).values()].some((x) => x.barcode === r.barcode && x.id !== r.id)) return err('duplicate key value violates unique constraint');
+            // A receipt: the same rules as the online server (src/sale-rules.js), a number used once,
+            // and a receipt is never changed after it is saved (a mistake is fixed with a return).
+            if (t === 'pos_sales') {
+              if (same) continue;
+              try {
+                checkSaleRow(r);
+                if (r.kind === 'return' && !r.return_of) {
+                  const a = r.approval_id && table('return_approvals').get(String(r.approval_id));
+                  if (!a) return err('a return without a receipt needs a manager approval');
+                  if (a.return_id !== r.id || Math.abs(a.total - +r.total) > 0.005 || a.cashier_employee_id !== r.employee_id) return err('approval not for this return');
+                }
+                if (r.kind === 'return' && r.return_of) {
+                  const o = table(t).get(String(r.return_of));
+                  if (!o || o.kind !== 'sale') return err('receipt not found');
+                  checkReturnAgainst(r, o, [...table(t).values()].filter((x) => x.kind === 'return' && x.return_of === r.return_of));
+                }
+              } catch (e) { return err(e.message); }
+              if ([...table(t).values()].some((x) => x.number === r.number && x.pharmacy_id === r.pharmacy_id)) return err('receipt number already used');
+              r.created_at = now();
+            }
             const saved = same ? { ...same, ...r } : r;
             await put(t, saved);
             const log = audit(t, same ? 'update' : 'insert', same || null, saved);
@@ -191,6 +213,26 @@ export async function createLocalClient(name = DB_NAME) {
       const h = await hashPin(p_pin);
       const e = [...table('employees').values()].find((x) => x.pharmacy_id === p_pharmacy && x.active && x.pin_hash === h);
       return { data: e ? [{ employee_id: e.id, employee_name: e.name }] : [], error: null };
+    },
+    // Same rules as the online server (worker/src/rpc.js approve_no_receipt_return).
+    async approve_no_receipt_return({ p_pharmacy, p_branch = null, p_return_id, p_total, p_reason, p_cashier, p_pin }) {
+      const total = Math.round(+p_total * 100) / 100;
+      const reason = String(p_reason ?? '').trim();
+      if (!Number.isFinite(total) || total >= 0) return err('bad return total');
+      if (!reason || reason.length > 300) return err('a return without a receipt needs a reason');
+      const cashier = table('employees').get(String(p_cashier));
+      if (!cashier || !cashier.active || cashier.pharmacy_id !== p_pharmacy) return err('the cashier must sign in with their PIN first');
+      const h = await hashPin(p_pin);
+      const approver = [...table('employees').values()].find((x) => x.pharmacy_id === p_pharmacy && x.active && x.pin_hash === h);
+      if (!approver) return err('wrong pin');
+      if (!approver.can_approve_returns) return err('this employee may not approve returns');
+      if (approver.id === cashier.id) return err('the approver must be another employee');
+      const had = [...table('return_approvals').values()].find((a) => a.return_id === p_return_id);
+      if (had) return had.total === total && had.cashier_employee_id === cashier.id ? { data: { approval_id: had.id, approver_name: had.approver_name }, error: null } : err('return already approved differently');
+      const row = { id: uuid(), pharmacy_id: p_pharmacy, branch_id: p_branch, return_id: p_return_id, total, reason, cashier_employee_id: cashier.id, cashier_name: cashier.name,
+        approver_employee_id: approver.id, approver_name: approver.name, approved_by_user: USER.id, created_at: now() };
+      await put('return_approvals', row);
+      return { data: { approval_id: row.id, approver_name: approver.name }, error: null };
     },
     async log_client_error() { return { data: null, error: null }; },
     async clock({ p_pharmacy, p_pin }) {

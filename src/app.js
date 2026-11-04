@@ -10,6 +10,8 @@ import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
+import { readAll, showDataAlert, incompleteText } from './paged.js';
+import { reconcile, openingItems } from './stock-reconcile.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
@@ -884,8 +886,10 @@ function renderShifts() {
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
-const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم' };
-const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم', pos_sales: 'فاتورة كاشير', return_approvals: 'موافقة مرتجع' };
+const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح', flag: 'وقت محتاج نظرة' };
+// Why a receipt's time was flagged by the server (worker/src/rpc.js timeFlags). Kept, never refused.
+const FLAG_TEXT = { time_not_number_day: 'وقتها مش في يوم رقمها (ساعة الجهاز اتغيرت؟)', before_shift_opened: 'قبل ما ورديتها تتفتح', after_shift_closed: 'بعد ما ورديتها اتقفلت', return_before_sale: 'مرتجع وقته قبل فاتورة البيع', after_day_closed: 'وصلت ليوم اتقفل خلاص', before_base: 'وقتها قبل آخر ملف اترفع من برنامج الصيدلية' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
   const show = (v) => (v === null || v === undefined || v === '' ? '—' : Array.isArray(v) ? `${v.length} سطر` : typeof v === 'object' ? '…' : String(v));
@@ -895,6 +899,8 @@ function logChanges(x) {
     return keys.map((k) => `${k}: ${show(x.old_row?.[k])} ← ${show(x.new_row?.[k])}`).join('، ');
   }
   const r = x.new_row || x.old_row || {};
+  if (x.op === 'flag') return [r.number, ...(r.flags || []).map((f) => FLAG_TEXT[f] || f)].filter(Boolean).join(' · ');
+  if (x.table_name === 'return_approvals') return `${r.total} ج · ${r.reason} · الكاشير ${r.cashier_name} · وافق ${r.approver_name}`;
   return [r.name, r.code, r.invoice_no, r.supplier_name, r.amount != null ? `${r.amount} ج` : '', r.qty != null ? `كمية ${r.qty}` : '', r.employee_name, r.note].filter(Boolean).join(' · ');
 }
 function renderLog() {
@@ -905,7 +911,7 @@ function renderLog() {
   return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button></div>
   <p class="note">كل إضافة أو تعديل أو مسح في المشتريات والأصناف والرصيد والعملاء والفلوس والورديات بيتسجل هنا: مين وإمتى وإيه اللي اتغير. محدش يقدر يمسح السجل ده.</p>
   ${list.length ? table(['إمتى', 'مين', 'إيه', 'العملية', 'التفاصيل'], list.slice(0, 500).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td>
-    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
+    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' || x.op === 'flag' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
     <td class="name">${esc(logChanges(x))}</td></tr>`)) : '<p class="muted">لسه مفيش حاجة في السجل.</p>'}`;
 }
 
@@ -927,6 +933,8 @@ function refreshDerived() {
 }
 
 // Server rows, plus local changes still waiting in the outbox; falls back to the copy on this device.
+// The most rows of one table this screen loads (Phase 2 moves stock to the server and removes this).
+const LOAD_MAX = 50000;
 async function loadTable(table, cols, order = 'created_at') {
   const q = await pending();
   const mine = (t) => (e) => e.payload?.table === table && e.type === t;
@@ -935,14 +943,9 @@ async function loadTable(table, cols, order = 'created_at') {
   const upd = q.filter(mine('update'));
   let rows = null;
   if (isOnline()) {
-    // The server sends at most 1000 rows at a time: read page by page (stock needs every row).
-    let all = [], error = null;
-    for (let from = 0; from < 50000; from += 1000) {
-      const res = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).range(from, from + 999);
-      if (res.error) { error = res.error; break; }
-      all.push(...res.data);
-      if (res.data.length < 1000) break;
-    }
+    // Every row (stock and money need all of them), page by page; never part of the table.
+    const { data: all, error } = await readAll(() => SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }), { table, max: LOAD_MAX });
+    if (error?.incomplete) { showDataAlert($('dataAlert'), error); throw error; }
     if (error && !/fetch|network/i.test(error.message)) throw Object.assign(new Error(error.message), { missing: true });
     if (!error) rows = all;
   }
@@ -2394,14 +2397,13 @@ async function cloudBackup() {
     tables: { pharmacies: [{ id: SESS.pharmacy.id, name: SESS.pharmacy.name, settings: SESS.pharmacy.settings || {}, created_at: new Date().toISOString() }] } };
   for (const [t, cols] of CLOUD_TABLES) {
     $('cloudBackupMsg').textContent = `بنزّل ${t}…`;
-    const rows = [];
-    for (let from = 0; from < 500000; from += 1000) {
-      const r = await SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }).range(from, from + 999);
-      if (r.error) { if (!/fetch|network/i.test(r.error.message)) break; throw new Error('النت فصل. جرّب تاني.'); }
-      rows.push(...r.data);
-      if (r.data.length < 1000) break;
-    }
-    out.tables[t] = rows;
+    // A backup is all or nothing: any table that can't be read whole stops it with the reason.
+    const { data: rows, error } = await readAll(() => SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }), { table: t, max: 500000 });
+    if (error?.incomplete) throw new Error(incompleteText(error));
+    if (error && /fetch|network/i.test(error.message)) throw new Error('النت فصل. جرّب تاني.');
+    // A table the database doesn't have yet (an update not applied) is empty; any other refusal stops the backup.
+    if (error && !/does not exist|schema cache|42P01/i.test(`${error.code ?? ''} ${error.message}`)) throw new Error(`مقدرتش أنزّل ${t}: ${error.message}`);
+    out.tables[t] = rows ?? [];
   }
   // The latest uploaded data of each branch (the starting stock).
   $('cloudBackupMsg').textContent = 'بنزّل آخر رفع لكل فرع…';
@@ -2415,6 +2417,87 @@ async function cloudBackup() {
   out.tables.snapshots = snaps;
   return out;
 }
+// ---------- Stock kept by the server (Phase 2 M1) ----------
+// The branch the section works on: the one shown, or the only one.
+const stockBranch = () => (BRANCH === 'all' ? (BRANCHES.length === 1 ? BRANCHES[0] : null) : BRANCHES.find((b) => key(b.id) === BRANCH)) ?? null;
+async function refreshStockBox() {
+  const b = stockBranch();
+  $('stockOpen').disabled = $('stockCheck').disabled = $('stockBlock').disabled = !b || !isOnline();
+  if (!b) { $('stockState').textContent = 'اختار فرع من فوق الأول.'; return null; }
+  const r = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id });
+  if (r.error) { $('stockState').textContent = arabicError(r.error).message; return null; }
+  const st = r.data;
+  const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('stockState').textContent = !st.opened_at ? `فرع ${b.name}: رصيد السيرفر لسه ما بدأش.`
+    : st.stale ? `فرع ${b.name}: اترفع ملف جديد بعد آخر بداية (${t(st.opened_at)}). ابدأ تاني عشان رصيد السيرفر يمشي على الملف الجديد. لحد كده مش بيمنع بيع.`
+    : `فرع ${b.name}: رصيد السيرفر شغال من ${t(st.opened_at)}.${st.block_negative ? ' البيع بعد ما الرصيد يخلص ممنوع.' : ''}`;
+  $('stockBlock').checked = !!st.block_negative;
+  $('stockBlockWrap').hidden = !isOwner();
+  return st;
+}
+$('stockBox').addEventListener('toggle', () => { if ($('stockBox').open) refreshStockBox(); });
+$('stockOpen').addEventListener('click', async () => {
+  const b = stockBranch(); if (!b) return;
+  if (!confirm(`رصيد السيرفر لفرع ${b.name} هيبقى الأرقام اللي في البرنامج دلوقتي، وأي حركة بعدها بتتحسب لوحدها. تكمّل؟`)) return;
+  $('stockOpen').disabled = true;
+  try {
+    // The server's clock first, then fresh data: anything the server gets after that is added on top.
+    const st = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id });
+    if (st.error) throw arabicError(st.error);
+    $('stockState').textContent = 'بنحمّل آخر الأرقام…';
+    await Promise.all([loadSnapshots(), loadFeatures(), loadInventory()]);
+    setView();
+    const items = openingItems(branchData(b).items);
+    const r = await SESS.client.rpc('open_stock', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id, p_base_at: SNAP.get(key(b.id))?.at ?? null, p_watermark: st.data.server_now, p_items: items });
+    if (r.error) throw arabicError(r.error);
+    await refreshStockBox();
+    $('stockDiff').textContent = `اتسجل رصيد ${fmt(items.length)} صنف.`;
+  } catch (e) { $('stockState').textContent = `ما اتسجلش: ${e.message}`; }
+  $('stockOpen').disabled = false;
+});
+$('stockCheck').addEventListener('click', async () => {
+  const b = stockBranch(); if (!b) return;
+  $('stockDiff').textContent = 'بنقارن…';
+  const lv = await readAll(() => SESS.client.from('stock_levels').select('code, qty').eq('pharmacy_id', SESS.pharmacy.id).eq('branch_id', b.id).order('code'), { table: 'stock_levels', max: LOAD_MAX });
+  if (lv.error) { $('stockDiff').textContent = lv.error.incomplete ? incompleteText(lv.error) : arabicError(lv.error).message; return; }
+  const { diffs, checked } = reconcile(lv.data, branchData(b).items);
+  $('stockDiff').innerHTML = !diffs.length ? `<p class="note">${fmt(checked)} صنف: رصيد السيرفر هو نفس رصيد البرنامج.</p>`
+    : `<p class="note">${fmt(diffs.length)} صنف مختلف من ${fmt(checked)}. الفرق معناه إن فيه حركة ناقصة عند واحد منهم: شوف «حركة الصنف»، وبعدين ابدأ تاني لو الأرقام اللي في البرنامج صح.</p>`
+      + table(['الصنف', 'السيرفر', 'البرنامج', 'الفرق'], diffs.slice(0, 50).map((d) => `<tr><td>${esc(d.name)}</td><td class="n">${fmt(d.server, 2)}</td><td class="n">${fmt(d.app, 2)}</td><td class="n">${fmt(d.diff, 2)}</td></tr>`));
+});
+$('stockBlock').addEventListener('change', async (e) => {
+  const b = stockBranch(); if (!b) return;
+  const want = e.target.checked;
+  const r = await SESS.client.rpc('set_stock_policy', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id, p_block_negative: want });
+  if (r.error) { e.target.checked = !want; $('stockState').textContent = arabicError(r.error).message; return; }
+  await refreshStockBox();
+});
+
+// Encrypted backups the server keeps (Phase 2 M2): the latest one, and one now.
+async function refreshServerBackups() {
+  if (!SESS.client?.cloudflare || !isOwner()) return;
+  const r = await SESS.client.rpc('list_backups', { p_pharmacy: SESS.pharmacy.id });
+  if (r.error) return; // an older server without backups: nothing shown
+  $('serverBackups').hidden = false;
+  const ok = r.data.find((b) => b.status === 'ok'), failed = r.data.find((b) => b.status === 'failed');
+  const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('serverBackupState').textContent = ok ? `آخر نسخة: ${t(ok.created_at)}.` : 'لسه مفيش نسخة.';
+  // Older than 36 hours (the daily job should have made one): said in red.
+  const old = !ok || Date.now() - Date.parse(ok.created_at) > 36 * 3600000;
+  $('serverBackupState').className = old ? 'err' : 'note';
+  if (ok && old) $('serverBackupState').textContent += ' النسخة دي قديمة: النسخة اليومية ما اتعملتش.';
+  if (failed && (!ok || failed.created_at > ok.created_at)) $('serverBackupState').textContent += ` آخر محاولة ما نجحتش (${t(failed.created_at)}).`;
+}
+$('cloudBackupBox').addEventListener('toggle', () => { if ($('cloudBackupBox').open) refreshServerBackups(); });
+$('serverBackupBtn').addEventListener('click', async () => {
+  $('serverBackupBtn').disabled = true;
+  $('serverBackupState').textContent = 'بنعمل النسخة…';
+  const r = await SESS.client.rpc('backup_now', { p_pharmacy: SESS.pharmacy.id });
+  $('serverBackupBtn').disabled = false;
+  if (r.error) { $('serverBackupState').textContent = `ما اتعملتش: ${arabicError(r.error).message}`; return; }
+  await refreshServerBackups();
+});
+
 $('cloudBackupBtn').addEventListener('click', async () => {
   if (!isOnline()) { $('cloudBackupMsg').textContent = 'النسخة الكاملة محتاجة نت.'; return; }
   $('cloudBackupBtn').disabled = true;
@@ -2877,6 +2960,7 @@ async function boot() {
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
+  $('stockBox').hidden = !['owner', 'stock'].includes(SESS.role) || !!SESS.local || !SESS.client?.cloudflare;
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();

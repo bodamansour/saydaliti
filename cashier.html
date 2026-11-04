@@ -40,6 +40,7 @@
         <input id="q" type="search" autocomplete="off" placeholder="امسح الباركود أو اكتب اسم الصنف… (Enter)" aria-label="بحث عن صنف">
         <div id="results" class="results" role="listbox" hidden></div>
       </div>
+      <div class="data-alert" id="dataAlert" role="alert" hidden></div>
       <p class="note" id="posMsg" role="status"></p>
       <div class="tablebox cart"><table>
         <thead><tr><th>الصنف</th><th>السعر</th><th>الكمية</th><th>خصم <button class="btn unit" type="button" id="lineUnit" aria-label="خصم الصنف بالجنيه أو نسبة" title="دوس عشان تبدّل بين جنيه ونسبة">ج</button></th><th>الإجمالي</th><th></th></tr></thead>
@@ -104,6 +105,7 @@
     <div class="row" style="justify-content:space-between"><h3 id="dayTitle">فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
     <div class="ledger" id="daySum"></div>
     <input id="daySearch" type="search" autocomplete="off" placeholder="دوّر في كل الفواتير: رقم الفاتورة أو اسم صنف أو عميل…" aria-label="دوّر في الفواتير">
+    <div class="data-alert" id="dayRefused" role="alert" hidden></div>
     <div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th><th>النوع</th><th>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody id="dayList"></tbody></table></div>
   </section>
 </div>
@@ -150,6 +152,15 @@
     <input id="pinIn" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري">
     <label id="openCashWrap" hidden>الفلوس اللي في الدرج دلوقتي (بداية الوردية)<input id="openCash" class="n big-in" type="number" min="0" step="1" inputmode="decimal" value="0"></label>
     <div class="row"><button class="btn primary" type="submit" id="pinOk">ادخل</button><span class="note" id="pinMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="apprDlg" class="card">
+  <form id="apprForm" class="stack" novalidate>
+    <h3>موافقة المدير على المرتجع</h3>
+    <p class="note" id="apprNote"></p>
+    <input id="apprPin" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري للمدير">
+    <div class="row"><button class="btn primary" type="submit">وافق</button><button class="btn" type="button" id="apprCancel">إلغاء</button><span class="note" id="apprMsg" role="status"></span></div>
   </form>
 </dialog>
 
