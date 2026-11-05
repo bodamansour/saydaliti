@@ -153,7 +153,13 @@ test('an app that still keeps its token moves it into the cookie', { skip }, asy
 test('the log of changes: rows can not be changed, and a change made behind the app shows in the check', { skip }, async () => {
   const { execFileSync } = await import('node:child_process');
   const { wranglerBin, WORKER } = await import('../scripts/staging-guard.mjs');
-  const sql = (q) => execFileSync(process.execPath, [wranglerBin(WORKER), 'd1', 'execute', 'saydaliti', '--local', '--command', q], { cwd: WORKER, stdio: 'pipe' }).toString();
+  // The other suites write to the same local database at the same time: a busy database is tried again.
+  const sql = (q) => {
+    for (let i = 0; ; i++) {
+      try { return execFileSync(process.execPath, [wranglerBin(WORKER), 'd1', 'execute', 'saydaliti', '--local', '--command', q], { cwd: WORKER, stdio: 'pipe' }).toString(); }
+      catch (e) { if (i < 20 && /SQLITE_BUSY|database is locked/.test(`${e.stdout}${e.stderr}${e.message}`)) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500); continue; } throw Object.assign(e, { message: `${e.message}\n${e.stdout}${e.stderr}` }); }
+    }
+  };
   // Something logged: a customer added.
   assert.equal((await owner.insert('customers', { id: uuid(), pharmacy_id: P, name: 'عميل السجل' })).error, null);
   const ok = await owner.rpc('audit_verify', { p_pharmacy: P });
