@@ -25,7 +25,10 @@ before(async () => {
     if (path === 'api/config') { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ configured: true, local: true })); return; }
     const file = join(ROOT, path === '' ? 'index.html' : path);
     if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
-    try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' }).end(body); } catch { res.writeHead(404).end(); }
+    // The same security policy the Windows program gives its pages (desktop/main.js), plus the SheetJS and font
+    // address the repository's pages still name (the program points them at its bundled copy).
+    const csp = extname(file) === '.html' ? { 'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" } : {};
+    try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', ...csp }).end(body); } catch { res.writeHead(404).end(); }
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://localhost:${server.address().port}/`;
@@ -35,6 +38,7 @@ before(async () => {
   await ctx.route(/^https?:\/\/(?!localhost)/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
+  ctx.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy|Refused to/i.test(m.text())) errors.push(`CSP: ${m.text()}`); });
   page.on('dialog', (d) => d.accept());
 });
 after(async () => { await browser?.close(); server?.close(); });

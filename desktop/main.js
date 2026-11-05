@@ -41,13 +41,20 @@ const BACKGROUND = process.argv.includes('--background');
 let quitting = false;
 app.on('before-quit', () => { quitting = true; });
 
-function serve(req) {
+// The pages on this computer get the same kind of security policy as the website: only the app's own
+// scripts and styles (bundled here), no inline code, no plugins, nothing from the internet.
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
+async function serve(req) {
   const url = new URL(req.url);
   // Tells the pages to use the database on this computer.
   if (url.pathname === '/api/config') return Response.json({ configured: true, local: true });
   const file = normalize(join(APP_DIR, decodeURIComponent(url.pathname)));
   if (!file.startsWith(APP_DIR + sep)) return new Response('not found', { status: 404 });
-  return net.fetch(pathToFileURL(file).toString());
+  const res = await net.fetch(pathToFileURL(file).toString());
+  if (!file.toLowerCase().endsWith('.html')) return res;
+  const headers = new Headers(res.headers);
+  headers.set('Content-Security-Policy', CSP);
+  return new Response(res.body, { status: res.status, headers });
 }
 
 // The same for Electron 22 (the last one that runs on Windows 7 and 32-bit Windows), which has no
@@ -62,7 +69,7 @@ async function serveLegacy(req, callback) {
   try {
     const ext = file.slice(file.lastIndexOf('.')).toLowerCase();
     const type = TYPES[ext] || 'application/octet-stream';
-    callback({ mimeType: type, ...(/^text|json|svg|manifest/.test(type) ? { charset: 'utf-8' } : {}), data: await fs.readFile(file) });
+    callback({ mimeType: type, ...(/^text|json|svg|manifest/.test(type) ? { charset: 'utf-8' } : {}), ...(ext === '.html' ? { headers: { 'Content-Security-Policy': CSP } } : {}), data: await fs.readFile(file) });
   } catch { callback({ statusCode: 404, data: Buffer.from('not found') }); }
 }
 

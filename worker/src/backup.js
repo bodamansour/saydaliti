@@ -7,6 +7,7 @@
 // so each pharmacy's backups have their own key and a file can't be opened as another pharmacy's.
 // Without the BACKUP_KEY secret, no backup is made (and none is stored unencrypted).
 import { TABLES } from './schema.js';
+import { sealAudit } from './audit-seal.js';
 import { ApiError, nowIso, uuid } from './db.js';
 
 export const RETAIN = 14; // the newest good backups kept per pharmacy (older files are deleted)
@@ -16,7 +17,7 @@ export const sha256hex = async (text) => hex(await crypto.subtle.digest('SHA-256
 
 // Every table with the pharmacy's rows, parents first (restore order). stock_levels is not kept: the
 // ledger's trigger rebuilds it, and the restore checks it comes back the same.
-const SKIP = new Set(['users', 'sessions', 'password_resets', 'email_outbox', 'auth_attempts', 'app_admins', 'app_secrets', 'invite_attempts', 'pin_attempts', 'client_errors', 'app_config', 'stock_levels', 'pharmacies', 'members']);
+const SKIP = new Set(['users', 'sessions', 'password_resets', 'email_outbox', 'audit_seals', 'auth_attempts', 'app_admins', 'app_secrets', 'invite_attempts', 'pin_attempts', 'client_errors', 'app_config', 'stock_levels', 'pharmacies', 'members']);
 export const BACKUP_TABLES = ['branches', 'employees', 'attendance', 'invites', 'snapshots', 'connector_tokens', 'customers', 'customer_payments', 'patients', 'reminders',
   'catalog_items', 'purchases', 'supplier_payments', 'pos_shifts', 'pos_barcodes', 'pos_sales', 'return_approvals', 'stock_moves', 'stock_bases', 'stock_ledger',
   'expenses', 'cash_moves', 'shortages', 'market_prices', 'day_closes', 'tasks', 'subscriptions', 'audit_log'];
@@ -151,6 +152,10 @@ async function prune(env, pharmacyId) {
 // observability can alert on it) and is shown to the owner and the app admin (list_backups,
 // admin_backup_health).
 export async function backupAll(env) {
+  // The log's daily fingerprint, with or without backups.
+  for (const { id } of await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at')) {
+    try { await sealAudit(env, id); } catch (e) { console.error('AUDIT_SEAL', id, e?.message); }
+  }
   if (!env.BACKUP_KEY) { console.error('BACKUP_ALERT', JSON.stringify({ problem: 'BACKUP_KEY not set: no backups are made' })); return { skipped: 'no BACKUP_KEY' }; }
   const out = { ok: 0, failed: 0 };
   for (const { id } of await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at')) {

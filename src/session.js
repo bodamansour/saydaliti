@@ -215,7 +215,7 @@ export function renderSignIn(box, onDone, mode = 'in') {
     ${!up && client?.auth?.forgot ? '<p class="switch"><button class="linkbtn" type="button" id="forgotBtn">نسيت كلمة السر؟</button></p>' : ''}
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>
-    <p class="note" style="text-align:center"><a class="navlink" href="./about.html">إيه هو صيدليتي؟ والأسعار</a></p>`;
+    <p class="note u-center"><a class="navlink" href="./about.html">إيه هو صيدليتي؟ والأسعار</a></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
   box.querySelector('#switchMode').addEventListener('click', () => renderSignIn(box, onDone, up ? 'in' : 'up'));
   box.querySelector('#forgotBtn')?.addEventListener('click', () => renderForgot(box, onDone));
