@@ -149,3 +149,26 @@ test('an app that still keeps its token moves it into the cookie', { skip }, asy
   assert.equal(cookie, `sd_session=${u.token()}`, 'the same session');
   assert.equal((await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } })).status, 401, 'only from a Bearer token');
 });
+
+test('the log of changes: rows can not be changed, and a change made behind the app shows in the check', { skip }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { wranglerBin, WORKER } = await import('../scripts/staging-guard.mjs');
+  const sql = (q) => execFileSync(process.execPath, [wranglerBin(WORKER), 'd1', 'execute', 'saydaliti', '--local', '--command', q], { cwd: WORKER, stdio: 'pipe' }).toString();
+  // Something logged: a customer added.
+  assert.equal((await owner.insert('customers', { id: uuid(), pharmacy_id: P, name: 'عميل السجل' })).error, null);
+  const ok = await owner.rpc('audit_verify', { p_pharmacy: P });
+  assert.equal(ok.data.ok, true); assert.ok(ok.data.rows > 0);
+  assert.equal((await device.rpc('audit_verify', { p_pharmacy: P })).status, 403, 'owner only');
+  // The database itself refuses to change or remove a row.
+  assert.throws(() => sql(`UPDATE audit_log SET op = 'x' WHERE pharmacy_id = '${P}'`), /append-only/);
+  assert.throws(() => sql(`DELETE FROM audit_log WHERE pharmacy_id = '${P}'`), /append-only/);
+  // Someone with the database removes the trigger and edits a row: the check finds it.
+  sql('DROP TRIGGER audit_log_no_update');
+  try {
+    sql(`UPDATE audit_log SET new_row = '{"name":"edited"}' WHERE id = (SELECT min(id) FROM audit_log WHERE pharmacy_id = '${P}')`);
+    const bad = await owner.rpc('audit_verify', { p_pharmacy: P });
+    assert.equal(bad.data.ok, false);
+  } finally {
+    sql("CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END");
+  }
+});

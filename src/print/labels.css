@@ -1,0 +1,4 @@
+@page { size: 38mm 25mm; margin: 0 } body { margin: 0; font-family: system-ui, Tahoma, sans-serif }
+.label { width: 38mm; height: 25mm; box-sizing: border-box; padding: 1mm 1.5mm; page-break-after: always; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between }
+.lb-ph { font-size: 6pt; color: #444; white-space: nowrap; overflow: hidden } .lb-name { font-size: 7.5pt; font-weight: 700; line-height: 1.1; max-height: 2.2em; overflow: hidden }
+.lb-bc svg { width: 100%; height: 9mm; display: block } .lb-row { display: flex; justify-content: space-between; font-size: 7pt } .n { font-variant-numeric: tabular-nums; direction: ltr }

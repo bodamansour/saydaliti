@@ -503,6 +503,7 @@ test('security headers are sent, and no page or tab breaks the Content-Security-
   const csp = h.get('content-security-policy') || '';
   for (const d of ["default-src 'self'", "object-src 'none'", "frame-ancestors 'self'", "base-uri 'self'"]) assert.ok(csp.includes(d), `CSP has ${d}`);
   assert.doesNotMatch(csp.split('script-src')[1].split(';')[0], /unsafe-inline|unsafe-eval/, 'no inline or eval scripts allowed');
+  assert.doesNotMatch(csp.split('style-src')[1].split(';')[0], /unsafe-inline/, 'no inline styles allowed');
   assert.equal(h.get('x-frame-options'), 'SAMEORIGIN');
   assert.equal(h.get('x-content-type-options'), 'nosniff');
   const api = (await fetch(`${BASE}/api/config`)).headers.get('content-security-policy');
