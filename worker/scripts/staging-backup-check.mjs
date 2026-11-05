@@ -31,7 +31,7 @@ async function prepare(rowsArg = '300') {
   const BASE = process.env.STAGING_URL;
   if (!BASE || !STAGING.urlHost.test(BASE)) { console.error('refusing: STAGING_URL is missing or not the staging URL'); process.exit(2); }
   const call = async (token, path, body) => {
-    const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
+    const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
     return { status: r.status, ...(await r.json()) };
   };
   const report = { at: new Date().toISOString(), target: BASE, synthetic_rows: +rowsArg };

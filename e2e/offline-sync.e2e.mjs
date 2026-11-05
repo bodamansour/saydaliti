@@ -13,7 +13,7 @@ const uuid = () => crypto.randomUUID();
 const now = () => new Date().toISOString();
 
 async function api(token, path, body) {
-  const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
+  const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
   return { status: r.status, ...(await r.json()) };
 }
 async function account() {

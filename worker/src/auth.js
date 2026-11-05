@@ -243,11 +243,31 @@ export async function resetPassword(env, { token, password }, ip) {
 }
 export const mfaOf = async (env, userId) => !!(await env.DB.prepare('SELECT totp_secret FROM users WHERE id = ?').bind(userId).first())?.totp_secret;
 
-// The signed-in user of a request (Authorization: Bearer <token>), or null.
+// ---------- Where the sign-in lives ----------
+// In the browser the session token is an HttpOnly cookie: page scripts (and so an injected script) can't
+// read it. Scripts and tests that ask for it (X-Want-Token: 1) still get it in the answer, and send it as
+// Authorization: Bearer. A request signed in by the cookie must also carry X-Saydaliti: 1 to change
+// anything: another site can't add that header (it would need CORS, which this server never allows), so a
+// page elsewhere can't act with the pharmacy's sign-in (CSRF). SameSite=Strict blocks the same.
+export const COOKIE = 'sd_session';
+export const sessionCookie = (token, expiresAt) => `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${Math.max(0, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000))}`;
+export const clearCookie = () => `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+const cookieToken = (req) => {
+  for (const part of String(req.headers.get('Cookie') || '').split(';')) {
+    const [k, v] = part.trim().split('=');
+    if (k === COOKIE && /^[0-9a-f]{64}$/i.test(v || '')) return v;
+  }
+  return null;
+};
+const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+// The signed-in user of a request (the session cookie, or Authorization: Bearer <token>), or null.
 export async function userOf(env, req) {
-  const m = /^Bearer\s+([0-9a-f]{64})$/i.exec(req.headers.get('Authorization') || '');
-  if (!m) return null;
-  const s = await env.DB.prepare('SELECT s.user_id, s.expires_at, u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?').bind(await sha256(m[1])).first();
+  const bearer = /^Bearer\s+([0-9a-f]{64})$/i.exec(req.headers.get('Authorization') || '')?.[1];
+  const token = bearer || cookieToken(req);
+  if (!token) return null;
+  if (!bearer && !SAFE.has(req.method) && req.headers.get('X-Saydaliti') !== '1') throw new ApiError('request refused', 'csrf', 403);
+  const s = await env.DB.prepare('SELECT s.user_id, s.expires_at, u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?').bind(await sha256(token)).first();
   if (!s || s.expires_at < nowIso()) return null;
-  return { id: s.user_id, email: s.email, token: m[1] };
+  return { id: s.user_id, email: s.email, token, expires_at: s.expires_at, via: bearer ? 'bearer' : 'cookie' };
 }

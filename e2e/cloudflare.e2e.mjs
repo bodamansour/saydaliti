@@ -52,6 +52,10 @@ test('the owner signs up, makes the pharmacy, uploads the item list, receives a 
   owner = await newPage();
   await signUp(owner, OWNER);
   await owner.waitForSelector('#phNameNew');
+  // The sign-in is an HttpOnly cookie: nothing the page can read holds the token.
+  const kept = await owner.evaluate(() => JSON.parse(localStorage.getItem('sd-cf-auth')));
+  assert.ok(kept?.user?.id && !kept.access_token, `stored: ${JSON.stringify(Object.keys(kept || {}))}`);
+  assert.equal(await owner.evaluate(() => document.cookie.includes('sd_session')), false);
   await owner.fill('#phNameNew', 'صيدلية أحمد منصور');
   await owner.click('#createForm button[type=submit]');
   await owner.waitForSelector('#app:not([hidden])');
@@ -313,8 +317,8 @@ test('the Windows program: turning on the sync with United makes a working conne
 // Receipt numbers (Phase 1): "YYMMDD-K1-<device>-<0001>", unique across devices, and the count goes on
 // after the browser's saved counter is lost (sign-out, cleared storage) because the server is asked.
 const serverSales = (p) => p.evaluate(async () => {
-  const s = JSON.parse(localStorage.getItem('sd-cf-auth'));
-  const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.access_token}` },
+  // The page signs in with its HttpOnly cookie (it can't read the token); X-Saydaliti is the CSRF header.
+  const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' },
     body: JSON.stringify({ op: 'select', table: 'pos_sales', cols: 'number, receipt_device', filters: [], limit: 1000 }) });
   return (await r.json()).data;
 });
@@ -411,8 +415,7 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
   assert.ok(await until(owner, async () => /المرتجع اتسجل/.test(await text(owner, '#posMsg'))), `step 4: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   assert.ok(await until(owner, async () => /متصل/.test(await text(owner, '#netChip'))), 'uploaded, not refused');
   const rows = await owner.evaluate(async () => {
-    const s = JSON.parse(localStorage.getItem('sd-cf-auth'));
-    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.access_token}` },
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' },
       body: JSON.stringify({ op: 'select', table: 'return_approvals', cols: 'return_id, reason, cashier_name, approver_name', filters: [], limit: 10 }) });
     return (await r.json()).data;
   });
@@ -445,8 +448,8 @@ test('stock on the server: the owner opens it from the app\'s numbers, they matc
   await owner.press('#q', 'Enter');
   await owner.fill('[data-qty="0"]', '999');
   await owner.press('[data-qty="0"]', 'Tab');
-  const before = (await owner.evaluate(() => JSON.parse(localStorage.getItem('sd-cf-auth')))).access_token;
-  const count = async () => owner.evaluate(async (tok) => (await (await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ op: 'select', table: 'pos_sales', cols: 'id', filters: [], limit: 1000 }) })).json()).data.length, before);
+  const before = null; // the page's own sign-in (HttpOnly cookie) is used
+  const count = async () => owner.evaluate(async () => (await (await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' }, body: JSON.stringify({ op: 'select', table: 'pos_sales', cols: 'id', filters: [], limit: 1000 }) })).json()).data.length, before);
   const n0 = await count();
   await owner.keyboard.press('F2');
   assert.ok(await until(owner, async () => /الرصيد على السيرفر مش كفاية/.test(await text(owner, '#posMsg'))), await text(owner, '#posMsg'));
@@ -456,7 +459,7 @@ test('stock on the server: the owner opens it from the app\'s numbers, they matc
   const pid = await owner.evaluate(async (tok) => {
     const id = crypto.randomUUID();
     const ph = JSON.parse(localStorage.getItem('saydaliti-member-v1')).pharmacy.id;
-    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ op: 'upsert', table: 'purchases', ignoreDuplicates: true, rows: [{ id, pharmacy_id: ph, received_on: new Date().toISOString().slice(0, 10), lines: [{ code: '6220000000001', qty: 1000, cost: 10 }], total: 10000 }] }) });
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' }, body: JSON.stringify({ op: 'upsert', table: 'purchases', ignoreDuplicates: true, rows: [{ id, pharmacy_id: ph, received_on: new Date().toISOString().slice(0, 10), lines: [{ code: '6220000000001', qty: 1000, cost: 10 }], total: 10000 }] }) });
     return (await r.json()).error ? null : id;
   }, before);
   assert.ok(pid, 'the delivery was recorded');
