@@ -13,7 +13,7 @@ const now = () => new Date().toISOString();
 function user(email = `f-${rnd()}@test.local`) {
   let token = null;
   const call = async (path, body, method = 'POST') => {
-    const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }) });
+    const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }) });
     return { status: r.status, ...(await r.json()) };
   };
   const u = {
@@ -117,4 +117,35 @@ test('forgotten password: a one-time link by email, no hint whether the account 
 
 test('usage counts are for the app owner only', { skip }, async () => {
   assert.match((await owner.rpc('admin_usage')).error.message, /not allowed/);
+});
+
+test('the sign-in is an HttpOnly cookie; a change signed in by the cookie needs the app header (CSRF)', { skip }, async () => {
+  const email = `c-${rnd()}@test.local`;
+  const r = await fetch(`${BASE}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'password123' }) });
+  const j = await r.json();
+  assert.equal(j.data.access_token, undefined, 'the page never sees the token');
+  assert.equal(j.data.user.email, email);
+  const set = r.headers.get('set-cookie');
+  assert.match(set, /^sd_session=[0-9a-f]{64};/); assert.match(set, /HttpOnly/); assert.match(set, /Secure/); assert.match(set, /SameSite=Strict/);
+  const cookie = set.split(';')[0];
+  const get = async () => (await (await fetch(`${BASE}/api/auth/user`, { headers: { Cookie: cookie } })).json()).data.user;
+  assert.equal((await get()).email, email, 'reading with the cookie');
+  const post = (h = {}) => fetch(`${BASE}/api/rpc/create_pharmacy`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, ...h }, body: JSON.stringify({ p_name: 'صيدلية الكوكي' }) });
+  const forged = await post();
+  assert.equal(forged.status, 403, 'a cookie alone can not change anything');
+  assert.equal((await forged.json()).error.code, 'csrf');
+  assert.equal((await post({ 'X-Saydaliti': '1' })).status, 200);
+  // Sign-out ends the session and clears the cookie.
+  const out = await fetch(`${BASE}/api/auth/signout`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } });
+  assert.match(out.headers.get('set-cookie'), /Max-Age=0/);
+  assert.equal(await get(), null);
+});
+
+test('an app that still keeps its token moves it into the cookie', { skip }, async () => {
+  const u = user(); await u.signUp();
+  const r = await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Authorization: `Bearer ${u.token()}`, 'X-Saydaliti': '1' } });
+  assert.equal(r.status, 200);
+  const cookie = r.headers.get('set-cookie').split(';')[0];
+  assert.equal(cookie, `sd_session=${u.token()}`, 'the same session');
+  assert.equal((await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } })).status, 401, 'only from a Bearer token');
 });

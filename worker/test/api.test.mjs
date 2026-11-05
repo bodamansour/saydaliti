@@ -12,7 +12,7 @@ const uuid = () => crypto.randomUUID();
 function user() {
   let token = null;
   const call = async (path, body) => {
-    const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
+    const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
     const j = await r.json();
     return { status: r.status, ...j };
   };
