@@ -32,6 +32,8 @@ export const STAGING_ENV_ALLOWLIST = Object.freeze([
 export const OUTSIDE_SERVICE_SECRETS = Object.freeze([
   'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'WHATSAPP_TEMPLATE', 'WHATSAPP_DOSE_TEMPLATE', 'WHATSAPP_REFILL_TEMPLATE',
   'ANTHROPIC_API_KEY', 'AI_MODEL',
+  // forgotten-password emails (Resend); EMAIL_OUTBOX=dev keeps them in the database on a development machine
+  'RESEND_API_KEY', 'EMAIL_FROM', 'EMAIL_OUTBOX',
 ]);
 
 export function isStaging(env) {

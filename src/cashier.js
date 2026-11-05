@@ -344,10 +344,11 @@ function resumeHeld(id) {
 function newBill() {
   CART = []; $('extraDisc').value = 0; $('paid').value = ''; $('delFee').value = ''; $('delTo').value = ''; $('delBox').open = false; PAYMENT = 'cash'; setCustomer(null); setMode('sale');
   $('retNo').value = ''; $('retReason').value = ''; $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
+  $('retVoid').checked = false; $('voidWhy').value = ''; $('voidWhyWrap').hidden = true; $('voidWrap').hidden = true;
   renderPay(); renderCart(); focusSearch();
 }
 function setMode(m) {
-  if (m !== MODE || m === 'sale') { if (RET) CART = []; RET = null; $('retInfo').textContent = ''; }
+  if (m !== MODE || m === 'sale') { if (RET) CART = []; RET = null; $('retInfo').textContent = ''; $('voidWrap').hidden = true; $('retVoid').checked = false; }
   MODE = m;
   $('retBox').hidden = m !== 'return';
   $('extraDisc').disabled = false;
@@ -621,7 +622,7 @@ async function findReceipt() {
   }
   const lines = returnableLines(sale, returns);
   if (!lines.length) { $('retInfo').textContent = `كل اللي في فاتورة ${no} اترجع قبل كده.`; return; }
-  RET = { sale };
+  RET = { sale, returns };
   $('retNoReceipt').checked = false; $('retReasonWrap').hidden = true;
   CART = lines.map((l) => ({ code: l.code, name: l.name, price: l.price, qty: l.left, max: l.left, unitOff: l.unitOff, discount: 0, ...(l.per ? { per: l.per, unit: l.unit } : {}), ...((t) => (t ? { tax: t } : {}))(+(sale.lines || []).find((x) => String(x.code) === String(l.code))?.tax || 0) }));
   for (const l of CART) l.discount = lineOff(l);
@@ -630,6 +631,7 @@ async function findReceipt() {
   setCustomer(cust || null);
   if (!cust) { PAYMENT = sale.payment === 'credit' ? 'cash' : sale.payment; renderPay(); }
   $('retInfo').textContent = `فاتورة ${no} — ${new Date(sale.sold_at).toLocaleDateString('ar-EG')}. شيل اللي مش راجع أو قلّل الكمية.`;
+  $('voidWrap').hidden = false; $('retVoid').checked = false; $('voidWhyWrap').hidden = true;
   renderCart();
 }
 
@@ -685,7 +687,7 @@ async function nextReceiptNumber(d) {
 function askApproval(returnId, total, reason) {
   return new Promise((resolve) => {
     const dlg = $('apprDlg');
-    $('apprNote').textContent = `مرتجع من غير فاتورة بـ ${fmt(-total)} ج — السبب: ${reason}. الكاشير: ${CASHIER.name}. المدير يكتب رقمه السري.`;
+    $('apprNote').textContent = `${/^إلغاء فاتورة/.test(reason) ? 'إلغاء فاتورة' : 'مرتجع من غير فاتورة'} بـ ${fmt(-total)} ج — ${reason}. الكاشير: ${CASHIER.name}. المدير يكتب رقمه السري.`;
     $('apprPin').value = ''; $('apprMsg').textContent = '';
     const done = (v) => { $('apprForm').onsubmit = null; $('apprCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); focusSearch(); resolve(v); };
     $('apprCancel').onclick = () => done(null);
@@ -720,6 +722,15 @@ async function checkout() {
     ($('retNoReceipt').checked ? $('retReason') : $('retNo')).focus();
     return;
   }
+  // Cancelling a whole receipt: everything still left on it goes back, with a written reason; a cashier
+  // needs a manager's approval with their PIN (the owner's own account does not). Checked by the server.
+  const voiding = MODE === 'return' && RET && $('retVoid').checked;
+  if (voiding) {
+    if (!$('voidWhy').value.trim()) { msg('اكتب سبب إلغاء الفاتورة.', true); $('voidWhy').focus(); return; }
+    if (CART.some((l) => Math.abs(+l.qty - +l.max) > 1e-4) || CART.length !== returnableLines(RET.sale, RET.returns || []).length) {
+      msg('الإلغاء بيرجّع الفاتورة كلها. رجّع الكميات زي ما كانت، أو شيل علامة الإلغاء وسجّلها مرتجع عادي.', true); return;
+    }
+  }
   // A return without the receipt: a manager (an employee the owner allowed) approves it with their own
   // PIN, checked by the server now, before the money is handed back (owner decision, 2026-11-03).
   const saleId = crypto.randomUUID();
@@ -729,6 +740,13 @@ async function checkout() {
     if (!CASHIER) { msg('الكاشير يدخل برقمه السري الأول، وبعدها المدير يوافق على المرتجع.', true); showPin(); return; }
     if (!isOnline()) { msg('المرتجع من غير فاتورة محتاج نت عشان موافقة المدير.', true); return; }
     approval = await askApproval(saleId, -t.total, $('retReason').value.trim());
+    if (!approval) return;
+  }
+  if (voiding && SESS.role !== 'owner') {
+    if (!STAFF.count) { msg('إلغاء الفاتورة محتاج موافقة مدير بالرقم السري. صاحب الصيدلية يضيف الموظفين ويسمح لمدير بالموافقة.', true); return; }
+    if (!CASHIER) { msg('الكاشير يدخل برقمه السري الأول، وبعدها المدير يوافق على الإلغاء.', true); showPin(); return; }
+    if (!isOnline()) { msg('إلغاء الفاتورة محتاج نت عشان موافقة المدير.', true); return; }
+    approval = await askApproval(saleId, -t.total, `إلغاء فاتورة ${RET.sale.number}: ${$('voidWhy').value.trim()}`.slice(0, 300));
     if (!approval) return;
   }
   if (MODE === 'sale' && CUST && sp.credit && +CUST.credit_limit > 0 && owedBy(CUST.id) + sp.credit > +CUST.credit_limit
@@ -744,6 +762,7 @@ async function checkout() {
     // Only sent when a customer is chosen, so receipts still upload before database update 011.
     ...(CUST ? { customer_id: CUST.id, credit: sign * sp.credit, ...($('claimNo').value.trim() ? { claim_no: $('claimNo').value.trim() } : {}) } : {}),
     // A return says which receipt it came from, or why there was none (database update 012).
+    ...(voiding ? { is_void: true, note: `إلغاء الفاتورة: ${$('voidWhy').value.trim()}${approval ? ` (موافقة: ${approval.approver_name})` : ''}`.slice(0, 300), ...(approval ? { approval_id: approval.approval_id } : {}) } : {}),
     ...(MODE === 'return' ? (RET ? { return_of: RET.sale.id } : { note: `مرتجع من غير فاتورة: ${$('retReason').value.trim()} (موافقة: ${approval.approver_name})`.slice(0, 300), approval_id: approval.approval_id }) : {}),
     // An item sold while all its recorded stock had expired: what the cashier wrote (audited).
     ...(MODE === 'sale' && CART.some((l) => l.why) ? { note: CART.filter((l) => l.why).map((l) => `اتباع ورصيده منتهي: ${l.name} — ${l.why}`).join(' / ').slice(0, 300) } : {}),
@@ -771,7 +790,7 @@ async function checkout() {
   // Say exactly what happened: confirmed by the server, or saved on this device and waiting (in a branch
   // that blocks selling below zero, a waiting sale may still be refused when it arrives).
   const state = sentNow ? ' · السيرفر أكّدها' : isOnline() ? '' : STOCK_POLICY.block ? ' (محفوظة على الجهاز ومستنية النت. الرصيد مش متأكَّد منه: لو صنف خلص على جهاز تاني، السيرفر ممكن يرفضها لما توصل)' : ' (هتترفع لما النت يرجع)';
-  msg(`${MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${state}`);
+  msg(`${voiding ? `فاتورة ${RET.sale.number} اتلغت` : MODE === 'return' ? 'المرتجع اتسجل' : 'الفاتورة اتسجلت'}: ${sale.number}${cash ? ` · الباقي ${fmt(changeDue(sp.now, paid))} ج` : ''}${sp.credit ? ` · ${fmt(sp.credit)} ج على حساب ${custName}` : ''}${state}`);
   newBill();
   renderDay();
   sync();
@@ -1049,8 +1068,9 @@ $('retFind').addEventListener('click', findReceipt);
 $('retNo').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); findReceipt(); } });
 $('retNoReceipt').addEventListener('change', () => {
   $('retReasonWrap').hidden = !$('retNoReceipt').checked;
-  if ($('retNoReceipt').checked) { if (RET) { RET = null; CART = []; $('retInfo').textContent = ''; renderCart(); } $('retReason').focus(); }
+  if ($('retNoReceipt').checked) { if (RET) { RET = null; CART = []; $('retInfo').textContent = ''; $('voidWrap').hidden = true; renderCart(); } $('retReason').focus(); }
 });
+$('retVoid').addEventListener('change', () => { $('voidWhyWrap').hidden = !$('retVoid').checked; if ($('retVoid').checked) $('voidWhy').focus(); });
 $('printDay').addEventListener('click', printDay);
 $('pinForm').addEventListener('submit', onPin);
 $('pinDlg').addEventListener('cancel', (e) => { if (needPin() && !CASHIER) e.preventDefault(); }); // no selling until someone signs in

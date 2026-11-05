@@ -90,7 +90,7 @@ test('dashboard opens with no example data, grouped in sections', async () => {
   assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['الملخص', 'المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'الفواتير والمبيعات', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'الفواتير والمبيعات', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الخزينة', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -697,9 +697,9 @@ test('closing the day: the cash that should be there, the count, kept once', asy
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.selectOption('#branchSel', 'all');
-  const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'treasury', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', treasury: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
@@ -841,6 +841,22 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.click('[data-langbtn]');
   await page.waitForSelector('html[dir=rtl]');
   assert.equal(await page.evaluate(() => localStorage.getItem('saydaliti-lang')), 'ar');
+});
+
+test('treasury: counting it sets the balance, and a trip to the bank takes it down', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=treasury]');
+  await page.waitForSelector('#cashForm');
+  await page.selectOption('#cmKind', 'count');
+  await page.fill('#cmAmount', '1500');
+  await page.click('#cashForm button[type=submit]');
+  assert.ok(await until(async () => (await db('cash_moves')).some((m) => m.kind === 'count' && +m.amount === 1500)));
+  await page.selectOption('#cmKind', 'to_bank');
+  await page.fill('#cmAmount', '400');
+  await page.click('#cashForm button[type=submit]');
+  assert.ok(await until(async () => /1,?100/.test(await text('#panel .tiles .tile'))), 'balance 1500 − 400');
 });
 
 test('no script errors', () => {

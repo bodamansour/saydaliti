@@ -128,7 +128,7 @@ Reports are uploaded as the `staging-reports` artifact.
 | GitHub environment `staging`, its reviewers, branches, secrets and variable | — | **Not verified / not created:** this session has no GitHub tool for environments or secrets |
 | `staging.yml` on `main` (needed for the Run workflow button) | GitHub read | **Absent** |
 | Guard and isolation tests | Local + CI | Pass |
-| Migrations 0001–0014 | Local review | Additive (0010 backfills a new column; every `DROP` is in rollback comments) |
+| Migrations 0001–0015 | Local review | Additive (0010 backfills a new column; every `DROP` is in rollback comments) |
 
 **Decision needed: how to make the manual run possible.**
 - **Option A (recommended):** a small separate PR to `main` that adds only `.github/workflows/staging.yml`, `worker/scripts/staging-guard.mjs` and the two guard tests.

@@ -143,3 +143,16 @@ export function checkReturnAgainst(ret, sale, earlierReturns = []) {
   // Money owed back to an account goes to the account that bought.
   if (Math.abs(pt(ret.credit ?? 0)) > TOL && ret.customer_id !== sale.customer_id) bad('return credit to another customer');
 }
+
+// A void cancels a whole receipt: it is a return of everything still left on it (nothing more, nothing
+// less), so after it the receipt has nothing left to return. The approval is checked by the server.
+export function checkVoid(ret, sale, earlierReturns = []) {
+  if (ret.kind !== 'return' || !ret.return_of) bad('a void must be a return of a receipt');
+  const left = new Map();
+  for (const l of (sale.lines || []).filter((x) => +x.qty > 0)) left.set(String(l.code), (left.get(String(l.code)) || 0) + boxQty(l));
+  for (const e of earlierReturns) for (const l of e.lines || []) left.set(String(l.code), (left.get(String(l.code)) || 0) - boxQty(l));
+  const back = new Map();
+  for (const l of ret.lines) back.set(String(l.code), (back.get(String(l.code)) || 0) + boxQty(l));
+  for (const [code, q] of left) if (q > 1e-4 && Math.abs((back.get(code) || 0) - q) > 1e-4) bad('a void must return everything left on the receipt');
+  for (const code of back.keys()) if (!left.has(code)) bad('return item not on the receipt');
+}

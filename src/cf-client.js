@@ -87,7 +87,14 @@ export function createCloudflareClient() {
         if (s && s.expires_at && s.expires_at < new Date().toISOString()) { write(null); return { data: { session: null }, error: null }; }
         return { data: { session: s }, error: null };
       },
-      async signInWithPassword({ email, password }) { return signedIn(await call('/api/auth/signin', { email, password })); },
+      async signInWithPassword({ email, password, code }) { return signedIn(await call('/api/auth/signin', { email, password, ...(code ? { code } : {}) })); },
+      // Forgotten password (a link by email) and two-step sign-in (an authenticator app).
+      forgot: (email) => call('/api/auth/forgot', { email }),
+      async resetPassword(token, password) { const r = await call('/api/auth/reset', { token, password }); if (r.data?.access_token) write(r.data); return r; },
+      status: () => call('/api/auth/user', null, 'GET'),
+      mfaSetup: (currentPassword) => call('/api/auth/mfa/setup', { current_password: currentPassword }),
+      mfaEnable: (code) => call('/api/auth/mfa/enable', { code }),
+      mfaDisable: (currentPassword, code) => call('/api/auth/mfa/disable', { current_password: currentPassword, code }),
       async signUp({ email, password }) { return signedIn(await call('/api/auth/signup', { email, password })); },
       async updateUser({ password, currentPassword }) { return signedIn(await call('/api/auth/password', { password, current_password: currentPassword })); },
       async signOut() { const r = await call('/api/auth/signout', {}); write(null); return { error: r.error && !/Failed to fetch/.test(r.error.message) ? r.error : null }; },

@@ -176,3 +176,14 @@ test('2,000 random cashier receipts (sales and returns of them) are all accepted
     assert.doesNotThrow(() => { checkSaleRow(r, NOW); checkReturnAgainst(r, s, []); }, `return ${n}: ${JSON.stringify({ s, r })}`);
   }
 });
+
+test('a void returns everything left on the receipt, nothing more or less', async () => {
+  const { checkVoid } = await import('../src/sale-rules.js');
+  const sale = { kind: 'sale', lines: [{ code: 'A', qty: 2, price: 10 }, { code: 'B', qty: 10, per: 5, price: 2 }] };
+  const ret = (lines) => ({ kind: 'return', return_of: 's1', lines });
+  assert.doesNotThrow(() => checkVoid(ret([{ code: 'A', qty: 2, price: 10 }, { code: 'B', qty: 10, per: 5, price: 2 }]), sale));
+  assert.doesNotThrow(() => checkVoid(ret([{ code: 'A', qty: 1, price: 10 }, { code: 'B', qty: 2, price: 10 }]), sale, [{ lines: [{ code: 'A', qty: 1 }] }]), 'what is left, in boxes');
+  assert.throws(() => checkVoid(ret([{ code: 'A', qty: 2, price: 10 }]), sale), /everything left/);
+  assert.throws(() => checkVoid(ret([{ code: 'A', qty: 2, price: 10 }, { code: 'B', qty: 10, per: 5, price: 2 }, { code: 'C', qty: 1, price: 1 }]), sale), /not on the receipt/);
+  assert.throws(() => checkVoid({ kind: 'return', lines: [] }, sale), /return of a receipt/);
+});

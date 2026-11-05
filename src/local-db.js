@@ -2,7 +2,7 @@
 // no internet and no account needed. It answers the same calls the app makes to the online
 // database (from(...).select/eq/order/range/upsert/update/delete and the rpc functions), so every
 // screen works unchanged. One owner, one pharmacy.
-import { checkSaleRow, checkReturnAgainst } from './sale-rules.js';
+import { checkSaleRow, checkReturnAgainst, checkVoid } from './sale-rules.js';
 
 const DB_NAME = 'saydaliti-local-db'; // separate from the app's offline copy, which sign-out clears
 const USER = { id: '00000000-0000-4000-8000-000000000001', email: 'النسخة المحلية' };
@@ -101,8 +101,11 @@ export async function createLocalClient(name = DB_NAME) {
                 if (r.kind === 'return' && r.return_of) {
                   const o = table(t).get(String(r.return_of));
                   if (!o || o.kind !== 'sale') return err('receipt not found');
-                  checkReturnAgainst(r, o, [...table(t).values()].filter((x) => x.kind === 'return' && x.return_of === r.return_of));
+                  const earlier = [...table(t).values()].filter((x) => x.kind === 'return' && x.return_of === r.return_of);
+                  checkReturnAgainst(r, o, earlier);
+                  if (r.is_void) checkVoid(r, o, earlier); // on this device the user is the owner
                 }
+                if (r.is_void && (r.kind !== 'return' || !r.return_of)) return err('a void must be a return of a receipt');
               } catch (e) { return err(e.message); }
               if ([...table(t).values()].some((x) => x.number === r.number && x.pharmacy_id === r.pharmacy_id)) return err('receipt number already used');
               r.created_at = now();

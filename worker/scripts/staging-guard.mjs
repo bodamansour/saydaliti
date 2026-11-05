@@ -59,6 +59,7 @@ export const PRODUCTION = Object.freeze({
 export const OUTSIDE_SERVICE_VARS = Object.freeze([
   'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'WHATSAPP_TEMPLATE', 'WHATSAPP_DOSE_TEMPLATE', 'WHATSAPP_REFILL_TEMPLATE',
   'ANTHROPIC_API_KEY', 'AI_MODEL',
+  'RESEND_API_KEY', 'EMAIL_FROM', 'EMAIL_OUTBOX',
 ]);
 
 class GuardError extends Error {}
