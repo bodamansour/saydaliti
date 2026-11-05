@@ -2,6 +2,7 @@ import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved, expiryBands, inBand } from './core.js';
 import { backupFingerprint, verifyLocalBackup } from './local-db.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
+import { treasury, CASH_KINDS } from './treasury.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
 import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
@@ -16,7 +17,7 @@ import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck,
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
-import { labelHtml } from './labels.js';
+import { labelHtml, qrSvg } from './labels.js';
 import { planOf, hasFeature } from './plans.js';
 import { answerLocally, runTool, toolSpecs, EXAMPLES } from './assistant.js';
 import { overview, monthlySeries, categoryPerformance, trending, profitClasses, supplierPerformance, healthScore, forecast, stockoutPlan, anomalies, alerts, recommendations } from './insights.js';
@@ -131,7 +132,7 @@ const SECTIONS = [
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
-  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'الفواتير والمبيعات'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
+  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'الفواتير والمبيعات'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['treasury', 'الخزينة'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -240,6 +241,7 @@ function render(background = false) {
   else if (TAB === 'supaccounts') html = renderSupplierAccounts();
   else if (TAB === 'expenses') html = renderExpenses();
   else if (TAB === 'withdrawals') html = renderWithdrawals();
+  else if (TAB === 'treasury') html = renderTreasury();
   else if (TAB === 'pos') html = renderPosSales();
   else if (TAB === 'shifts') html = renderShifts();
   else if (TAB === 'log') html = renderLog();
@@ -392,6 +394,55 @@ function renderExpenses() {
   </div>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>النوع</th>${multi() ? '<th>الفرع</th>' : ''}<th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`
     : '');
+}
+
+// ---------- Treasury: all the pharmacy's cash as one balance (src/treasury.js) ----------
+let CASH_MOVES = [], CASH_READY = null, CASH_NOTE = '';
+async function loadCashMoves() {
+  try {
+    CASH_MOVES = await loadTable('cash_moves', 'id, branch_id, moved_at, kind, amount, note, created_by, created_at', 'moved_at');
+    if (CUST_READY && !CUSTOMERS.length) await loadCustomers();
+    CASH_READY = true;
+  } catch (e) { CASH_READY = false; }
+}
+function renderTreasury() {
+  if (CASH_READY === null) { CASH_READY = false; loadCashMoves().then(() => { if (TAB === 'treasury') render(true); }); return '<p class="note">بيحمّل…</p>'; }
+  if (!CASH_READY) return '<div class="card emptybox"><h3>الخزينة محتاجة تحديث قاعدة البيانات</h3><p>التحديث <code>0015</code> بيضيف الخزينة. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
+  const T = treasury({ moves: CASH_MOVES, sales: POS_SALES, customerPayments: CUST_PAYMENTS, expenses: EXPENSES, supplierPayments: SUP_PAYMENTS, purchases: PURCHASES });
+  const p = T.parts;
+  const line = (label, v, sign) => (v ? `<div><span>${label}</span><span class="n">${sign}${fmt(v, 2)}</span></div>` : '');
+  const form = canPay() ? `<form id="cashForm" class="card stack">
+      <h3>سجّل حركة في الخزينة</h3>
+      <div class="grid2">
+        <label>النوع<select id="cmKind">${Object.entries(CASH_KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+        <label>المبلغ (جنيه)<input id="cmAmount" type="number" inputmode="decimal" step="0.01" required></label>
+        <label class="span2">ملاحظة (اختياري)<input id="cmNote" maxlength="300" placeholder="مثلاً: عدّينا الخزنة آخر اليوم"></label>
+      </div>
+      <p class="note">«عدّ الخزينة»: اكتب الفلوس اللي عدّيتها فعلاً (الدرج + اللي برّه)، والحساب يبدأ منها من جديد. «تصحيح» ممكن يبقى بالسالب.</p>
+      <div class="row"><button class="btn primary" type="submit">سجّل</button><span class="note" id="cmMsg" role="status">${esc(CASH_NOTE)}</span></div>
+    </form>` : '';
+  const rows = [...CASH_MOVES].sort((a, b) => String(b.moved_at).localeCompare(String(a.moved_at))).slice(0, 100)
+    .map((m) => `<tr class="${m.pending ? 'pend' : ''}"><td class="n">${esc(String(m.moved_at).slice(0, 16).replace('T', ' '))}</td><td>${esc(CASH_KINDS[m.kind] || m.kind)}</td><td class="n">${fmt(m.amount, 2)}</td><td class="muted">${esc(m.note || '')}</td>${isOwner() ? `<td class="acts"><button class="btn" data-delcash="${esc(m.id)}">امسح</button></td>` : ''}</tr>`);
+  return `<p>كل الكاش اللي في الصيدلية (أدراج الكاشير + اللي برّه) في رقم واحد. بيبدأ من آخر مرة عدّيت فيها الخزينة، وبيتحسب من الكاشير والمصروفات والمسحوبات ودفعات العملاء والموردين. الكارت والمحفظة بيروحوا البنك، مش الخزينة.</p>
+  <div class="tiles"><div class="tile ${T.balance < 0 ? 'crit' : ''}"><span class="k">رصيد الخزينة دلوقتي</span><span class="v">${fmt(T.balance, 2)}</span><span class="s">${T.since ? `من آخر عدّ: ${esc(String(T.since).slice(0, 16).replace('T', ' '))}` : 'من غير عدّ: من أول ما اتسجل حاجة'}</span></div>
+    <div class="tile"><span class="k">دخل كاش</span><span class="v">${fmt(T.cashIn, 2)}</span></div><div class="tile"><span class="k">خرج كاش</span><span class="v">${fmt(T.cashOut, 2)}</span></div>${p.card ? `<div class="tile"><span class="k">كارت ومحفظة (للبنك)</span><span class="v">${fmt(p.card, 2)}</span></div>` : ''}</div>
+  <div class="calc">${form}
+    <div class="card"><h3>إزاي اتحسب</h3><div class="ledger">
+      <div><span>${T.since ? 'آخر عدّ' : 'البداية'}</span><span class="n">${fmt(T.start, 2)}</span></div>
+      ${line('مبيعات كاش', p.sales, '+')}${line('دفعات العملاء', p.customers, '+')}${line('فلوس رجعت من الموردين', p.supplierRefunds, '+')}${line('جبت من البنك', p.fromBank, '+')}
+      ${line('مرتجعات للعملاء', p.refunds, '−')}${line('مصروفات', p.expenses, '−')}${line('مسحوبات', p.withdrawals, '−')}${line('دفعات الموردين', p.suppliers, '−')}${line('وديت البنك', p.toBank, '−')}
+      ${p.adjust ? `<div><span>تصحيح</span><span class="n">${p.adjust > 0 ? '+' : ''}${fmt(p.adjust, 2)}</span></div>` : ''}
+      <div class="tot"><span>الرصيد</span><span class="n">${fmt(T.balance, 2)}</span></div></div>
+      <p class="note">بيعتمد على الكاشير: لو بتبيع من برنامج تاني، مبيعاته مش هنا.</p></div>
+  </div>` + (rows.length ? `<div class="tablebox"><table><thead><tr><th>الوقت</th><th>الحركة</th><th>المبلغ</th><th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '');
+}
+async function addCashMove(ev) {
+  ev.preventDefault();
+  const kind = $('cmKind').value;
+  const amount = Math.round((+$('cmAmount').value || 0) * 100) / 100;
+  if (!amount || (kind !== 'adjust' && amount < 0)) { $('cmMsg').textContent = 'اكتب المبلغ.'; return; }
+  CASH_NOTE = `اتسجل: ${CASH_KINDS[kind]} ${fmt(amount, 2)} ج.`;
+  await localInsert('cash_moves', { moved_at: new Date().toISOString(), kind, amount, note: $('cmNote').value.trim() || null });
 }
 
 // ---------- Owner withdrawals: money or goods the owner (or a partner) took for themselves ----------
@@ -740,7 +791,7 @@ function renderPosSales() {
     R.items.map((i) => `<tr><td class="name">${esc(i.name)}<span class="cat n">${esc(i.code)}</span></td><td class="n"><b>${fmt(i.qty)}</b></td><td class="n">${fmt(i.receipts)}</td><td>${egp(i.value)}</td><td>${i.profit === null ? '<span class="muted">—</span>' : `<span class="pill ${i.profit < 0 ? 'crit' : 'ok'}"><span class="n">${fmt(i.profit)}</span> ج</span>`}</td></tr>`)) : '';
   const rows = list.slice(0, POS_Q || SHOW_ALL.has(TAB) ? 2000 : 200).map((x) => `<tr class="sale-row${POS_OPEN.has(x.id) ? ' open' : ''}" data-sale="${esc(x.id)}" tabindex="0"><td class="n">${esc(x.number)}</td>
       <td class="n">${esc(posWhen(x))}</td>
-      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : 'بيع'}</td>
+      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill ${x.is_void ? 'crit' : 'warn'}">${x.is_void ? 'إلغاء' : 'مرتجع'}</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : POS_SALES.some((y) => y.is_void && y.return_of === x.id) ? 'بيع <span class="pill crit">ملغية</span>' : 'بيع'}</td>
       <td class="n">${fmt((x.lines || []).reduce((a, l) => a + boxQty(l), 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
   const invoices = `<h3>الفواتير (${fmt(list.length)}${POS_Q ? ` من ${fmt(all.length)}` : ''})</h3>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>علب</th><th>الإجمالي</th><th>الدفع</th><th>العميل</th><th>الكاشير</th></tr></thead><tbody>${rows.join('')}</tbody></table>${list.length > rows.length ? `<div class="more"><span class="muted">ظاهر أول ${fmt(rows.length)} من ${fmt(list.length)}. دوّر برقم الفاتورة أو الصنف عشان توصلها أسرع.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`
@@ -921,7 +972,7 @@ let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
 const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
   customers: () => CUSTOMERS, customer_payments: () => CUST_PAYMENTS,
-  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS, day_closes: () => DAY_CLOSES };
+  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS, day_closes: () => DAY_CLOSES, cash_moves: () => CASH_MOVES };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -969,7 +1020,7 @@ async function loadFeatures() {
     // an older database is read without them.
     const base = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
     POS_READY = false;
-    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
+    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to, is_void', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
       try { POS_SALES = await loadTable('pos_sales', base + extra, 'sold_at'); POS_READY = true; break; } catch (e) { if (!e.missing) break; }
     }
     if (isOwner()) {
@@ -2489,6 +2540,53 @@ async function refreshServerBackups() {
   if (failed && (!ok || failed.created_at > ok.created_at)) $('serverBackupState').textContent += ` آخر محاولة ما نجحتش (${t(failed.created_at)}).`;
 }
 $('cloudBackupBox').addEventListener('toggle', () => { if ($('cloudBackupBox').open) refreshServerBackups(); });
+
+// ---------- Account security: change the password, two-step sign-in ----------
+async function refreshMfa() {
+  if (!SESS.client?.auth?.status) return;
+  const r = await SESS.client.auth.status();
+  const on = !!r.data?.user?.mfa;
+  $('mfaState').textContent = r.error ? arabicError(r.error).message : on ? 'التحقق بخطوتين شغال على الحساب ده.' : 'التحقق بخطوتين مقفول.';
+  $('mfaSteps').innerHTML = on
+    ? `<div class="grid2"><label>كلمة السر<input id="mfaOffPw" type="password" autocomplete="current-password"></label><label>كود من التطبيق أو كود احتياطي<input id="mfaOffCode" autocomplete="one-time-code" inputmode="numeric" maxlength="12"></label></div>
+       <div class="row"><button class="btn" type="button" id="mfaOff">اقفل التحقق بخطوتين</button><span class="note" id="mfaMsg" role="status"></span></div>`
+    : `<div class="row"><label>كلمة السر<input id="mfaPw" type="password" autocomplete="current-password"></label><button class="btn primary" type="button" id="mfaStart">شغّل التحقق بخطوتين</button><span class="note" id="mfaMsg" role="status"></span></div>`;
+}
+$('securityBox').addEventListener('toggle', () => { if ($('securityBox').open) refreshMfa(); });
+$('pwForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if ($('pwNew').value.length < 8) { $('pwMsg').textContent = 'كلمة السر الجديدة لازم تبقى 8 حروف أو أكتر.'; return; }
+  $('pwMsg').textContent = 'لحظة…';
+  const r = await SESS.client.auth.updateUser({ password: $('pwNew').value, currentPassword: $('pwOld').value });
+  $('pwMsg').textContent = r.error ? (/Current password/.test(r.error.message) ? 'كلمة السر الحالية غلط.' : arabicError(r.error).message) : 'اتغيرت. الأجهزة التانية اللي كانت داخلة على الحساب خرجت.';
+  if (!r.error) { $('pwOld').value = ''; $('pwNew').value = ''; }
+});
+$('mfaSteps').addEventListener('click', async (e) => {
+  const say = (t) => { if ($('mfaMsg')) $('mfaMsg').textContent = t; };
+  if (e.target.id === 'mfaStart') {
+    const r = await SESS.client.auth.mfaSetup($('mfaPw').value);
+    if (r.error) { say(/Current password/.test(r.error.message) ? 'كلمة السر غلط.' : arabicError(r.error).message); return; }
+    $('mfaSteps').innerHTML = `<p>1. افتح تطبيق التحقق على موبايلك وامسح الكود ده (أو اكتب المفتاح بإيدك):</p>
+      <div class="row" data-no-i18n>${qrSvg(r.data.url, 160)}<code class="n" style="word-break:break-all">${esc(r.data.secret)}</code></div>
+      <p>2. اكتب الكود اللي ظهر في التطبيق:</p>
+      <div class="row"><input id="mfaFirst" class="n" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="width:8rem"><button class="btn primary" type="button" id="mfaConfirm">أكّد وشغّل</button><span class="note" id="mfaMsg" role="status"></span></div>`;
+    $('mfaFirst').focus();
+  }
+  if (e.target.id === 'mfaConfirm') {
+    const r = await SESS.client.auth.mfaEnable($('mfaFirst').value.trim());
+    if (r.error) { say(r.error.code === 'mfa_invalid' ? 'الكود غلط أو خلص وقته. اكتب اللي ظاهر دلوقتي.' : arabicError(r.error).message); return; }
+    $('mfaState').textContent = 'التحقق بخطوتين اشتغل.';
+    $('mfaSteps').innerHTML = `<p><b>اكتب الأكواد الاحتياطية دي واحفظها في مكان أمين.</b> لو الموبايل ضاع، كل كود منهم بيدخّلك مرة واحدة. مش هتظهر تاني.</p>
+      <div class="row" data-no-i18n>${r.data.recovery.map((c) => `<code class="n">${esc(c)}</code>`).join(' ')}</div>
+      <div class="row"><button class="btn" type="button" id="mfaDone">خلاص، حفظتهم</button></div>`;
+  }
+  if (e.target.id === 'mfaDone') refreshMfa();
+  if (e.target.id === 'mfaOff') {
+    const r = await SESS.client.auth.mfaDisable($('mfaOffPw').value, $('mfaOffCode').value.trim());
+    if (r.error) { say(r.error.code === 'mfa_invalid' ? 'الكود غلط.' : /Current password/.test(r.error.message) ? 'كلمة السر غلط.' : arabicError(r.error).message); return; }
+    refreshMfa();
+  }
+});
 $('serverBackupBtn').addEventListener('click', async () => {
   $('serverBackupBtn').disabled = true;
   $('serverBackupState').textContent = 'بنعمل النسخة…';
@@ -2960,6 +3058,7 @@ async function boot() {
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
+  $('securityBox').hidden = !SESS.client?.auth?.status || !SESS.client?.auth?.mfaSetup || !!SESS.local;
   $('stockBox').hidden = !['owner', 'stock'].includes(SESS.role) || !!SESS.local || !SESS.client?.cloudflare;
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
@@ -2985,6 +3084,7 @@ $('panel').addEventListener('toggle', (e) => { if (e.target.id === 'supBox') SUP
 $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'expForm') addExpense(e);
   if (e.target.id === 'wdForm') addWithdrawal(e);
+  if (e.target.id === 'cashForm') addCashMove(e);
   if (e.target.id === 'shortForm') addShortage(e);
   if (e.target.id === 'priceForm') submitPrice(e);
   if (e.target.id === 'remForm') addReminder(e);
@@ -3003,6 +3103,7 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.id === 'expCancel') { EDIT_EXP = null; render(); }
   if (e.target.id === 'wdGoods') { ADJ = { ...ADJ, kind: 'withdrawal', code: null, qty: '' }; ADJ_NOTE = ''; TAB = 'adjust'; render(); $('adjQ')?.focus(); }
   const dw = e.target.closest('[data-delwd]'); if (dw) deleteWithdrawal(dw.dataset.delwd, dw.dataset.wdtype);
+  const dc = e.target.closest('[data-delcash]'); if (dc && confirm('تمسح الحركة دي من الخزينة؟')) { CASH_NOTE = ''; localDelete('cash_moves', dc.dataset.delcash); }
   if (e.target.id === 'addFixed') addFixedExpenses();
   const es = e.target.closest('[data-editsup]'); if (es) { EDIT_SUP = es.dataset.editsup; render(); $('supForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   const ds = e.target.closest('[data-delsup]'); if (ds) deleteSupplier(ds.dataset.delsup);

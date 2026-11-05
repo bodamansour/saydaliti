@@ -6,7 +6,8 @@
 
 - حساب Cloudflare بصلاحيات Workers وD1 وR2، وبيانات D1/R2 المطابقة لـ`worker/wrangler.toml`.
 - أسرار GitHub Actions: `CLOUDFLARE_API_TOKEN` و`CLOUDFLARE_ACCOUNT_ID`.
-- أسرار Worker حسب الوظائف المفعلة: `PIN_PEPPER`, `ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`.
+- أسرار Worker حسب الوظائف المفعلة: `PIN_PEPPER` (لازم: الأرقام السرية والدخول بخطوتين)، `BACKUP_KEY` (النسخ المشفّرة)، `ANTHROPIC_API_KEY`، `WHATSAPP_TOKEN`، `WHATSAPP_PHONE_ID`، و`RESEND_API_KEY` + `EMAIL_FROM` (إيميل «نسيت كلمة السر»؛ `EMAIL_FROM` لازم يبقى من دومين متأكَّد منه في Resend).
+- **لا تغيّر `PIN_PEPPER` بعد تشغيله:** الأرقام السرية وأسرار الدخول بخطوتين مربوطة بيه.
 - الإعدادات العامة مثل `SITE_URL`, `PBKDF2_ITER` ومواعيد Cron تُراجع في `worker/wrangler.toml`.
 
 ## النشر الآلي

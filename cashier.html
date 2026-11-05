@@ -56,6 +56,8 @@
         <p class="note" id="retInfo" role="status"></p>
         <label class="checkline"><input type="checkbox" id="retNoReceipt"> العميل معاهوش الفاتورة</label>
         <label id="retReasonWrap" hidden>السبب (لازم يتكتب)<input id="retReason" maxlength="200" placeholder="مثلاً: الفاتورة ضاعت، أو بيعة قبل البرنامج"></label>
+        <div id="voidWrap" class="stack" hidden><label class="checkline"><input type="checkbox" id="retVoid"> إلغاء الفاتورة كلها (بموافقة مدير)</label>
+          <label id="voidWhyWrap" hidden>سبب الإلغاء (لازم يتكتب)<input id="voidWhy" maxlength="200" placeholder="مثلاً: الفاتورة اتعملت غلط"></label></div>
       </div>
       <div class="ledger pos-totals">
         <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>

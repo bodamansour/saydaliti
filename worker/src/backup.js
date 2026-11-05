@@ -16,10 +16,10 @@ export const sha256hex = async (text) => hex(await crypto.subtle.digest('SHA-256
 
 // Every table with the pharmacy's rows, parents first (restore order). stock_levels is not kept: the
 // ledger's trigger rebuilds it, and the restore checks it comes back the same.
-const SKIP = new Set(['users', 'sessions', 'auth_attempts', 'app_admins', 'app_secrets', 'invite_attempts', 'pin_attempts', 'client_errors', 'app_config', 'stock_levels', 'pharmacies', 'members']);
+const SKIP = new Set(['users', 'sessions', 'password_resets', 'email_outbox', 'auth_attempts', 'app_admins', 'app_secrets', 'invite_attempts', 'pin_attempts', 'client_errors', 'app_config', 'stock_levels', 'pharmacies', 'members']);
 export const BACKUP_TABLES = ['branches', 'employees', 'attendance', 'invites', 'snapshots', 'connector_tokens', 'customers', 'customer_payments', 'patients', 'reminders',
   'catalog_items', 'purchases', 'supplier_payments', 'pos_shifts', 'pos_barcodes', 'pos_sales', 'return_approvals', 'stock_moves', 'stock_bases', 'stock_ledger',
-  'expenses', 'shortages', 'market_prices', 'day_closes', 'tasks', 'subscriptions', 'audit_log'];
+  'expenses', 'cash_moves', 'shortages', 'market_prices', 'day_closes', 'tasks', 'subscriptions', 'audit_log'];
 { // every tenant table of schema.js is covered (a new table must be added above)
   const missing = Object.entries(TABLES).filter(([n, t]) => !t.internal && !SKIP.has(n) && !BACKUP_TABLES.includes(n)).map(([n]) => n);
   if (missing.length) throw new Error(`backup.js: tables not in BACKUP_TABLES: ${missing.join(', ')}`);

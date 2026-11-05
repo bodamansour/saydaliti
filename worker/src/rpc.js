@@ -2,7 +2,7 @@
 // pharmacies and branches, employees and attendance, invites, uploads, the cashier's PIN and
 // returns, subscriptions and the admin page, and error reports.
 import { planOf, readPlans } from '../../src/plans.js';
-import { checkSaleRow, checkReturnAgainst } from '../../src/sale-rules.js';
+import { checkSaleRow, checkReturnAgainst, checkVoid } from '../../src/sale-rules.js';
 import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
@@ -325,6 +325,31 @@ export const RPC = {
         (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS sales_30d
       FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id ORDER BY p.created_at DESC`, since);
   },
+  // How much the app is used, for the app owner: counts only (no money, no names of customers or items).
+  async admin_usage(env, ctx) {
+    await needAdmin(env, ctx);
+    const d7 = recent(7 * 1440), d30 = recent(30 * 1440);
+    const per = await all(env, `SELECT p.id AS pharmacy_id, p.name,
+        (SELECT count(*) FROM members m WHERE m.pharmacy_id = p.id) AS accounts,
+        (SELECT count(DISTINCT s.user_id) FROM sessions s JOIN members m ON m.user_id = s.user_id WHERE m.pharmacy_id = p.id AND s.created_at > ?) AS signed_in_30d,
+        (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS receipts_7d,
+        (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS receipts_30d,
+        (SELECT count(*) FROM purchases x WHERE x.pharmacy_id = p.id AND x.created_at > ?) AS purchases_30d,
+        (SELECT count(*) FROM catalog_items x WHERE x.pharmacy_id = p.id) AS items,
+        (SELECT max(t) FROM (SELECT max(sold_at) AS t FROM pos_sales WHERE pharmacy_id = p.id UNION ALL SELECT max(created_at) FROM purchases WHERE pharmacy_id = p.id
+          UNION ALL SELECT max(created_at) FROM snapshots WHERE pharmacy_id = p.id)) AS last_activity
+      FROM pharmacies p ORDER BY receipts_30d DESC, p.created_at DESC`, d30, d7, d30, d30);
+    const signups = await all(env, "SELECT substr(created_at, 1, 10) AS day, count(*) AS n FROM pharmacies WHERE created_at > ? GROUP BY day ORDER BY day", d30);
+    const status = await all(env, "SELECT coalesce(s.status, 'trial') AS status, count(*) AS n FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id GROUP BY 1");
+    const totals = {
+      pharmacies: per.length,
+      active_7d: per.filter((r) => r.receipts_7d > 0).length,
+      active_30d: per.filter((r) => r.receipts_30d > 0 || r.purchases_30d > 0).length,
+      receipts_30d: per.reduce((a, r) => a + r.receipts_30d, 0),
+      accounts: per.reduce((a, r) => a + r.accounts, 0),
+    };
+    return { totals, status, signups, pharmacies: per };
+  },
   async admin_set_subscription(env, ctx, { p_pharmacy, p_status, p_trial_ends = null, p_paid_until = null, p_price = null, p_note = null, p_plan }) {
     await needAdmin(env, ctx);
     if (!['trial', 'active', 'free', 'suspended'].includes(p_status)) throw new ApiError('bad status');
@@ -479,6 +504,7 @@ export async function checkPosSale(ctx, env, row) {
     checkSaleRow(row);
   } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
   const flags = await timeFlags(env, row);
+  if (row.is_void && (row.kind !== 'return' || !row.return_of)) throw new ApiError('a void must be a return of a receipt');
   if (row.kind === 'return' && !row.return_of) { await checkApproval(env, row); return { flags }; }
   if (row.kind !== 'return') return { flags };
   const o = await one(env, "SELECT id, kind, lines, branch_id, discount, customer_id, sold_at FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
@@ -488,7 +514,10 @@ export async function checkPosSale(ctx, env, row) {
     .map((r) => ({ lines: JSON.parse(r.lines) }));
   try {
     checkReturnAgainst(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
+    if (row.is_void) checkVoid(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
   } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
+  // Cancelling a whole receipt: the owner, or a cashier with a manager's approval for this very return.
+  if (row.is_void && ctx.roles.get(String(row.pharmacy_id)) !== 'owner') await checkApproval(env, row);
   if (o.sold_at && Date.parse(row.sold_at) < Date.parse(o.sold_at) - SKEW) flags.push('return_before_sale');
   return { flags };
 }
