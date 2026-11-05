@@ -6,7 +6,7 @@
 //   POST /api/rpc/<name>            → the database functions
 //   POST /rest/v1/rpc/upload_snapshot (the pharmacy connector, same address shape as before)
 import { ApiError, select, insert, update, remove } from './db.js';
-import { signUp, signIn, signOut, userOf, changePassword } from './auth.js';
+import { signUp, signIn, signOut, userOf, changePassword, mfaSetup, mfaEnable, mfaDisable, forgotPassword, resetPassword, emailReady, mfaOf } from './auth.js';
 import { RPC, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
@@ -66,11 +66,21 @@ async function api(req, env, url) {
   if (path === '/api/config') return json({ configured: true, backend: 'cloudflare' });
   if (path.startsWith('/api/auth/')) {
     const what = path.slice('/api/auth/'.length);
-    if (what === 'user') { const u = await userOf(env, req); return json({ data: { user: u ? { id: u.id, email: u.email } : null }, error: null }); }
+    if (what === 'user') { const u = await userOf(env, req); return json({ data: { user: u ? { id: u.id, email: u.email, mfa: await mfaOf(env, u.id) } : null, email: emailReady(env) }, error: null }); }
+    // Local development and tests only: the last email written for an address.
+    if (what === 'dev-outbox' && env.EMAIL_OUTBOX === 'dev') return json({ data: await env.DB.prepare('SELECT subject, body FROM email_outbox WHERE to_email = ? ORDER BY id DESC LIMIT 1').bind(String(url.searchParams.get('email') || '').toLowerCase()).first(), error: null });
     if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
     if (what === 'signup') return json({ data: await signUp(env, await body(req, 10000), ip), error: null });
     if (what === 'signin') return json({ data: await signIn(env, await body(req, 10000), ip), error: null });
     if (what === 'signout') { const u = await userOf(env, req); await signOut(env, u?.token); return json({ data: null, error: null }); }
+    if (what === 'forgot') return json({ data: await forgotPassword(env, await body(req, 10000), ip, url.origin), error: null });
+    if (what === 'reset') return json({ data: await resetPassword(env, await body(req, 10000), ip), error: null });
+    if (what.startsWith('mfa/')) {
+      const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401);
+      const f = { 'mfa/setup': mfaSetup, 'mfa/enable': mfaEnable, 'mfa/disable': mfaDisable }[what];
+      if (!f) throw new ApiError('not found', '404', 404);
+      return json({ data: await f(env, u, await body(req, 10000), ip), error: null });
+    }
     if (what === 'password') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await changePassword(env, u, await body(req, 10000), ip), error: null }); }
     throw new ApiError('not found', '404', 404);
   }

@@ -150,8 +150,56 @@ export async function signOut() {
 }
 
 const PW_MIN = 8;
+// A link from the forgotten-password email opens the app with #reset=<token>.
+const resetToken = () => /^#reset=([0-9a-f]{64})$/i.exec(location.hash)?.[1] ?? null;
+function renderReset(box, onDone, token) {
+  box.hidden = false;
+  box.innerHTML = `<h2>كلمة سر جديدة</h2>
+    <form id="resetForm" class="stack" novalidate>
+      <label>كلمة السر الجديدة<input id="newPw" type="password" autocomplete="new-password" minlength="${PW_MIN}" required></label>
+      <label>تأكيدها<input id="newPw2" type="password" autocomplete="new-password" minlength="${PW_MIN}" required></label>
+      <p class="note">${PW_MIN} حروف أو أكتر. كل الأجهزة اللي كانت داخلة على الحساب هتخرج.</p>
+      <button class="btn primary wide" type="submit">غيّر كلمة السر</button>
+    </form><p class="note" id="authMsg" role="status"></p>`;
+  const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
+  box.querySelector('#resetForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pw = box.querySelector('#newPw').value;
+    if (pw.length < PW_MIN) return msg(`كلمة السر لازم تبقى ${PW_MIN} حروف أو أكتر.`);
+    if (pw !== box.querySelector('#newPw2').value) return msg('كلمتين السر مش زي بعض. اكتبهم تاني.');
+    msg('لحظة…');
+    const r = await client.auth.resetPassword(token, pw);
+    if (r.error) return msg(r.error.code === 'reset_invalid' ? 'اللينك ده مبقاش شغال (اتستخدم أو عدّى عليه أكتر من نص ساعة). اطلب لينك جديد.' : arabicError(r.error).message);
+    history.replaceState(null, '', location.pathname + location.search);
+    if (r.data?.mfa) { renderSignIn(box, onDone); box.querySelector('#authMsg').textContent = 'كلمة السر اتغيرت. ادخل بيها وبالكود من تطبيق التحقق.'; return; }
+    onDone();
+  });
+}
+function renderForgot(box, onDone) {
+  box.hidden = false;
+  box.innerHTML = `<h2>نسيت كلمة السر</h2>
+    <p class="note">اكتب إيميل حسابك، وهيوصلك لينك تغيّر بيه كلمة السر (شغال نص ساعة).</p>
+    <form id="forgotForm" class="stack" novalidate><label>الإيميل<input id="fEmail" type="email" autocomplete="email" inputmode="email" required></label>
+      <button class="btn primary wide" type="submit">ابعتلي اللينك</button></form>
+    <p class="note" id="authMsg" role="status"></p>
+    <p class="switch"><button class="linkbtn" type="button" id="backIn">ارجع لتسجيل الدخول</button></p>`;
+  const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
+  box.querySelector('#backIn').addEventListener('click', () => renderSignIn(box, onDone));
+  box.querySelector('#forgotForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = box.querySelector('#fEmail').value.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return msg('اكتب إيميل صحيح.');
+    msg('لحظة…');
+    const r = await client.auth.forgot(email);
+    if (r.error?.code === 'email_not_configured') return msg('استرجاع كلمة السر بالإيميل لسه مش متفعّل على السيرفر. كلّم صاحب البرنامج.');
+    if (r.error) return msg(arabicError(r.error).message);
+    msg('لو الإيميل ده عليه حساب، هيوصلك لينك خلال دقايق. بص كمان في الـ Spam.');
+  });
+}
+
 export function renderSignIn(box, onDone, mode = 'in') {
   box.hidden = false;
+  if (mode === 'in' && client?.auth?.resetPassword && resetToken()) return renderReset(box, onDone, resetToken());
   const up = mode === 'up';
   box.innerHTML = `<h2>${up ? 'حساب جديد' : 'تسجيل الدخول'}</h2>
     <p class="note">${up ? 'اعمل حساب بإيميلك، وبعدها هتعمل صيدليتك أو تدخل بكود دعوة.' : 'ادخل بحسابك عشان تفتح لوحة صيدليتك.'}</p>
@@ -161,13 +209,16 @@ export function renderSignIn(box, onDone, mode = 'in') {
       ${up ? `<label>تأكيد كلمة المرور<input id="password2" type="password" autocomplete="new-password" minlength="${PW_MIN}" required></label>
       <p class="note">${PW_MIN} حروف أو أكتر.</p>
       <p class="note">بعمل الحساب إنت موافق على <a class="navlink" href="./terms.html" target="_blank">شروط الاستخدام</a> و<a class="navlink" href="./privacy.html" target="_blank">سياسة الخصوصية</a>.</p>` : ''}
+      <label id="mfaWrap" hidden>كود التحقق<input id="mfaCode" autocomplete="one-time-code" inputmode="numeric" maxlength="12" placeholder="الكود من تطبيق التحقق، أو كود احتياطي"></label>
       <button class="btn primary wide" type="submit">${up ? 'اعمل الحساب' : 'دخول'}</button>
     </form>
+    ${!up && client?.auth?.forgot ? '<p class="switch"><button class="linkbtn" type="button" id="forgotBtn">نسيت كلمة السر؟</button></p>' : ''}
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>
     <p class="note" style="text-align:center"><a class="navlink" href="./about.html">إيه هو صيدليتي؟ والأسعار</a></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
   box.querySelector('#switchMode').addEventListener('click', () => renderSignIn(box, onDone, up ? 'in' : 'up'));
+  box.querySelector('#forgotBtn')?.addEventListener('click', () => renderForgot(box, onDone));
   box.querySelector('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = box.querySelector('#email').value.trim();
@@ -179,8 +230,11 @@ export function renderSignIn(box, onDone, mode = 'in') {
     msg('لحظة…');
     const { data, error } = up
       ? await client.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } })
-      : await client.auth.signInWithPassword({ email, password });
+      : await client.auth.signInWithPassword({ email, password, code: box.querySelector('#mfaCode').value.trim() });
     if (error) {
+      // Two-step sign-in: the password was right, now the code from the authenticator app.
+      if (error.code === 'mfa_required') { box.querySelector('#mfaWrap').hidden = false; box.querySelector('#mfaCode').focus(); return msg('الحساب ده عليه تحقق بخطوتين: اكتب الكود من تطبيق التحقق.'); }
+      if (error.code === 'mfa_invalid') { box.querySelector('#mfaCode').select(); return msg('الكود غلط أو خلص وقته. اكتب الكود اللي ظاهر دلوقتي.'); }
       if (/Invalid login/i.test(error.message)) return msg('الإيميل أو كلمة المرور غلط.');
       if (/not confirmed/i.test(error.message)) return msg('لسه مأكدتش الإيميل. افتح الإيميل اللي جالك ودوس على لينك التأكيد.');
       if (/registered/i.test(error.message)) return msg('الإيميل ده عليه حساب. سجّل دخول بدل كده.');

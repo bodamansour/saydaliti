@@ -161,6 +161,23 @@
         </div>
       </details>
 
+      <details class="help" id="securityBox" hidden>
+        <summary>أمان الحساب (كلمة السر والتحقق بخطوتين)</summary>
+        <form id="pwForm" class="stack">
+          <b>غيّر كلمة السر</b>
+          <div class="grid2"><label>كلمة السر الحالية<input id="pwOld" type="password" autocomplete="current-password" required></label>
+            <label>كلمة السر الجديدة<input id="pwNew" type="password" autocomplete="new-password" minlength="8" required></label></div>
+          <div class="row"><button class="btn" type="submit">غيّرها</button><span class="note" id="pwMsg" role="status"></span></div>
+        </form>
+        <hr>
+        <div class="stack" id="mfaBox">
+          <b>التحقق بخطوتين</b>
+          <p class="note">بعد كلمة السر، الدخول بيطلب كود بيتغير كل 30 ثانية من تطبيق على موبايلك (Google Authenticator أو Microsoft Authenticator). لو حد عرف كلمة السر، مش هيقدر يدخل من غير الموبايل.</p>
+          <p class="note" id="mfaState" role="status"></p>
+          <div id="mfaSteps"></div>
+        </div>
+      </details>
+
       <details class="help" id="exportBox">
         <summary>تصدير البيانات (Excel، CSV، PDF…)</summary>
         <p>بيصدّر اللي ظاهر في اللوحة دلوقتي: الفرع المختار، أو كل الفروع.</p>

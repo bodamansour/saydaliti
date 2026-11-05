@@ -21,8 +21,17 @@ export const TABLES = {
   // ---------- Accounts (not reachable through the data API) ----------
   users: { pk: 'id', internal: true, cols: {
     id: ['id', { nn: true, def: 'uuid' }], email: ['text', { nn: true, max: 254 }], pw_hash: ['text', { nn: true }],
-    created_at: ['ts', { nn: true, def: 'now' }] },
+    created_at: ['ts', { nn: true, def: 'now' }],
+    // Two-step sign-in (migration 0015): the authenticator secret (encrypted), one being set up, recovery codes (hashed).
+    totp_secret: ['text', { added: 15 }], totp_pending: ['text', { added: 15 }], totp_recovery: ['json', { added: 15 }] },
   unique: [['email']] },
+  // A forgotten-password link (only its hash), valid 30 minutes, used once (migration 0015).
+  password_resets: { pk: 'token_hash', internal: true, added: 15, cols: {
+    token_hash: ['text', { nn: true }], user_id: ['id', { nn: true }], created_at: ['ts', { nn: true }], expires_at: ['ts', { nn: true }], used_at: ['ts'] },
+  index: [['user_id']] },
+  // Local development and tests only (EMAIL_OUTBOX=dev): emails written here instead of sent.
+  email_outbox: { pk: 'id', internal: true, added: 15, cols: {
+    id: ['serial'], to_email: ['text', { nn: true }], subject: ['text', { nn: true }], body: ['text', { nn: true }], created_at: ['ts', { nn: true }] } },
   sessions: { pk: 'token_hash', internal: true, cols: {
     token_hash: ['text', { nn: true }], user_id: ['id', { nn: true }], created_at: ['ts', { nn: true, def: 'now' }], expires_at: ['ts', { nn: true }] },
   index: [['user_id']] },
@@ -111,7 +120,9 @@ export const TABLES = {
     // Receipts that carry it have a number unique in the pharmacy (index in migrations/0011).
     receipt_device: ['text', { re: '^[A-HJ-NP-Z2-9]{4}$', added: 11 }],
     // A return without a receipt: the manager's approval it was saved with (return_approvals).
-    approval_id: ['id', { added: 12 }] },
+    approval_id: ['id', { added: 12 }],
+    // A return that cancels everything left on its receipt, with a manager's approval (migration 0015).
+    is_void: ['bool', { added: 15 }] },
   index: [['pharmacy_id', 'sold_at'], ['branch_id', 'sold_at'], ['customer_id'], ['return_of'], ['pharmacy_id', 'number'], ['shift_id']] },
   pos_barcodes: { pk: 'id', read: ROLES_ALL, insert: SELLERS, del: OWNER, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], barcode: ['text', { nn: true, max: 64 }], code: ['text', { nn: true, max: 60 }],
@@ -185,6 +196,13 @@ export const TABLES = {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], day: ['date', { nn: true }], totals: ['json', { nn: true }],
     expected_cash: ['num'], counted_cash: ['num', { min: 0 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id', 'day']] },
+  // Cash outside the cashier (migration 0015): 'count' = the treasury counted (it starts again from this
+  // amount), 'to_bank' / 'from_bank' = taken to or brought from the bank, 'adjust' = a correction (+ or −).
+  cash_moves: { pk: 'id', added: 15, read: MANAGERS, insert: PAYERS, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], moved_at: ['ts', { nn: true }],
+    kind: ['text', { nn: true, in: ['count', 'to_bank', 'from_bank', 'adjust'] }], amount: ['num', { nn: true, min: -99999999.99, maxv: 99999999.99 }],
+    note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+  index: [['pharmacy_id', 'moved_at']] },
   // The owner's to-do list: from a recommendation, an alert, or written by hand (migration 0007).
   tasks: { pk: 'id', added: 7, read: MANAGERS, insert: OWNER, update: OWNER, updCols: ['title', 'note', 'assignee', 'due_on', 'priority', 'status', 'done_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], title: ['text', { nn: true, max: 200, trim: true }], note: ['text', { max: 1000 }],

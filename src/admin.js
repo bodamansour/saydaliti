@@ -34,7 +34,21 @@ async function load() {
   $('cBranch').value = CFG.price_branch ?? 0; $('cPhone').value = CFG.support_phone ?? ''; $('cPay').value = CFG.pay_note ?? '';
   renderPlans();
   renderList();
+  loadUsage();
   $('errors').innerHTML = (e.data || []).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td><td>${esc(x.page)}</td><td class="name" title="${esc(x.stack || '')}">${esc(x.message)}</td><td class="n">${esc(x.version || '')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">مفيش أخطاء.</td></tr>';
+}
+
+// Counts only: who really uses the app (admin_usage). An older server without it: the box stays empty.
+async function loadUsage() {
+  const r = await SESS.client.rpc('admin_usage');
+  if (r.error || !r.data?.totals) { $('usageBox').hidden = true; return; }
+  const t = r.data.totals;
+  $('usageTiles').innerHTML = `<div class="tile"><span class="k">شغالين آخر 7 أيام</span><span class="v">${fmt(t.active_7d)}</span><span class="s">من ${fmt(t.pharmacies)} صيدلية</span></div>
+    <div class="tile"><span class="k">شغالين آخر 30 يوم</span><span class="v">${fmt(t.active_30d)}</span></div>
+    <div class="tile"><span class="k">فواتير آخر 30 يوم</span><span class="v">${fmt(t.receipts_30d)}</span></div>
+    <div class="tile"><span class="k">حسابات</span><span class="v">${fmt(t.accounts)}</span></div>`;
+  const when = (v) => (v ? new Date(v).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '—');
+  $('usage').innerHTML = r.data.pharmacies.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${fmt(x.accounts)}</td><td class="n">${fmt(x.signed_in_30d)}</td><td class="n">${fmt(x.receipts_7d)}</td><td class="n">${fmt(x.receipts_30d)}</td><td class="n">${fmt(x.purchases_30d)}</td><td class="n">${fmt(x.items)}</td><td>${when(x.last_activity)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">مفيش صيدليات.</td></tr>';
 }
 
 const stateOf = (r) => subscriptionState(r.status ? r : null, CFG, TODAY);

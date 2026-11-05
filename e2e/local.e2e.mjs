@@ -276,7 +276,43 @@ test('fixes made here become a correction file for United', async () => {
   assert.ok(!fix.items.some((x) => x.code === '5004'), 'items not touched here are left as United has them');
 });
 
+test('cancelling a whole receipt: a written reason, everything back on the shelf', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  // PINs are on since the shift test: the cashier signs in first (the offline version is the owner's, no approval).
+  await page.waitForSelector('#pinDlg[open]');
+  await page.fill('#pinIn', '1234');
+  await page.click('#pinOk');
+  // A new shift asks for the drawer; one still open from before does not.
+  await until(async () => !(await page.locator('#openCashWrap').isHidden()) || /سارة/.test(await text('#cashierChip')));
+  if (!(await page.locator('#openCashWrap').isHidden())) { await page.fill('#openCash', '0'); await page.click('#pinOk'); }
+  assert.ok(await until(async () => /سارة/.test(await text('#cashierChip'))));
+  const stock = async () => { await page.fill('#q', 'شاش'); let n = NaN; await until(async () => { const m = /رصيد\s*([−-]?\d+)/.exec(await text('#results')); n = m ? +m[1].replace('−', '-') : NaN; return Number.isFinite(n); }); await page.fill('#q', ''); return n; };
+  const before = await stock();
+  await page.fill('#q', '6220000000001');
+  await page.press('#q', 'Enter');
+  assert.ok(await until(async () => (await page.locator('#cart tr').count()) === 1), `cart: ${await text('#posMsg')} | ${await text('#cart')}`);
+  await page.click('#cart [data-inc]');
+  assert.equal(await page.inputValue('#cart [data-qty]'), '2');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /الفاتورة اتسجلت/.test(await text('#posMsg'))), `sale: ${await text('#posMsg')}`);
+  assert.equal(await stock(), before - 2);
+  await page.click('#modeReturn');
+  await page.click('#dayList [data-retid]'); // the newest receipt first
+  assert.ok(await until(async () => !(await page.locator('#voidWrap').isHidden())));
+  await page.check('#retVoid');
+  await page.keyboard.press('F2');
+  assert.match(await text('#posMsg'), /سبب إلغاء/);
+  await page.fill('#voidWhy', 'اتعملت غلط');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /اتلغت/.test(await text('#posMsg'))));
+  assert.equal(await stock(), before, 'both boxes back on the shelf');
+  await page.click('#modeReturn');
+  await page.click('#dayList [data-retid]');
+  assert.ok(await until(async () => /اترجع قبل كده/.test(await text('#retInfo'))), 'nothing left to return');
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });
-
