@@ -6,16 +6,11 @@
 <title>صيدليتي</title>
 <link rel="stylesheet" href="./vendor/fonts/fonts.css">
 <link rel="stylesheet" href="./src/style.css">
-<style>
-  .choose { max-width: 720px; margin: 40px auto; display: grid; gap: 14px; padding: 0 16px; }
-  .choose .card h2 { margin-top: 0; }
-  .choose .brand { justify-items: center; }
-  .choose button { width: 100%; }
-</style>
+<link rel="stylesheet" href="./start.css">
 </head>
 <body>
 <main class="choose">
-  <div class="brand" style="text-align:center"><img src="./icons/icon.svg" alt="" width="64" height="64"><h1>صيدليتي</h1><p id="offlineNote" class="err" hidden>مفيش نت دلوقتي، والبرنامج الأونلاين محتاج نت أول مرة بس. اتأكد من النت ودوس «أونلاين» تاني، أو اشتغل على الجهاز ده.</p></div>
+  <div class="brand u-center"><img src="./icons/icon.svg" alt="" width="64" height="64"><h1>صيدليتي</h1><p id="offlineNote" class="err" hidden>مفيش نت دلوقتي، والبرنامج الأونلاين محتاج نت أول مرة بس. اتأكد من النت ودوس «أونلاين» تاني، أو اشتغل على الجهاز ده.</p></div>
   <section class="card">
     <h2>أونلاين (بحسابك)</h2>
     <p>نفس بياناتك على الموبايل والمتصفح وأي كمبيوتر تاني، ونفس الحساب. لو النت فصل، الكاشير بيكمّل يبيع، والفواتير بتترفع لوحدها لما النت يرجع.</p>
@@ -26,12 +21,8 @@
     <p>كل البيانات على الكمبيوتر ده بس، من غير حساب. خد نسخة احتياطية كل فترة على فلاشة.</p>
     <button class="btn" type="button" id="local">اشتغل على الجهاز ده</button>
   </section>
-  <p class="note" style="text-align:center">تقدر تغيّر بعدين من قايمة «البرنامج» ← «طريقة التشغيل». البيانات اللي على الجهاز ما بتتمسحش لما تغيّر.</p>
+  <p class="note u-center">تقدر تغيّر بعدين من قايمة «البرنامج» ← «طريقة التشغيل». البيانات اللي على الجهاز ما بتتمسحش لما تغيّر.</p>
 </main>
-<script>
-  if (new URLSearchParams(location.search).has('offline')) document.getElementById('offlineNote').hidden = false;
-  document.getElementById('online').addEventListener('click', () => window.saydalitiDesktop.setMode('online'));
-  document.getElementById('local').addEventListener('click', () => window.saydalitiDesktop.setMode('local'));
-</script>
+<script src="./start.js"></script>
 </body>
 </html>

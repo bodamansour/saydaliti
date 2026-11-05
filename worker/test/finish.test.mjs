@@ -13,7 +13,7 @@ const now = () => new Date().toISOString();
 function user(email = `f-${rnd()}@test.local`) {
   let token = null;
   const call = async (path, body, method = 'POST') => {
-    const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }) });
+    const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }) });
     return { status: r.status, ...(await r.json()) };
   };
   const u = {
@@ -117,4 +117,64 @@ test('forgotten password: a one-time link by email, no hint whether the account 
 
 test('usage counts are for the app owner only', { skip }, async () => {
   assert.match((await owner.rpc('admin_usage')).error.message, /not allowed/);
+});
+
+test('the sign-in is an HttpOnly cookie; a change signed in by the cookie needs the app header (CSRF)', { skip }, async () => {
+  const email = `c-${rnd()}@test.local`;
+  const r = await fetch(`${BASE}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'password123' }) });
+  const j = await r.json();
+  assert.equal(j.data.access_token, undefined, 'the page never sees the token');
+  assert.equal(j.data.user.email, email);
+  const set = r.headers.get('set-cookie');
+  assert.match(set, /^sd_session=[0-9a-f]{64};/); assert.match(set, /HttpOnly/); assert.match(set, /Secure/); assert.match(set, /SameSite=Strict/);
+  const cookie = set.split(';')[0];
+  const get = async () => (await (await fetch(`${BASE}/api/auth/user`, { headers: { Cookie: cookie } })).json()).data.user;
+  assert.equal((await get()).email, email, 'reading with the cookie');
+  const post = (h = {}) => fetch(`${BASE}/api/rpc/create_pharmacy`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, ...h }, body: JSON.stringify({ p_name: 'صيدلية الكوكي' }) });
+  const forged = await post();
+  assert.equal(forged.status, 403, 'a cookie alone can not change anything');
+  assert.equal((await forged.json()).error.code, 'csrf');
+  assert.equal((await post({ 'X-Saydaliti': '1' })).status, 200);
+  // Sign-out ends the session and clears the cookie.
+  const out = await fetch(`${BASE}/api/auth/signout`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } });
+  assert.match(out.headers.get('set-cookie'), /Max-Age=0/);
+  assert.equal(await get(), null);
+});
+
+test('an app that still keeps its token moves it into the cookie', { skip }, async () => {
+  const u = user(); await u.signUp();
+  const r = await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Authorization: `Bearer ${u.token()}`, 'X-Saydaliti': '1' } });
+  assert.equal(r.status, 200);
+  const cookie = r.headers.get('set-cookie').split(';')[0];
+  assert.equal(cookie, `sd_session=${u.token()}`, 'the same session');
+  assert.equal((await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } })).status, 401, 'only from a Bearer token');
+});
+
+test('the log of changes: rows can not be changed, and a change made behind the app shows in the check', { skip }, async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { wranglerBin, WORKER } = await import('../scripts/staging-guard.mjs');
+  // The other suites write to the same local database at the same time: a busy database is tried again.
+  const sql = (q) => {
+    for (let i = 0; ; i++) {
+      try { return execFileSync(process.execPath, [wranglerBin(WORKER), 'd1', 'execute', 'saydaliti', '--local', '--command', q], { cwd: WORKER, stdio: 'pipe' }).toString(); }
+      catch (e) { if (i < 20 && /SQLITE_BUSY|database is locked/.test(`${e.stdout}${e.stderr}${e.message}`)) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500); continue; } throw Object.assign(e, { message: `${e.message}\n${e.stdout}${e.stderr}` }); }
+    }
+  };
+  // Something logged: a customer added.
+  assert.equal((await owner.insert('customers', { id: uuid(), pharmacy_id: P, name: 'عميل السجل' })).error, null);
+  const ok = await owner.rpc('audit_verify', { p_pharmacy: P });
+  assert.equal(ok.data.ok, true); assert.ok(ok.data.rows > 0);
+  assert.equal((await device.rpc('audit_verify', { p_pharmacy: P })).status, 403, 'owner only');
+  // The database itself refuses to change or remove a row.
+  assert.throws(() => sql(`UPDATE audit_log SET op = 'x' WHERE pharmacy_id = '${P}'`), /append-only/);
+  assert.throws(() => sql(`DELETE FROM audit_log WHERE pharmacy_id = '${P}'`), /append-only/);
+  // Someone with the database removes the trigger and edits a row: the check finds it.
+  sql('DROP TRIGGER audit_log_no_update');
+  try {
+    sql(`UPDATE audit_log SET new_row = '{"name":"edited"}' WHERE id = (SELECT min(id) FROM audit_log WHERE pharmacy_id = '${P}')`);
+    const bad = await owner.rpc('audit_verify', { p_pharmacy: P });
+    assert.equal(bad.data.ok, false);
+  } finally {
+    sql("CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END");
+  }
 });

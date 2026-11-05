@@ -153,7 +153,7 @@ $('staff').addEventListener('submit', async (e) => {
 $('staff').addEventListener('click', async (e) => {
   const inv = e.target.closest('[data-invite]');
   if (inv) {
-    try { const code = await store.createInvite(inv.dataset.invite); $('inviteOut').innerHTML = `الكود: <b class="n" style="font-size:1.3rem">${esc(code)}</b> (${inv.dataset.invite === 'device' ? 'لجهاز الصيدلية' : 'لشريك'})`; }
+    try { const code = await store.createInvite(inv.dataset.invite); $('inviteOut').innerHTML = `الكود: <b class="n u-fs13">${esc(code)}</b> (${inv.dataset.invite === 'device' ? 'لجهاز الصيدلية' : 'لشريك'})`; }
     catch (err) { $('inviteOut').textContent = err.message; }
     return;
   }

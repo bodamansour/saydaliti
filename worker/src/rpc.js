@@ -8,6 +8,7 @@ import { TABLES } from './schema.js';
 import { hashPin, sha256, randomHex } from './auth.js';
 import { openStock } from './stock.js';
 import { runBackup, backupHealth } from './backup.js';
+import { sealAudit, verifyAudit } from './audit-seal.js';
 
 const signedIn = (ctx) => { if (!ctx.user) throw new ApiError('not signed in', '42501', 401); };
 const isAdmin = async (env, ctx) => !!ctx.user && !!(await env.DB.prepare('SELECT 1 FROM app_admins WHERE user_id = ?').bind(ctx.user.id).first());
@@ -324,6 +325,12 @@ export const RPC = {
         (SELECT max(x.sold_at) FROM pos_sales x WHERE x.pharmacy_id = p.id) AS last_sale,
         (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS sales_30d
       FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id ORDER BY p.created_at DESC`, since);
+  },
+  // Is the log of changes as it was written? Seals what is new, then checks every seal (owner only).
+  async audit_verify(env, ctx, { p_pharmacy }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    await sealAudit(env, p_pharmacy);
+    return verifyAudit(env, p_pharmacy);
   },
   // How much the app is used, for the app owner: counts only (no money, no names of customers or items).
   async admin_usage(env, ctx) {

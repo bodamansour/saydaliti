@@ -15,6 +15,7 @@ for (const f of ['index.html', 'cashier.html', 'attendance.html', 'about.html', 
 for (const d of ['src', 'icons']) await cp(join(ROOT, d), join(OUT, d), { recursive: true });
 await cp(join(NM, 'xlsx/dist/xlsx.full.min.js'), join(OUT, 'vendor/xlsx.full.min.js'));
 await cp(join(HERE, 'pages', 'start.html'), join(OUT, 'start.html')); // first start: online or on this computer
+for (const f of ['start.css', 'start.js']) await cp(join(HERE, 'pages', f), join(OUT, f));
 
 // Fonts: only the Arabic and Latin files the pages use.
 const fonts = [['alexandria', ['600', '700']], ['ibm-plex-sans-arabic', ['400', '500', '600', '700']]];

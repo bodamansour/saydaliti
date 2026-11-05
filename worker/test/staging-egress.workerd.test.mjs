@@ -90,7 +90,7 @@ async function start(vars) {
   return { mf, outbound, call };
 }
 const signup = async (call) => {
-  const r = await call('/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `egress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.local`, password: 'password123' }) });
+  const r = await call('/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1' }, body: JSON.stringify({ email: `egress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.local`, password: 'password123' }) });
   assert.ok(r.body?.data?.access_token, `signed in (synthetic account): ${r.status} ${JSON.stringify(r.body)}`);
   return r.body.data.access_token;
 };

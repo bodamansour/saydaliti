@@ -175,6 +175,10 @@ export const TABLES = {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], customer_id: ['id', { nn: true }], paid_on: ['date', { nn: true }],
     amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id'], ['customer_id']] },
+  // Signed fingerprints of the log of changes (migration 0016, audit-seal.js). Server only.
+  audit_seals: { pk: 'id', internal: true, added: 16, cols: {
+    id: ['serial'], pharmacy_id: ['id', { nn: true }], upto_id: ['int', { nn: true }], rows: ['int', { nn: true }], hash: ['text', { nn: true }], created_at: ['ts', { nn: true }] },
+  index: [['pharmacy_id', 'upto_id']] },
   audit_log: { pk: 'id', read: OWNER, cols: {
     id: ['serial'], pharmacy_id: ['id', { nn: true }], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], table_name: ['text', { nn: true }],
     op: ['text', { nn: true }], row_id: ['text'], old_row: ['json'], new_row: ['json'] },
