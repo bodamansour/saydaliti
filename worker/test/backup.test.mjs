@@ -8,7 +8,7 @@ const skip = !BASE && 'WORKER_URL not set (start the local Worker first)';
 const rnd = () => Math.random().toString(36).slice(2, 10);
 function user() {
   let token = null;
-  const call = async (path, body) => { const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) }); return { status: r.status, ...(await r.json()) }; };
+  const call = async (path, body) => { const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', 'X-Saydaliti': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) }); return { status: r.status, ...(await r.json()) }; };
   return { email: `b-${rnd()}@test.local`, async signUp() { token = (await call('/api/auth/signup', { email: this.email, password: 'password123' })).data.access_token; },
     rpc: (n, a) => call(`/api/rpc/${n}`, a), select: (t, c, f = []) => call('/api/db', { op: 'select', table: t, cols: c, filters: f }), insert: (t, rows) => call('/api/db', { op: 'upsert', table: t, rows, ignoreDuplicates: true }) };
 }

@@ -74,6 +74,10 @@ These timings come from a small test pharmacy on a local machine. They are **not
 
 **C. Moving a pharmacy to a new account or pharmacy:** the existing owner export → `import_backup` (new ids).
 
+**D. A missing or mismatched audit anchor:** verification never creates seals or treats a missing R2 anchor as healthy. The hourly sealer may restore the exact latest anchor from `audit-anchor-history/` only after it matches the latest D1 seal; it records that restoration in `audit_log`. If that trusted copy is absent or does not match, sealing stops. The pharmacy owner can use **استعادة/إعادة تأسيس الختم** in the audit log, give a reason, and confirm `REBASELINE_AUDIT_ANCHOR`. This appends a new seal epoch and an audit record; earlier D1 seals and readable R2 anchor evidence are retained. Review the log and compare it with an independent record before approving a rebaseline.
+
+Before release, configure Cloudflare R2 Bucket Lock retention for `audit-anchor-history/` and `audit-anchor-evidence/` (indefinite retention). The application also uses conditional writes, but those alone do not prevent an R2 administrator from deleting the trusted copies. This lock was not enabled or tested as part of the local patch review. History is inventoried twice with pagination; a newer orphan or conflicting copy stops automatic recovery and requires owner review. Measure the resulting CPU and R2 request cost with realistic retained history on staging before release.
+
 ## 6. Before this goes to production (needs owner approval)
 
 1. Create the `BACKUP_KEY` Worker secret: at least 32 characters from a **cryptographic** generator (`openssl rand -base64 48`, or `RandomNumberGenerator` in PowerShell; never `Get-Random`). **Store a copy offline: without it the backups cannot be opened.** The release workflow warns if it is missing.
@@ -107,7 +111,9 @@ These timings come from a small test pharmacy on a local machine. They are **not
 | Sign-in sessions, sign-in/PIN/invite attempt counters | Short-lived; people sign in again |
 | `client_errors` (app error reports), `app_config` and `app_admins` (whole-app settings) | Not pharmacy data; app-level settings are re-entered by the app owner |
 | Other pharmacies' rows | Each backup is one pharmacy |
-| Worker secrets (`PIN_PEPPER`, `BACKUP_KEY`, WhatsApp, AI) | Kept outside the database; they must be stored separately (offline) |
+| Worker secrets (`PIN_PEPPER`, `TOTP_KEY`, `AUDIT_SEAL_KEY`, `BACKUP_KEY`, WhatsApp, AI) | Kept outside the database; they must be stored separately (offline) |
+| Two-step sign-in secrets and recovery codes | Not in the backup: after a restore two-step sign-in is off and each person turns it on again (owner decision pending, `docs/security/KEYS_AND_SECRETS.md`) |
+| `audit_seals` and R2 anchor history | Not in the pharmacy backup. A restored database cannot silently recreate them; restore a matching trusted anchor or have the owner authorize a new epoch as described above. |
 | `stock_levels` | Rebuilt from the ledger on restore (checked) |
 
 ## 10. Limits

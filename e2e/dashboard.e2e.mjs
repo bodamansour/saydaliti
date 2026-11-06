@@ -548,7 +548,7 @@ test('customers: credit and insurance at the cashier, balances, collecting, clai
   assert.equal(await text('#tChange'), '22.00');
   await shot('cashier-insurance');
   await page.keyboard.press('F2');
-  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 112 && x.claim_no === 'APP-1' && x.paid === 50)));
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 112 && x.claim_no === 'APP-1' && x.paid === 50)), `insurance sale: ${await text('#posMsg')} ${JSON.stringify((await db('pos_sales')).map((x) => [x.credit, x.claim_no, x.paid]))}`);
   assert.match(await text('#daySum'), /آجل/);
 
   await page.goto(base);
@@ -857,6 +857,64 @@ test('treasury: counting it sets the balance, and a trip to the bank takes it do
   await page.fill('#cmAmount', '400');
   await page.click('#cashForm button[type=submit]');
   assert.ok(await until(async () => /1,?100/.test(await text('#panel .tiles .tile'))), 'balance 1500 − 400');
+});
+
+test('a password-reset link opened while signed in: a clear notice, the token taken out of the address bar', async () => {
+  await page.goto(`${base}#reset=${'ab'.repeat(32)}`);
+  await page.reload(); // the same page with only a new #hash: opened again, like a click on the email link
+  await page.waitForSelector('#resetNotice');
+  assert.match(await page.locator('#resetNotice').innerText(), /اخرج الأول/);
+  assert.equal(await page.evaluate(() => location.hash), '', 'no token left in the URL');
+  assert.ok(await page.locator('#app').isVisible(), 'still signed in, nothing changed');
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+});
+
+test('printing: the receipt, the sales report, labels and the export page each print with their stylesheet loaded', async () => {
+  // Print documents take their look from src/print/*.css (the security policy allows no inline style).
+  // Each print is caught before it happens, and the frame's styles are checked at that moment.
+  await page.evaluate(() => {
+    window.__prints = [];
+    const record = (w, how) => {
+      const d = w.document;
+      const sheets = [...d.styleSheets].map((x) => { try { return x.cssRules.length; } catch { return -1; } });
+      window.__prints.push({ how, title: d.title, href: d.querySelector('link[rel=stylesheet]')?.href ?? null, sheets, bodyMargin: w.getComputedStyle(d.body).margin });
+    };
+    new MutationObserver((list) => {
+      for (const m of list) for (const n of m.addedNodes) if (n.tagName === 'IFRAME') { const w = n.contentWindow; w.print = () => record(w, 'frame'); }
+    }).observe(document.body, { childList: true });
+  });
+  const printed = async (n) => until(async () => (await page.evaluate(() => window.__prints.length)) >= n, 8000);
+  // A receipt again, and the sales report.
+  await page.click('[data-sec=money]');
+  await page.click('#tabs [data-tab=pos]');
+  await page.waitForSelector('#panel .sale-row');
+  await page.click('#panel .sale-row');
+  await page.click('#panel [data-printsale]');
+  assert.ok(await printed(1), 'the receipt printed');
+  await page.click('#posPrint');
+  assert.ok(await printed(2), 'the report printed');
+  // Labels for an item.
+  await page.click('[data-sec=stock]');
+  await page.click('#tabs [data-tab=items]');
+  await page.click('#itemsBody [data-edititem]');
+  await page.click('#printLabels');
+  assert.ok(await printed(3), 'the labels printed');
+  await page.keyboard.press('Escape');
+  // A table on its own page (print / PDF).
+  await openTools(page);
+  if (!(await page.locator('#exportBox').getAttribute('open') !== null)) await page.click('#exportBox summary');
+  await page.click('[data-export=print]');
+  assert.ok(await printed(4), 'the export page printed');
+  const prints = await page.evaluate(() => window.__prints);
+  const want = ['receipt', 'report', 'labels', 'export'];
+  prints.forEach((p, i) => {
+    assert.match(p.href || '', new RegExp(`/src/print/${want[i]}\\.css$`), `${want[i]}: its own stylesheet`);
+    assert.ok(p.sheets.length === 1 && p.sheets[0] > 0, `${want[i]}: the stylesheet was loaded before printing (${JSON.stringify(p.sheets)})`);
+  });
+  assert.equal(prints[0].bodyMargin, '0px', 'the receipt style is applied (body margin 0)');
+  assert.equal(prints[2].bodyMargin, '0px', 'the labels style is applied');
+  assert.ok(prints.every((p) => p.how === 'frame'), 'all four through the hidden frame (no popup window)');
 });
 
 test('no script errors', () => {

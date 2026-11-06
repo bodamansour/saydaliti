@@ -408,12 +408,16 @@ async function loadCashMoves() {
   } catch (e) { CASH_READY = false; }
 }
 function renderTreasury() {
+  // The treasury is the whole pharmacy's cash: supplier payments and the counted cash have no branch.
+  // Someone who sees only some branches would get a wrong number, so it is for those who see them all.
+  // Members limited to branches (pharmacist, accountant, stock, device) can't be sure they see them all.
+  if (isScopedMember()) return '<div class="card emptybox"><h3>الخزينة للصيدلية كلها</h3><p>بتظهر لصاحب الصيدلية والشريك بس، لأن دفعات الموردين وعدّ الخزينة مش لفرع واحد.</p></div>';
   if (CASH_READY === null) { CASH_READY = false; loadCashMoves().then(() => { if (TAB === 'treasury') render(true); }); return '<p class="note">بيحمّل…</p>'; }
   if (!CASH_READY) return '<div class="card emptybox"><h3>الخزينة محتاجة تحديث قاعدة البيانات</h3><p>التحديث <code>0015</code> بيضيف الخزينة. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
   const T = treasury({ moves: CASH_MOVES, sales: POS_SALES, customerPayments: CUST_PAYMENTS, expenses: EXPENSES, supplierPayments: SUP_PAYMENTS, purchases: PURCHASES });
   const p = T.parts;
   const line = (label, v, sign) => (v ? `<div><span>${label}</span><span class="n">${sign}${fmt(v, 2)}</span></div>` : '');
-  const form = canPay() ? `<form id="cashForm" class="card stack">
+  const form = isOwner() ? `<form id="cashForm" class="card stack">
       <h3>سجّل حركة في الخزينة</h3>
       <div class="grid2">
         <label>النوع<select id="cmKind">${Object.entries(CASH_KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
@@ -950,20 +954,61 @@ function logChanges(x) {
   return [r.name, r.code, r.invoice_no, r.supplier_name, r.amount != null ? `${r.amount} ج` : '', r.qty != null ? `كمية ${r.qty}` : '', r.employee_name, r.note].filter(Boolean).join(' · ');
 }
 let LOG_VERIFY = '';
+let LOG_VERIFY_REASON = '';
+let LOG_VERIFY_PROOF = null;
+let LOG_VERIFY_RUNNING = false;
 async function verifyLog() {
+  if (LOG_VERIFY_RUNNING) return;
+  LOG_VERIFY_RUNNING = true; LOG_VERIFY_PROOF = null; LOG_VERIFY_REASON = '';
+  const pharmacy = SESS.pharmacy.id, user = SESS.user.id, client = SESS.client;
   LOG_VERIFY = 'بيتأكد…'; render(true);
-  const r = await SESS.client.rpc('audit_verify', { p_pharmacy: SESS.pharmacy.id });
+  let r, cursor = null;
+  try {
+    do {
+      r = await client.rpc('audit_verify', { p_pharmacy: pharmacy, p_cursor: cursor });
+      if (SESS?.pharmacy?.id !== pharmacy || SESS?.user?.id !== user || SESS?.client !== client) return;
+      const progress = r.data || {};
+      if (r.error || progress.reason !== 'in_progress') break;
+      if (!progress.cursor || progress.cursor === cursor) { r = { error: { message: 'تعذر استكمال فحص السجل' } }; break; }
+      cursor = progress.cursor;
+      LOG_VERIFY = `بيفحص السجل: ${fmt(progress.rows)} من ${fmt(progress.total_rows)} سطر…`; render(true);
+    } while (cursor);
+  } catch (error) { r = { error }; } finally { LOG_VERIFY_RUNNING = false; }
+  const d = r.data || {};
+  LOG_VERIFY_PROOF = d.proof ? { pharmacy, user, value: d.proof } : null;
+  LOG_VERIFY_REASON = r.error ? '' : d.reason || '';
   LOG_VERIFY = r.error ? arabicError(r.error).message
-    : r.data.ok ? `السجل سليم: ${fmt(r.data.rows)} سطر، محدش عدّل فيه ولا مسح منه.`
-    : `تحذير: السجل اتغير من برّه البرنامج قبل ${new Date(r.data.broken_at).toLocaleString('ar-EG')}. كلّم صاحب البرنامج.`;
+    : d.ok === null && d.reason === 'changed_during_verification' ? 'السجل أو نسخة R2 اتغيرت أثناء الفحص؛ النتيجة غير مكتملة. حاول تاني.'
+    : d.ok === null && d.reason === 'unsealed' ? `التحقق غير مكتمل: فيه ${fmt(d.unsealed)} سطر لسه ما اتختمش. مش هنعتبر السجل سليم لحد ما الختم يكتمل.`
+    : d.ok === null && d.reason === 'anchor_missing' ? 'التحقق متوقف: نسخة R2 الموثوقة مفقودة. الختم الجديد متوقف لحد الاستعادة أو إعادة التأسيس بموافقة المالك.'
+    : d.ok === null && d.reason === 'anchor_unreadable' ? 'التحقق متوقف: نسخة R2 غير قابلة للقراءة. الأدلة محفوظة؛ يلزم إجراء المالك.'
+    : d.ok === null && d.reason === 'anchor_unavailable' ? 'التحقق متوقف: خدمة R2 غير متاحة. حاول لاحقًا.'
+    : d.ok === null ? 'ختم السجل لسه مش متفعّل على السيرفر (المفتاح AUDIT_SEAL_KEY). كلّم صاحب البرنامج.'
+    : d.ok ? `${d.epoch ? `من بعد إعادة تأسيس المالك (المرحلة ${fmt(d.epoch)}؛ المراحل السابقة محفوظة): ` : ''}اكتمل فحص ${fmt(d.rows)} سطر خلال فترة الفحص، ولم يظهر تغيير. الفحص على دفعات وليس لقطة ثابتة.`
+    : d.reason === 'key_missing' ? 'مش قادر يتأكد: جزء من السجل مختوم بمفتاح مش موجود على السيرفر دلوقتي. كلّم صاحب البرنامج.'
+    : d.reason === 'anchor_mismatch' ? 'تحذير: نسخة R2 لا تطابق آخر ختم في قاعدة البيانات. الأدلة محفوظة والختم متوقف.'
+    : `تحذير: السجل ${d.reason === 'truncated' ? 'اتمسح آخره' : 'اتغير'} من برّه البرنامج (${new Date(d.broken_at).toLocaleString('ar-EG')}). كلّم صاحب البرنامج.`;
   render(true);
+}
+async function rebaselineLog() {
+  const reason = prompt('اكتب سبب استعادة/إعادة تأسيس ختم السجل (من 10 إلى 500 حرف). الأدلة القديمة ستظل محفوظة.');
+  if (!reason || reason.trim().length < 10 || reason.trim().length > 500) return;
+  if (prompt('للتأكيد، اكتب REBASELINE_AUDIT_ANCHOR') !== 'REBASELINE_AUDIT_ANCHOR') return;
+  LOG_VERIFY = 'بيتحقق من النسخة الموثوقة أو يبدأ مرحلة جديدة…'; render(true);
+  const proof = LOG_VERIFY_PROOF?.pharmacy === SESS.pharmacy.id && LOG_VERIFY_PROOF?.user === SESS.user.id ? LOG_VERIFY_PROOF.value : null;
+  const r = await SESS.client.rpc('audit_rebaseline', { p_pharmacy: SESS.pharmacy.id, p_reason: reason.trim(), p_confirm: 'REBASELINE_AUDIT_ANCHOR', p_proof: proof });
+  LOG_VERIFY = r.error ? arabicError(r.error).message : r.data?.action === 'restored_from_trusted_backup'
+    ? 'تمت استعادة الختم من النسخة الموثوقة، وسُجلت العملية في سجل التعديلات.'
+    : 'بدأت مرحلة ختم جديدة بموافقة المالك، وسُجل السبب مع الاحتفاظ بالأختام السابقة.';
+  if (r.error) { render(true); return; }
+  await verifyLog();
 }
 function renderLog() {
   if (LOG_ROWS === null) { loadLatest('audit_log', 'id, at, user_id, table_name, op, row_id, old_row, new_row', 'at', 500).then((r) => { LOG_ROWS = r || []; render(true); }); return '<p class="note">لحظة…</p>'; }
   if (LOG_ROWS === 'missing') return '<div class="card emptybox"><h3>سجل التعديلات محتاج تحديث قاعدة البيانات 013</h3></div>';
   const who = (id) => (id === SESS.user.id ? 'إنت' : SESS.local ? 'الجهاز ده' : 'حساب تاني (شريك أو جهاز الصيدلية)');
   const list = LOG_ROWS.filter((x) => !LOG_FILTER || x.table_name === LOG_FILTER);
-  return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button>${SESS.client?.cloudflare && isOwner() ? '<button class="btn" type="button" id="logVerify">اتأكد إن السجل محدش لعب فيه</button>' : ''}<span class="note" id="logVerifyMsg" role="status">${esc(LOG_VERIFY)}</span></div>
+  return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button>${SESS.client?.cloudflare && isOwner() ? `<button class="btn" type="button" id="logVerify">اتأكد إن السجل محدش لعب فيه</button>${['anchor_missing', 'anchor_mismatch', 'anchor_unreadable'].includes(LOG_VERIFY_REASON) ? '<button class="btn" type="button" id="logRebaseline">استعادة/إعادة تأسيس الختم (للمالك)</button>' : ''}` : ''}<span class="note" id="logVerifyMsg" role="status">${esc(LOG_VERIFY)}</span></div>
   <p class="note">كل إضافة أو تعديل أو مسح في المشتريات والأصناف والرصيد والعملاء والفلوس والورديات بيتسجل هنا: مين وإمتى وإيه اللي اتغير. محدش يقدر يمسح السجل ده.</p>
   ${list.length ? table(['إمتى', 'مين', 'إيه', 'العملية', 'التفاصيل'], list.slice(0, 500).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td>
     <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' || x.op === 'flag' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
@@ -2569,7 +2614,7 @@ $('mfaSteps').addEventListener('click', async (e) => {
   const say = (t) => { if ($('mfaMsg')) $('mfaMsg').textContent = t; };
   if (e.target.id === 'mfaStart') {
     const r = await SESS.client.auth.mfaSetup($('mfaPw').value);
-    if (r.error) { say(/Current password/.test(r.error.message) ? 'كلمة السر غلط.' : arabicError(r.error).message); return; }
+    if (r.error) { say(r.error.code === 'mfa_not_configured' ? 'التحقق بخطوتين لسه مش متفعّل على السيرفر. كلّم صاحب البرنامج.' : /Current password/.test(r.error.message) ? 'كلمة السر غلط.' : arabicError(r.error).message); return; }
     $('mfaSteps').innerHTML = `<p>1. افتح تطبيق التحقق على موبايلك وامسح الكود ده (أو اكتب المفتاح بإيدك):</p>
       <div class="row" data-no-i18n>${qrSvg(r.data.url, 160)}<code class="n u-brk">${esc(r.data.secret)}</code></div>
       <p>2. اكتب الكود اللي ظهر في التطبيق:</p>
@@ -2788,18 +2833,12 @@ function exportPrint(which) {
   const rows = exportTables().find(([t]) => t === which)?.[1] || [];
   if (!rows.length) throw new Error('مفيش بيانات هنا.');
   const cols = Object.keys(rows[0]);
-  const w = window.open('', '_blank');
-  if (!w) throw new Error('المتصفح منع فتح الصفحة. اسمح بالنوافذ المنبثقة للموقع.');
-  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(which)} — ${esc(SESS.pharmacy?.name || '')}</title>
+  // Printed through the same hidden frame as the receipts and reports (printDoc): it waits for the
+  // stylesheet, and the browser's print window offers «Save as PDF».
+  printDoc(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(which)} — ${esc(SESS.pharmacy?.name || '')}</title>
     <link rel="stylesheet" href="${new URL('./src/print/export.css', location.href)}"></head>
     <body><h1>${esc(SESS.pharmacy?.name || 'صيدليتي')} — ${esc(which)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' ? ` · ${esc(branchName(BRANCH))}` : ''} · ${fmt(rows.length)} سطر</p>
     <table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`);
-  w.document.close();
-  w.focus();
-  const link = w.document.querySelector('link[rel=stylesheet]');
-  let printed = false;
-  const go = () => { if (!printed) { printed = true; w.print(); } };
-  if (link && !link.sheet) { link.addEventListener('load', () => setTimeout(go, 100), { once: true }); setTimeout(go, 3000); } else setTimeout(go, 300);
 }
 $('exportBox').addEventListener('click', (e) => {
   const b = e.target.closest('[data-export]'); if (!b) return;
@@ -3029,6 +3068,15 @@ async function boot() {
   if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>البرنامج مش متوصل بقاعدة البيانات</h2><p class="note">لازم يتضاف <code>SUPABASE_URL</code> و<code>SUPABASE_PUBLISHABLE_KEY</code> في إعدادات Vercel، وبعدها تقدر تسجّل دخول.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
+  // A password-reset link opened while already signed in: it is not used silently, and its token is taken
+  // out of the address bar. The link still works after signing out (it is valid for 30 minutes).
+  if (/^#reset=[0-9a-f]{64}$/i.test(location.hash) && !document.getElementById('resetNotice')) {
+    history.replaceState(null, '', location.pathname + location.search);
+    const n = document.createElement('p');
+    n.id = 'resetNotice'; n.className = 'note err'; n.setAttribute('role', 'status');
+    n.textContent = `فتحت لينك تغيير كلمة السر وإنت داخل بحساب ${SESS.user?.email || ''}. لو اللينك لحساب تاني أو عايز تغيّر كلمة السر بيه: اخرج الأول، وافتح اللينك من الإيميل تاني (شغال نص ساعة). كلمة السر الحالية ما اتغيرتش.`;
+    $('app').prepend(n);
+  }
   if (SESS.client?.cloudflare && SESS.branchScopeVersion !== 1) {
     $('auth').innerHTML = '<h2>لازم تحديث صلاحيات الفروع</h2><p class="note">اتصل بالإنترنت وافتح البرنامج تاني علشان يحدّث قائمة الفروع المسموح لك تشوفها.</p>'; return;
   }
@@ -3110,6 +3158,7 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.id === 'wdGoods') { ADJ = { ...ADJ, kind: 'withdrawal', code: null, qty: '' }; ADJ_NOTE = ''; TAB = 'adjust'; render(); $('adjQ')?.focus(); }
   const dw = e.target.closest('[data-delwd]'); if (dw) deleteWithdrawal(dw.dataset.delwd, dw.dataset.wdtype);
   if (e.target.id === 'logVerify') verifyLog();
+  if (e.target.id === 'logRebaseline') rebaselineLog();
   const dc = e.target.closest('[data-delcash]'); if (dc && confirm('تمسح الحركة دي من الخزينة؟')) { CASH_NOTE = ''; localDelete('cash_moves', dc.dataset.delcash); }
   if (e.target.id === 'addFixed') addFixedExpenses();
   const es = e.target.closest('[data-editsup]'); if (es) { EDIT_SUP = es.dataset.editsup; render(); $('supForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }

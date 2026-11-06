@@ -33,3 +33,24 @@ test('treasury: with no count, everything from the start; a later count restarts
   assert.equal(treasury({ sales, moves: [{ kind: 'count', amount: 70, moved_at: at(10) }] }, until).balance, 70, 'counted 70: the 100 before it is in the count');
   assert.equal(treasury({ sales, moves: [{ kind: 'count', amount: 70, moved_at: at(10) }] }, Date.parse(at(9) )).balance, 100, 'before the count happened');
 });
+
+test('treasury: the day the money moved decides, not when it reached the server', () => {
+  const count = { kind: 'count', amount: 500, moved_at: '2026-11-05T12:00:00.000Z' };
+  const T = treasury({
+    moves: [count],
+    expenses: [
+      { kind: 'rent', amount: 300, spent_on: '2026-11-04', created_at: '2026-11-05T15:00:00.000Z' }, // edited after the count: the day before, already in the count
+      { kind: 'electricity', amount: 40, spent_on: '2026-11-06', created_at: '2026-11-06T09:00:00.000Z' }, // the next day
+      { kind: 'water', amount: 7, spent_on: '2026-11-05', created_at: '2026-11-05T10:00:00.000Z' }, // the count's day, before it
+      { kind: 'other', amount: 9, spent_on: '2026-11-05', created_at: '2026-11-05T13:00:00.000Z' }, // the count's day, after it
+    ],
+    customerPayments: [{ amount: 60, paid_on: '2026-11-04', created_at: '2026-11-06T08:00:00.000Z' }], // paid offline the day before, uploaded late
+    supplierPayments: [{ amount: 25, paid_on: '2026-11-06', created_at: '2026-11-06T08:00:00.000Z' }],
+    purchases: [{ paid: 15, received_on: '2026-11-03', created_at: '2026-11-06T08:00:00.000Z' }],
+  }, Date.parse('2026-11-06T18:00:00.000Z'));
+  assert.equal(T.parts.expenses, 49, 'electricity 40 + other 9');
+  assert.equal(T.parts.customers, 0); assert.equal(T.parts.suppliers, 25);
+  assert.equal(T.balance, 500 - 49 - 25);
+  // A day that hasn't come yet (as of `until`) is not counted.
+  assert.equal(treasury({ moves: [count], expenses: [{ amount: 5, spent_on: '2026-11-07', created_at: '2026-11-05T13:00:00.000Z' }] }, Date.parse('2026-11-06T18:00:00.000Z')).parts.expenses, 0);
+});

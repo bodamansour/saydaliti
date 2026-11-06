@@ -31,6 +31,9 @@ BACKUP_CRON = "30 1 * * *"
 # (each account is redone at its next sign-in).
 PBKDF2_ITER = "10000"
 SITE_URL = "https://saydaliti.mosaedapp.workers.dev"
+# Hourly sealing and owner verification limits; measure CPU and R2 history inventory on staging before changing them.
+SEAL_BUDGET = "150"
+VERIFY_MAX_ROWS = "200"
 
 [triggers]
 # 06:00 UTC = 09:00 Cairo: morning report. Every hour at :15: patient reminders. 01:30 UTC: backups.
@@ -58,6 +61,8 @@ PBKDF2_ITER = "10000"
 SITE_URL = "https://saydaliti-staging.mosaedapp.workers.dev"
 # The test suites create many accounts.
 SIGNUP_PER_HOUR = "10000"
+SEAL_BUDGET = "150"
+VERIFY_MAX_ROWS = "200"
 
 [[env.staging.d1_databases]]
 binding = "DB"

@@ -14,12 +14,13 @@ const IDENT = /^[a-z_][a-z0-9_]*$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function tableOf(name, { allowInternal = false } = {}) {
-  const t = TABLES[name];
+  // Own entries only: a name from a request must never reach something inherited (`constructor`, `__proto__`).
+  const t = typeof name === 'string' && Object.hasOwn(TABLES, name) ? TABLES[name] : null;
   if (!t || (t.internal && !allowInternal)) throw new ApiError(`relation "public.${name}" does not exist`, '42P01', 404);
   return t;
 }
 const colSpec = (t, table, col) => {
-  if (!IDENT.test(String(col)) || !t.cols[col]) throw new ApiError(`column ${table}.${col} does not exist`, '42703');
+  if (!IDENT.test(String(col)) || !Object.hasOwn(t.cols, col)) throw new ApiError(`column ${table}.${col} does not exist`, '42703');
   return t.cols[col];
 };
 // A hidden column (e.g. employees.pin_hash) is never read, and also can't be filtered or sorted on: a filter

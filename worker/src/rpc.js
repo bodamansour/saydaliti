@@ -5,10 +5,10 @@ import { planOf, readPlans } from '../../src/plans.js';
 import { checkSaleRow, checkReturnAgainst, checkVoid } from '../../src/sale-rules.js';
 import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
-import { hashPin, sha256, randomHex } from './auth.js';
+import { hashPin, oldPinHashes, sha256, randomHex } from './auth.js';
 import { openStock } from './stock.js';
 import { runBackup, backupHealth } from './backup.js';
-import { sealAudit, verifyAudit } from './audit-seal.js';
+import { verifyAudit, rebaselineAudit } from './audit-seal.js';
 
 const signedIn = (ctx) => { if (!ctx.user) throw new ApiError('not signed in', '42501', 401); };
 const isAdmin = async (env, ctx) => !!ctx.user && !!(await env.DB.prepare('SELECT 1 FROM app_admins WHERE user_id = ?').bind(ctx.user.id).first());
@@ -190,7 +190,7 @@ export const RPC = {
     if (!name) throw new ApiError('name required');
     if (!/^\d{4,6}$/.test(String(p_pin))) throw new ApiError('PIN must be 4-6 digits');
     const h = await hashPin(env, p_pharmacy, p_pin);
-    if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', p_pharmacy, h)) throw new ApiError('PIN already used');
+    for (const x of [h, ...await oldPinHashes(env, p_pharmacy, p_pin)]) if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', p_pharmacy, x)) throw new ApiError('PIN already used');
     const e = { id: uuid(), pharmacy_id: p_pharmacy, name: name.slice(0, 120), pin_hash: h, shift_start: `${p_shift_start}:00`.slice(0, 8), shift_end: `${p_shift_end}:00`.slice(0, 8),
       work_days: p_work_days, grace_minutes: Math.max(0, Math.min(600, +p_grace || 0)), active: true, created_at: nowIso() };
     await env.DB.batch([
@@ -206,7 +206,7 @@ export const RPC = {
     if (!e) throw new ApiError('not allowed', '42501', 403);
     requireRole(ctx, e.pharmacy_id, ['owner']);
     const h = await hashPin(env, e.pharmacy_id, p_pin);
-    if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND id <> ? AND active = 1 AND pin_hash = ?', e.pharmacy_id, e.id, h)) throw new ApiError('PIN already used');
+    for (const x of [h, ...await oldPinHashes(env, e.pharmacy_id, p_pin)]) if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND id <> ? AND active = 1 AND pin_hash = ?', e.pharmacy_id, e.id, x)) throw new ApiError('PIN already used');
     await env.DB.prepare('UPDATE employees SET pin_hash = ? WHERE id = ?').bind(h, e.id).run();
     return null;
   },
@@ -326,11 +326,14 @@ export const RPC = {
         (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS sales_30d
       FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id ORDER BY p.created_at DESC`, since);
   },
-  // Is the log of changes as it was written? Seals what is new, then checks every seal (owner only).
-  async audit_verify(env, ctx, { p_pharmacy }) {
+  // Verification is read-only. New rows are sealed by the scheduled job after this check.
+  async audit_verify(env, ctx, { p_pharmacy, p_cursor }) {
     requireRole(ctx, p_pharmacy, ['owner']);
-    await sealAudit(env, p_pharmacy);
-    return verifyAudit(env, p_pharmacy);
+    return verifyAudit(env, p_pharmacy, { cursor: p_cursor || null, userId: ctx.user.id });
+  },
+  async audit_rebaseline(env, ctx, { p_pharmacy, p_reason, p_confirm, p_proof }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    return rebaselineAudit(env, p_pharmacy, { userId: ctx.user.id, reason: p_reason, confirm: p_confirm, proof: p_proof || null });
   },
   // How much the app is used, for the app owner: counts only (no money, no names of customers or items).
   async admin_usage(env, ctx) {
@@ -401,11 +404,25 @@ export const RPC = {
     return importBackup(env, ctx, p_pharmacy, p_dump);
   },
 };
+// No prototype: a name from the address (/api/rpc/<name>) can only ever be one of the functions above,
+// never something inherited such as `constructor` (Object, which would hand back env with its secrets).
+Object.setPrototypeOf(RPC, null);
+// The function for a name taken from a request, or null.
+export const rpcNamed = (name) => (typeof name === 'string' && Object.hasOwn(RPC, name) && typeof RPC[name] === 'function' ? RPC[name] : null);
 
 // The employee a PIN belongs to; wrong PINs are counted (20 in 15 minutes and the account waits).
 async function pinEmployee(env, ctx, pharmacyId, pin, wrongMessage) {
   if ((await one(env, 'SELECT count(*) AS n FROM pin_attempts WHERE user_id = ? AND at > ?', ctx.user.id, recent(15))).n >= 20) throw new ApiError('too many attempts');
-  const e = /^\d{4,6}$/.test(String(pin)) ? await one(env, 'SELECT id, name FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', pharmacyId, await hashPin(env, pharmacyId, pin)) : null;
+  let e = null;
+  if (/^\d{4,6}$/.test(String(pin))) {
+    const h = await hashPin(env, pharmacyId, pin);
+    e = await one(env, 'SELECT id, name FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', pharmacyId, h);
+    // A PIN hashed before PIN_PEPPER changed: accepted with the old value once, and hashed again now.
+    for (const old of e ? [] : await oldPinHashes(env, pharmacyId, pin)) {
+      e = await one(env, 'SELECT id, name FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', pharmacyId, old);
+      if (e) { await env.DB.prepare('UPDATE employees SET pin_hash = ? WHERE id = ? AND pin_hash = ?').bind(h, e.id, old).run(); break; }
+    }
+  }
   if (!e) {
     await env.DB.batch([
       env.DB.prepare('INSERT INTO pin_attempts (user_id, at) VALUES (?, ?)').bind(ctx.user.id, nowIso()),

@@ -13,7 +13,7 @@ const now = () => new Date().toISOString();
 function user(email = `f-${rnd()}@test.local`) {
   let token = null;
   const call = async (path, body, method = 'POST') => {
-    const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }) });
+    const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', 'X-Saydaliti': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }) });
     return { status: r.status, ...(await r.json()) };
   };
   const u = {
@@ -45,6 +45,13 @@ test('treasury moves: the owner records them, a device can not read or add them'
   assert.match((await owner.insert('cash_moves', { ...row, id: uuid(), kind: 'gift' })).error.message, /kind/);
   assert.equal((await device.insert('cash_moves', { ...row, id: uuid() })).status, 403);
   assert.equal((await device.select('cash_moves', 'id')).data.length, 0);
+  // The whole pharmacy's cash: an accountant (who may see only some branches) can neither read nor write it.
+  const acc = user(); await acc.signUp();
+  await acc.rpc('join_pharmacy', { p_code: (await owner.rpc('create_invite', { p_pharmacy: P, p_role: 'accountant' })).data });
+  assert.equal((await acc.insert('cash_moves', { ...row, id: uuid() })).status, 403);
+  assert.equal((await acc.select('cash_moves', 'id')).data.length, 0);
+  // The server keeps the amounts' signs too: only a correction may be negative.
+  for (const kind of ['count', 'to_bank', 'from_bank']) assert.ok((await owner.insert('cash_moves', { ...row, id: uuid(), kind, amount: -5 })).error, `${kind} below zero`);
   assert.equal((await owner.select('cash_moves', 'id, kind, amount', [['pharmacy_id', 'eq', P]])).data.length, 2);
 });
 
@@ -115,13 +122,39 @@ test('forgotten password: a one-time link by email, no hint whether the account 
   assert.equal((await user(u.email).signIn('new-password1')).error, null);
 });
 
+test('one-time codes hold under sending them many times at once (reset link, recovery code)', { skip }, async () => {
+  // The same reset link, 8 times at the same moment with 8 different passwords: exactly one works.
+  const u = user(); await u.signUp('old-password1');
+  const anon = user();
+  await anon.call('/api/auth/forgot', { email: u.email });
+  const token = /#reset=([0-9a-f]{64})/.exec((await anon.call(`/api/auth/dev-outbox?email=${encodeURIComponent(u.email)}`, null, 'GET')).data.body)[1];
+  const pws = Array.from({ length: 8 }, (_, i) => `race-password-${i}`);
+  const rs = await Promise.all(pws.map((password) => user().call('/api/auth/reset', { token, password })));
+  const won = rs.map((r, i) => (r.error ? null : i)).filter((i) => i !== null);
+  assert.equal(won.length, 1, `exactly one reset with the same link: ${JSON.stringify(rs.map((r) => r.error?.code ?? 'ok'))}`);
+  for (const r of rs) if (r.error) assert.equal(r.error.code, 'reset_invalid');
+  assert.equal((await user(u.email).signIn(pws[won[0]])).error, null, 'the password that won is the one set');
+  for (const [i, pw] of pws.entries()) if (i !== won[0]) assert.equal((await user(u.email).signIn(pw)).error.code, 'invalid_credentials');
+  // The same recovery code, 6 sign-ins at once: exactly one session.
+  const m = user(); await m.signUp();
+  const s = await m.call('/api/auth/mfa/setup', { current_password: 'password123' });
+  const en = await m.call('/api/auth/mfa/enable', { code: await codeNow(s.data.secret) });
+  const ins = await Promise.all(Array.from({ length: 6 }, () => user(m.email).signIn('password123', en.data.recovery[0])));
+  assert.equal(ins.filter((r) => !r.error).length, 1, `exactly one sign-in with the same recovery code: ${JSON.stringify(ins.map((r) => r.error?.code ?? 'ok'))}`);
+  // A successful check releases its reservation, so the order of the losing requests affects the remaining quota.
+  for (const r of ins.filter((r) => r.error)) assert.ok(['mfa_invalid', 'over_request_rate_limit'].includes(r.error.code));
+  const next = await user(m.email).signIn('password123', en.data.recovery[1]);
+  if (next.error) assert.equal(next.error.code, 'over_request_rate_limit');
+  else assert.match(next.data.access_token, /^[0-9a-f]{64}$/);
+});
+
 test('usage counts are for the app owner only', { skip }, async () => {
   assert.match((await owner.rpc('admin_usage')).error.message, /not allowed/);
 });
 
 test('the sign-in is an HttpOnly cookie; a change signed in by the cookie needs the app header (CSRF)', { skip }, async () => {
   const email = `c-${rnd()}@test.local`;
-  const r = await fetch(`${BASE}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'password123' }) });
+  const r = await fetch(`${BASE}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' }, body: JSON.stringify({ email, password: 'password123' }) });
   const j = await r.json();
   assert.equal(j.data.access_token, undefined, 'the page never sees the token');
   assert.equal(j.data.user.email, email);
@@ -136,18 +169,28 @@ test('the sign-in is an HttpOnly cookie; a change signed in by the cookie needs 
   assert.equal((await forged.json()).error.code, 'csrf');
   assert.equal((await post({ 'X-Saydaliti': '1' })).status, 200);
   // Sign-out ends the session and clears the cookie.
-  const out = await fetch(`${BASE}/api/auth/signout`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } });
+  // Another site can't sign the user out (no app header), and can't sign anyone in either (login CSRF).
+  assert.equal((await fetch(`${BASE}/api/auth/signout`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'text/plain' }, body: '{}' })).status, 403);
+  assert.equal(await get() !== null, true, 'still signed in after a forged sign-out');
+  for (const [h, why] of [[{ 'Content-Type': 'text/plain' }, 'a form (text/plain)'], [{ 'Content-Type': 'application/json' }, 'no app header'], [{ 'X-Saydaliti': '1', 'Content-Type': 'application/x-www-form-urlencoded' }, 'a form with the header']]) {
+    for (const what of ['signin', 'signup', 'forgot', 'reset']) {
+      const f = await fetch(`${BASE}/api/auth/${what}`, { method: 'POST', headers: h, body: JSON.stringify({ email, password: 'password123' }) });
+      assert.equal(f.status, 403, `${what}: ${why}`);
+      assert.equal(f.headers.get('set-cookie'), null, `${what}: ${why} sets no cookie`);
+    }
+  }
+  const out = await fetch(`${BASE}/api/auth/signout`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Saydaliti': '1' }, body: '{}' });
   assert.match(out.headers.get('set-cookie'), /Max-Age=0/);
   assert.equal(await get(), null);
 });
 
 test('an app that still keeps its token moves it into the cookie', { skip }, async () => {
   const u = user(); await u.signUp();
-  const r = await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Authorization: `Bearer ${u.token()}`, 'X-Saydaliti': '1' } });
+  const r = await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Authorization: `Bearer ${u.token()}`, 'Content-Type': 'application/json', 'X-Saydaliti': '1' }, body: '{}' });
   assert.equal(r.status, 200);
   const cookie = r.headers.get('set-cookie').split(';')[0];
   assert.equal(cookie, `sd_session=${u.token()}`, 'the same session');
-  assert.equal((await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Cookie: cookie, 'X-Saydaliti': '1' } })).status, 401, 'only from a Bearer token');
+  assert.equal((await fetch(`${BASE}/api/auth/adopt`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Saydaliti': '1' }, body: '{}' })).status, 401, 'only from a Bearer token');
 });
 
 test('the log of changes: rows can not be changed, and a change made behind the app shows in the check', { skip }, async () => {
@@ -162,9 +205,14 @@ test('the log of changes: rows can not be changed, and a change made behind the 
   };
   // Something logged: a customer added.
   assert.equal((await owner.insert('customers', { id: uuid(), pharmacy_id: P, name: 'عميل السجل' })).error, null);
+  const pending = await owner.rpc('audit_verify', { p_pharmacy: P });
+  assert.equal(pending.data.ok, null); assert.equal(pending.data.reason, 'unsealed', 'checking the log never seals it');
+  assert.equal((await device.rpc('audit_verify', { p_pharmacy: P })).status, 403, 'owner only');
+  assert.equal((await device.rpc('audit_rebaseline', { p_pharmacy: P, p_reason: 'not authorized', p_confirm: 'REBASELINE_AUDIT_ANCHOR' })).status, 403, 'only the owner can rebaseline');
+  const baseline = await owner.rpc('audit_rebaseline', { p_pharmacy: P, p_reason: 'Initial local test baseline.', p_confirm: 'REBASELINE_AUDIT_ANCHOR' });
+  assert.equal(baseline.data.action, 'rebaselined');
   const ok = await owner.rpc('audit_verify', { p_pharmacy: P });
   assert.equal(ok.data.ok, true); assert.ok(ok.data.rows > 0);
-  assert.equal((await device.rpc('audit_verify', { p_pharmacy: P })).status, 403, 'owner only');
   // The database itself refuses to change or remove a row.
   assert.throws(() => sql(`UPDATE audit_log SET op = 'x' WHERE pharmacy_id = '${P}'`), /append-only/);
   assert.throws(() => sql(`DELETE FROM audit_log WHERE pharmacy_id = '${P}'`), /append-only/);

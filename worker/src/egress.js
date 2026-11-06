@@ -21,9 +21,9 @@ export const STAGING_ENV_ALLOWLIST = Object.freeze([
   // bindings
   'DB', 'FILES', 'ASSETS',
   // plain settings (wrangler.toml [env.staging.vars])
-  'DEPLOY_ENV', 'SITE_URL', 'MORNING_CRON', 'BACKUP_CRON', 'PBKDF2_ITER', 'SIGNUP_PER_HOUR',
+  'DEPLOY_ENV', 'SITE_URL', 'MORNING_CRON', 'BACKUP_CRON', 'PBKDF2_ITER', 'SIGNUP_PER_HOUR', 'SEAL_BUDGET', 'VERIFY_MAX_ROWS',
   // staging-only secrets set by .github/workflows/staging.yml (BACKUP_KEYS_OLD: key rotation, worker/src/backup.js)
-  'PIN_PEPPER', 'BACKUP_KEY', 'BACKUP_KEYS_OLD',
+  'PIN_PEPPER', 'PIN_PEPPER_OLD', 'BACKUP_KEY', 'BACKUP_KEYS_OLD', 'TOTP_KEY', 'TOTP_KEY_OLD', 'AUDIT_SEAL_KEY', 'AUDIT_SEAL_KEY_OLD',
 ]);
 
 // Credentials for real outside services that the code knows about. They are not on the allowlist (so they are

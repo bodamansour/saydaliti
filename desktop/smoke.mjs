@@ -13,9 +13,14 @@ const data = await mkdtemp(join(tmpdir(), 'saydaliti-desktop-'));
 const BACKUPS = join(data, 'backups');
 const launch = () => electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_BACKUP_DIR: BACKUPS } });
 const errors = [];
+// Anything the security policy (CSP) refuses shows in the console as «Refused to …» / «Content Security Policy».
+const watch = (w) => {
+  w.on('pageerror', (e) => errors.push(e.message));
+  w.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) errors.push(`csp: ${m.text()}`); });
+};
 let app = await launch();
 let win = await app.firstWindow();
-win.on('pageerror', (e) => errors.push(e.message));
+watch(win);
 await win.route(/^https?:\/\//, (r) => { errors.push(`internet: ${r.request().url()}`); r.abort(); });
 // First start: choose how to run. This part of the test is the computer-only version.
 await win.waitForSelector('#local', { timeout: 20000 });
@@ -35,6 +40,14 @@ await win.waitForFunction(() => /اتحفظت/.test(document.getElementById('bac
 const backupMsg = await win.locator('#backupMsg').innerText();
 assert.ok(backupMsg.includes(BACKUPS), `backup saved in the temporary folder: ${backupMsg}`);
 console.log('backup:', backupMsg);
+// Printing inside the program: the hidden print frame must load its stylesheet under the policy.
+await win.evaluate(() => { new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.tagName === 'IFRAME') n.contentWindow.print = () => { const d = n.contentDocument; window.__printed = [...d.styleSheets].map((x) => { try { return x.cssRules.length; } catch { return -1; } }); }; }).observe(document.body, { childList: true }); });
+await win.click('[data-sec=money]');
+await win.click('#tabs [data-tab=pos]');
+await win.click('#posPrint');
+await win.waitForFunction(() => window.__printed, null, { timeout: 10000 });
+const sheets = await win.evaluate(() => window.__printed);
+assert.ok(sheets.length && sheets.every((n) => n > 0), `print stylesheet loaded under the policy: ${JSON.stringify(sheets)}`);
 await win.goto('app://saydaliti/cashier.html');
 await win.waitForSelector('#pos:not([hidden])');
 await win.screenshot({ path: join(data, 'cashier.png') });
@@ -74,7 +87,7 @@ await writeFile(fake, ['@m\t.\tGenius\t2026-10-25T10:00:00\tSQL Server 2000',
   '@@Item_Class_Store\titm_id\titm_qty\titm_expiry_date\tpharm_price\tsell_price', '@t\tn\tn\td\tn\tn', '1\t6\t2027-06-01T00:00:00\t40\t50'].join('\r\n'));
 app = await electron.launch({ cwd: HERE, args: ['.', '--no-sandbox', `--user-data-dir=${data2}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', SAYDALITI_BACKUP_DIR: BACKUPS, SAYDALITI_SITE: site, SAYDALITI_GENIUS_FAKE: fake } });
 win = await app.firstWindow();
-win.on('pageerror', (e) => errors.push(e.message));
+watch(win);
 await win.waitForSelector('#online', { timeout: 20000 });
 await win.click('#online');
 await win.waitForURL(`${site}/index.html`, { timeout: 20000 });
