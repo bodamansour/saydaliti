@@ -227,6 +227,7 @@ const WRITES = [
   ['d1', 'migrations', 'apply', 'DB', '--remote'],
   ['secret', 'put', 'BACKUP_KEY'],
   ['secret', 'put', 'PIN_PEPPER'],
+  ['secret', 'put', 'AUDIT_SEAL_KEY'],
 ];
 const WRITE_VERBS = [['deploy'], ['d1', 'migrations', 'apply'], ['secret', 'put'], ['versions'], ['rollback'], ['delete'], ['triggers'], ['r2', 'object', 'put'], ['d1', 'create'], ['d1', 'delete'], ['r2', 'bucket', 'create'], ['r2', 'bucket', 'delete'], ['secret', 'delete'], ['secret', 'bulk']];
 const startsWith = (args, cmd) => cmd.every((c, i) => args[i] === c);
