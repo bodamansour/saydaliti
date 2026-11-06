@@ -161,7 +161,7 @@ jobs:
       - name: Test suites against the staging Worker (synthetic accounts and data)
         env:
           WORKER_URL: ${{ env.STAGING_URL }}
-        run: node --test worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs 2>&1 | tee staging-tests.log; exit ${PIPESTATUS[0]}
+        run: node --test --test-concurrency=1 worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs 2>&1 | tee staging-tests.log; exit ${PIPESTATUS[0]}
       # The backup check, in three steps. The script never holds the Cloudflare token; only the guard downloads,
       # and only the one backup the first step made, to a fixed file (worker/.staging-backup/backup.sdbk).
       - name: Backup on Cloudflare — make a backup on the staging Worker (no credentials)
