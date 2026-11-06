@@ -44,7 +44,7 @@ test('wrangler: the guard adds --env staging and allows listed reads', () => {
 });
 
 test('wrangler: writes need the remote check for this commit', () => {
-  for (const args of [['deploy'], ['d1', 'migrations', 'apply', 'DB', '--remote'], ['secret', 'put', 'BACKUP_KEY']]) {
+  for (const args of [['deploy'], ['d1', 'migrations', 'apply', 'DB', '--remote'], ['secret', 'put', 'BACKUP_KEY'], ['secret', 'put', 'AUDIT_SEAL_KEY']]) {
     assert.throws(() => checkWranglerArgs(args), /remote staging check/, args.join(' '));
     assert.deepEqual(checkWranglerArgs(args, { markerOk: true }).slice(-2), ['--env', 'staging']);
   }
