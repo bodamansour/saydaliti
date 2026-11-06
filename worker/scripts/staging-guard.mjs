@@ -110,7 +110,7 @@ export function checkScheduledHandler(src) {
   // go through guardedFetch, so even a mis-set secret can't make staging message a patient.
   const isolated = body.search(/^\s*env\s*=\s*isolateEnv\(env\);/m);
   if (isolated < 0 || (firstJob >= 0 && isolated > firstJob)) problems.push('the scheduled handler must start with env = isolateEnv(env)');
-  const fetchStart = src.search(/async\s+fetch\s*\(\s*req\s*,\s*env\s*\)\s*\{/);
+  const fetchStart = src.search(/async\s+fetch\s*\(\s*req\s*,\s*env(?:\s*,\s*ctx)?\s*\)\s*\{/);
   if (fetchStart < 0 || !/^\s*env\s*=\s*isolateEnv\(env\);/m.test(src.slice(fetchStart).split('\n').slice(1, 3).join('\n'))) problems.push('the fetch handler must start with env = isolateEnv(env)');
   if (!/import\s*\{[^}]*\bisolateEnv\b[^}]*\bguardedFetch\b[^}]*\}\s*from\s*'\.\/egress\.js'/.test(src)) problems.push('index.js must import isolateEnv and guardedFetch from ./egress.js');
   if (/\breturn fetch\(u, init\)/.test(src) || !/guardedFetch\(env\)\(u, init\)/.test(src)) problems.push('the jobs\' outbound fetch must go through guardedFetch(env)');

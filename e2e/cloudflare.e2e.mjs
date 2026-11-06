@@ -406,6 +406,7 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
   }
   await owner.waitForSelector('#apprDlg[open]');
   assert.match(await text(owner, '#apprNote'), /الفاتورة ضاعت/);
+  assert.equal(await text(owner, '#apprTitle'), 'موافقة المدير على المرتجع');
   // The cashier can't approve her own return.
   await owner.fill('#apprPin', '1234');
   await owner.click('#apprForm button[type=submit]');
@@ -532,6 +533,30 @@ test('signing out and in again', { skip }, async () => {
   await owner.click('#loginForm button[type=submit]');
   await owner.waitForSelector('#app:not([hidden])');
   assert.equal(await text(owner, '#phTitle'), 'صيدلية أحمد منصور');
+});
+
+test('signing out with no connection: the device forgets at once, the server session ends once it is reachable', { skip }, async () => {
+  const cookie = (await owner.context().cookies()).find((c) => c.name === 'sd_session');
+  assert.ok(cookie?.httpOnly && cookie.secure && cookie.sameSite === 'Strict', 'HttpOnly, Secure, SameSite=Strict');
+  const serverUser = async () => (await (await fetch(`${BASE}/api/auth/user`, { headers: { Cookie: `sd_session=${cookie.value}` } })).json()).data.user;
+  assert.ok(await serverUser(), 'signed in on the server');
+  // The sign-out call can't reach the server (as with no internet).
+  let blocked = 0;
+  await owner.route('**/api/auth/signout', (r) => { blocked++; r.abort(); });
+  await owner.click('#logout');
+  await owner.waitForSelector('#loginForm');
+  assert.ok(blocked >= 1, 'the sign-out call was tried (and tried again after the reload, still blocked)');
+  assert.equal(await owner.evaluate(() => localStorage.getItem('sd-cf-signout-pending')), '1');
+  assert.ok(await serverUser(), 'the server has not heard yet');
+  // Back online: the app ends it by itself.
+  await owner.unroute('**/api/auth/signout');
+  await owner.evaluate(() => window.dispatchEvent(new Event('online')));
+  assert.ok(await until(owner, async () => (await serverUser()) === null), 'the old session is ended on the server');
+  assert.equal(await owner.evaluate(() => localStorage.getItem('sd-cf-signout-pending')), null);
+  await owner.fill('#email', OWNER);
+  await owner.fill('#password', 'password123');
+  await owner.click('#loginForm button[type=submit]');
+  await owner.waitForSelector('#app:not([hidden])');
 });
 
 test('public pages show the prices from the server', { skip }, async () => {

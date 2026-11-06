@@ -687,7 +687,9 @@ async function nextReceiptNumber(d) {
 function askApproval(returnId, total, reason) {
   return new Promise((resolve) => {
     const dlg = $('apprDlg');
-    $('apprNote').textContent = `${/^إلغاء فاتورة/.test(reason) ? 'إلغاء فاتورة' : 'مرتجع من غير فاتورة'} بـ ${fmt(-total)} ج — ${reason}. الكاشير: ${CASHIER.name}. المدير يكتب رقمه السري.`;
+    const voiding = /^إلغاء فاتورة/.test(reason);
+    $('apprTitle').textContent = voiding ? 'موافقة المدير على إلغاء الفاتورة' : 'موافقة المدير على المرتجع';
+    $('apprNote').textContent = `${voiding ? 'إلغاء فاتورة' : 'مرتجع من غير فاتورة'} بـ ${fmt(-total)} ج — ${reason}. الكاشير: ${CASHIER.name}. المدير يكتب رقمه السري.`;
     $('apprPin').value = ''; $('apprMsg').textContent = '';
     const done = (v) => { $('apprForm').onsubmit = null; $('apprCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); focusSearch(); resolve(v); };
     $('apprCancel').onclick = () => done(null);

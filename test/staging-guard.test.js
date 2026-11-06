@@ -237,6 +237,7 @@ test('code: the staging cron may reach only the backups (never the patient remin
     else ctx.waitUntil(runReminders({ env: e }));
   } };`;
   assert.deepEqual(checkScheduledHandler(good), []);
+  assert.deepEqual(checkScheduledHandler(good.replace('async fetch(req, env)', 'async fetch(req, env, ctx)')), []);
   const bad = {
     'no backup branch (main before PR #51: every other cron runs the reminders)': `export default { async scheduled(event, env, ctx) {
       if (event.cron === env.MORNING_CRON) ctx.waitUntil(runMorning({}));

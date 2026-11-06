@@ -134,7 +134,7 @@ test('every outbound call in the Worker goes through an injected or guarded fetc
   for (const f of WORKER_CODE.filter((f) => f !== 'worker/src/egress.js')) {
     const code = read(f).replace(/^\s*\/\/.*$/gm, '');
     for (const line of code.split('\n').filter((l) => /\bfetch\b/.test(l))) {
-      assert.match(line, /fetchImpl|fetchFn|guardedFetch|env\.ASSETS\.fetch\(req\)|async fetch\(req, env\)|internalFetch\(env\)/, `${f}: unexpected fetch use: ${line.trim()}`);
+      assert.match(line, /fetchImpl|fetchFn|guardedFetch|env\.ASSETS\.fetch\(req\)|async fetch\(req, env(, ctx)?\)|internalFetch\(env\)/, `${f}: unexpected fetch use: ${line.trim()}`);
     }
     assert.doesNotMatch(code, /cloudflare:sockets|\bconnect\(|new WebSocket|EmailMessage|globalThis\.fetch|const \w+ = fetch\b/, `${f}: an outbound path the guard does not cover`);
   }

@@ -77,6 +77,9 @@ jobs:
           npx wrangler secret list --format json > secrets.json
           node -e "const n=JSON.parse(require('fs').readFileSync('secrets.json','utf8')).map(s=>s.name); if(!n.includes('PIN_PEPPER')){console.log('::error::PIN_PEPPER is not set on the Worker: cashier PINs would stop working. Set it before releasing.'); process.exit(1)}"
           node -e "const n=JSON.parse(require('fs').readFileSync('secrets.json','utf8')).map(s=>s.name); if(!n.includes('BACKUP_KEY')) console.log('::warning::BACKUP_KEY is not set on the Worker: the daily encrypted backups are skipped.')"
+          node -e "const n=JSON.parse(require('fs').readFileSync('secrets.json','utf8')).map(s=>s.name); if(n.includes('EMAIL_OUTBOX')){console.log('::error::EMAIL_OUTBOX is set on the Worker: it is for a development machine only (password-reset emails kept in the database). Delete it before releasing.'); process.exit(1)}"
+          node -e "const n=JSON.parse(require('fs').readFileSync('secrets.json','utf8')).map(s=>s.name); for (const [k,w] of [['TOTP_KEY','two-step sign-in can not be turned on'],['AUDIT_SEAL_KEY','the log of changes is not sealed'],['RESEND_API_KEY','forgotten-password emails are off']]) if(!n.includes(k)) console.log('::warning::'+k+' is not set on the Worker: '+w+'.')"
+          ! grep -n 'EMAIL_OUTBOX' wrangler.toml || { echo '::error::EMAIL_OUTBOX is in wrangler.toml: development only.'; exit 1; }
           rm -f secrets.json
           npx wrangler d1 migrations list saydaliti --remote
       - name: Database tables (only pending migrations are applied)

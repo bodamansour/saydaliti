@@ -212,8 +212,9 @@ test('a United (Genius) backup file is read straight away', async () => {
   await page.goto(base);
   await page.waitForSelector('#app:not([hidden])');
   await page.setInputFiles('#file', file);
-  assert.ok(await until(async () => /باك اب المتحدة/.test(await text('#fileMsg'))), 'saved from the backup');
-  assert.match(await text('#fileMsg'), /3 صنف/);
+  // «بقرا باك اب المتحدة…» shows while it reads; wait for the result itself, not just the words.
+  assert.ok(await until(async () => /3 صنف/.test(await text('#fileMsg')), 20000), `saved from the backup: ${await text('#fileMsg')}`);
+  assert.match(await text('#fileMsg'), /باك اب المتحدة/);
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=items]');
   await page.fill('#itemsQ', 'بانادول');

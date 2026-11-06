@@ -7,7 +7,6 @@
 // so each pharmacy's backups have their own key and a file can't be opened as another pharmacy's.
 // Without the BACKUP_KEY secret, no backup is made (and none is stored unencrypted).
 import { TABLES } from './schema.js';
-import { sealAudit } from './audit-seal.js';
 import { ApiError, nowIso, uuid } from './db.js';
 
 export const RETAIN = 14; // the newest good backups kept per pharmacy (older files are deleted)
@@ -152,10 +151,6 @@ async function prune(env, pharmacyId) {
 // observability can alert on it) and is shown to the owner and the app admin (list_backups,
 // admin_backup_health).
 export async function backupAll(env) {
-  // The log's daily fingerprint, with or without backups.
-  for (const { id } of await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at')) {
-    try { await sealAudit(env, id); } catch (e) { console.error('AUDIT_SEAL', id, e?.message); }
-  }
   if (!env.BACKUP_KEY) { console.error('BACKUP_ALERT', JSON.stringify({ problem: 'BACKUP_KEY not set: no backups are made' })); return { skipped: 'no BACKUP_KEY' }; }
   const out = { ok: 0, failed: 0 };
   for (const { id } of await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at')) {

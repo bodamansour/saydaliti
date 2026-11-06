@@ -17,7 +17,7 @@ const write = (s) => {
 const HDR = { 'X-Saydaliti': '1' };
 let adopting = null;
 function adopt(token) {
-  adopting ||= fetch('/api/auth/adopt', { method: 'POST', headers: { ...HDR, Authorization: `Bearer ${token}` } })
+  adopting ||= fetch('/api/auth/adopt', { method: 'POST', headers: { ...HDR, 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{}' })
     .then((r) => { if (r.ok) { const s = read(); if (s?.access_token === token) write(s); } })
     .catch(() => {})
     .finally(() => { adopting = null; });
@@ -70,9 +70,23 @@ function builder(table) {
   return q;
 }
 
+// A sign-out made with no connection, still to be told to the server.
+const OUT_KEY = 'sd-cf-signout-pending';
+async function finishSignOut() {
+  let pending = false;
+  try { pending = localStorage.getItem(OUT_KEY) === '1'; } catch { return; }
+  if (!pending || read()) return; // signed in again since: that sign-in replaced the old cookie
+  try {
+    const r = await fetch('/api/auth/signout', { method: 'POST', headers: { ...HDR, 'Content-Type': 'application/json' }, body: '{}' });
+    if (r.ok) localStorage.removeItem(OUT_KEY);
+  } catch { /* still offline: next time */ }
+}
+if (typeof window !== 'undefined') { finishSignOut(); window.addEventListener('online', finishSignOut); }
+
 export function createCloudflareClient() {
   const session = () => { const s = read(); return s?.user?.id ? s : null; };
-  const signedIn = (r) => { if (r.data?.user?.id) write({ user: r.data.user, expires_at: r.data.expires_at }); return r.error ? { data: {}, error: r.error } : { data: { session: read(), user: r.data.user }, error: null }; };
+  // A new sign-in replaces the cookie, so an old one still waiting to be ended can't be reached any more.
+  const signedIn = (r) => { if (r.data?.user?.id) { write({ user: r.data.user, expires_at: r.data.expires_at }); try { localStorage.removeItem(OUT_KEY); } catch { /* blocked */ } } return r.error ? { data: {}, error: r.error } : { data: { session: read(), user: r.data.user }, error: null }; };
   return {
     cloudflare: true,
     from: builder,
@@ -117,7 +131,14 @@ export function createCloudflareClient() {
       mfaDisable: (currentPassword, code) => call('/api/auth/mfa/disable', { current_password: currentPassword, code }),
       async signUp({ email, password }) { return signedIn(await call('/api/auth/signup', { email, password })); },
       async updateUser({ password, currentPassword }) { return signedIn(await call('/api/auth/password', { password, current_password: currentPassword })); },
-      async signOut() { const r = await call('/api/auth/signout', {}); write(null); return { error: r.error && !/Failed to fetch/.test(r.error.message) ? r.error : null }; },
+      async signOut() {
+        const r = await call('/api/auth/signout', {});
+        write(null);
+        // No connection: the device forgets the sign-in now, and the session on the server (the cookie)
+        // is ended the next time the app reaches it (finishSignOut, below).
+        if (r.error && /Failed to fetch/.test(r.error.message)) { try { localStorage.setItem(OUT_KEY, '1'); } catch { /* blocked */ } }
+        return { error: r.error && !/Failed to fetch/.test(r.error.message) ? r.error : null };
+      },
       onAuthStateChange() { return { data: { subscription: { unsubscribe() {} } } }; },
     },
   };

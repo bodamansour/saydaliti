@@ -41,7 +41,7 @@ jobs:
         run: |
           npm ci
           npm run build
-          printf 'PIN_PEPPER=ci-pepper\nSIGNUP_PER_HOUR=10000\nBACKUP_KEY=ci-backup-key-not-a-real-secret-0123456789\nEMAIL_OUTBOX=dev\n' > .dev.vars
+          printf 'PIN_PEPPER=ci-pepper\nSIGNUP_PER_HOUR=10000\nBACKUP_KEY=ci-backup-key-not-a-real-secret-0123456789\nEMAIL_OUTBOX=dev\nTOTP_KEY=ci-totp-key-not-a-real-secret-0123456789\nAUDIT_SEAL_KEY=ci-seal-key-not-a-real-secret-0123456789\nSEAL_BUDGET=5000\nVERIFY_MAX_ROWS=200000\n' > .dev.vars
           npx wrangler d1 migrations apply saydaliti --local
           nohup npx wrangler dev --local --port 8787 > ../wrangler.log 2>&1 &
           for i in $(seq 1 90); do curl -sf http://localhost:8787/api/config && curl -sf -o /dev/null http://localhost:8787/ && exit 0; sleep 1; done
@@ -49,7 +49,8 @@ jobs:
       - name: Cloudflare server rules and the whole app on it
         env:
           WORKER_URL: http://localhost:8787
-        run: node --test worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs worker/test/finish.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs
+          SECRET_VALUES: ci-pepper,ci-backup-key-not-a-real-secret-0123456789,ci-totp-key-not-a-real-secret-0123456789,ci-seal-key-not-a-real-secret-0123456789
+        run: node --test worker/test/security.test.mjs worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs worker/test/finish.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs
       # M1 inside the Workers runtime (workerd, through Miniflare). It needs the worker/ tools installed by the
       # `npm ci` two steps above, so it runs here; in `npm test` (before that install) it is skipped. Here it must
       # run: the step fails if any of its 3 tests fails, is skipped or does not run.
