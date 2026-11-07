@@ -34,7 +34,7 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   // Never the production token or account, not even as a fallback (`||`).
   assert.doesNotMatch(wf, /CLOUDFLARE_API_TOKEN\s*\}\}|secrets\.CLOUDFLARE_API_TOKEN\b|secrets\.CLOUDFLARE_ACCOUNT_ID\b|vars\.CLOUDFLARE_ACCOUNT_ID\b/, 'not the production token');
   assert.doesNotMatch(wf, /\|\|\s*secrets\./, 'no secret fallbacks');
-  assert.equal([...wf.matchAll(/secrets\.([A-Z_]+)/g)].map((m) => m[1]).filter((n) => !['CLOUDFLARE_STAGING_API_TOKEN', 'STAGING_BACKUP_KEY'].includes(n)).length, 0, 'only the staging secrets');
+  assert.equal([...wf.matchAll(/secrets\.([A-Z_]+)/g)].map((m) => m[1]).filter((n) => !['CLOUDFLARE_STAGING_API_TOKEN', 'STAGING_BACKUP_KEY', 'STAGING_AUDIT_SEAL_KEY'].includes(n)).length, 0, 'only the staging secrets');
   assert.match(wf, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_STAGING_API_TOKEN \}\}/);
   // Triggers: by hand (typed confirmation) or the request file on the working branch. Nothing else.
   const on = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
@@ -92,7 +92,7 @@ test('the Cloudflare token reaches only steps that run the guard (never npm, the
   const withToken = all.filter((s) => /CLOUDFLARE_API_TOKEN:/.test(s.env));
   assert.ok(withToken.length >= 6, 'the guarded steps were found');
   // Commands allowed in a step that holds the token: the guard, shell built-ins, and short inline checks.
-  const allowed = /^(\$GUARD (remote|schedules|fetch-backup|run -- .*)|set -o pipefail|missing=""|\[ .*|if .*|fi|then|else|url=\$\(grep .*\)|echo .*|rm -f [\w.]+|node -e "[^"]*"( > \S+)?|openssl rand -hex 32 \| tr -d '\\n' \| \$GUARD run -- secret put PIN_PEPPER >\/dev\/null|printf '%s' "\$STAGING_BACKUP_KEY" \| \$GUARD run -- secret put BACKUP_KEY >\/dev\/null|\$GUARD run -- .*)$/;
+  const allowed = /^(\$GUARD (remote|schedules|fetch-backup|run -- .*)|set -o pipefail|missing=""|\[ .*|if .*|fi|then|else|url=\$\(grep .*\)|echo .*|rm -f [\w.]+|node -e "[^"]*"( > \S+)?|openssl rand -hex 32 \| tr -d '\\n' \| \$GUARD run -- secret put PIN_PEPPER >\/dev\/null|printf '%s' "\$STAGING_BACKUP_KEY" \| \$GUARD run -- secret put BACKUP_KEY >\/dev\/null|printf '%s' "\$STAGING_AUDIT_SEAL_KEY" \| \$GUARD run -- secret put AUDIT_SEAL_KEY >\/dev\/null|\$GUARD run -- .*)$/;
   for (const s of withToken) {
     const lines = s.run.split('\n').map((l) => l.trim()).filter(Boolean);
     assert.ok(lines.length, `${s.name}: has commands`);

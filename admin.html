@@ -49,13 +49,20 @@
       <div class="row"><button class="btn primary" type="submit">احفظ الباقات</button><span class="note" id="plansMsg" role="status"></span></div></form>
   </details>
 
-  <div class="row" style="margin:12px 0"><input id="q" type="search" placeholder="دوّر باسم الصيدلية أو الإيميل…" style="flex:1" aria-label="بحث">
+  <div class="row u-my12"><input class="u-grow" id="q" type="search" placeholder="دوّر باسم الصيدلية أو الإيميل…" aria-label="بحث">
     <label>الحالة<select id="fStatus"><option value="">الكل</option><option value="trial">تجربة</option><option value="active">مدفوع</option><option value="due">خلص / قرب يخلص</option><option value="free">مجاني</option><option value="suspended">موقوف</option></select></label></div>
   <div class="tablebox"><table>
     <thead><tr><th>الصيدلية</th><th>صاحبها</th><th>الحالة</th><th>لحد</th><th>نشاط آخر 30 يوم</th><th>السعر</th><th></th></tr></thead>
     <tbody id="list"></tbody>
   </table></div>
   <p class="note" id="msg" role="status"></p>
+
+  <details class="help" id="usageBox">
+    <summary>الاستخدام</summary>
+    <p class="note">عدد بس، من غير فلوس ولا أسماء عملاء أو أصناف: مين شغال فعلاً، ومين فتح الحساب وساب.</p>
+    <section class="tiles" id="usageTiles" aria-label="الاستخدام"></section>
+    <div class="tablebox"><table><thead><tr><th>الصيدلية</th><th>الحسابات</th><th>دخلوا آخر 30 يوم</th><th>فواتير 7 أيام</th><th>فواتير 30 يوم</th><th>طلبيات 30 يوم</th><th>الأصناف</th><th>آخر نشاط</th></tr></thead><tbody id="usage"></tbody></table></div>
+  </details>
 
   <details class="help">
     <summary>أخطاء ظهرت عند المستخدمين</summary>

@@ -1,9 +1,28 @@
 // The app's connection to the Cloudflare server (worker/): the same calls the app made to Supabase
 // (from(...).select/eq/order/range…, rpc, auth), so every screen works unchanged.
-// The sign-in is a token saved on the device; it lasts 60 days, so the app also opens with no connection.
+// The sign-in itself is an HttpOnly cookie the page can't read (so an injected script can't steal it). The
+// device keeps only who is signed in and until when ({ user, expires_at }), so the app also opens with no
+// connection. Every request says X-Saydaliti: 1, which the server asks for before a cookie-signed change.
+// An app updated from before the cookie still holds its token here: it is used once more and moved into the
+// cookie (/api/auth/adopt), then removed from the page's storage.
 const KEY = 'sd-cf-auth';
 const read = () => { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } };
-const write = (s) => { try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* blocked */ } };
+const write = (s) => {
+  try {
+    if (!s) { localStorage.removeItem(KEY); return; }
+    const { access_token, refresh_token, ...keep } = s; // never kept in the page's storage
+    localStorage.setItem(KEY, JSON.stringify(keep));
+  } catch { /* blocked */ }
+};
+const HDR = { 'X-Saydaliti': '1' };
+let adopting = null;
+function adopt(token) {
+  adopting ||= fetch('/api/auth/adopt', { method: 'POST', headers: { ...HDR, 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{}' })
+    .then((r) => { if (r.ok) { const s = read(); if (s?.access_token === token) write(s); } })
+    .catch(() => {})
+    .finally(() => { adopting = null; });
+  return adopting;
+}
 
 async function call(path, payload, method = 'POST', raw = null) {
   const s = read();
@@ -11,7 +30,7 @@ async function call(path, payload, method = 'POST', raw = null) {
   try {
     res = await fetch(path, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', ...HDR, ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}) },
       ...(method === 'POST' ? { body: raw ?? JSON.stringify(payload ?? {}) } : {}),
     });
   } catch (e) {
@@ -20,6 +39,7 @@ async function call(path, payload, method = 'POST', raw = null) {
   let out;
   try { out = await res.json(); } catch { return { data: null, error: { message: `server error ${res.status}`, code: String(res.status) } }; }
   if (res.status === 401 && s && /not signed in/.test(out?.error?.message || '')) write(null); // the sign-in ended
+  else if (res.ok && s?.access_token) adopt(s.access_token); // an old token: move it into the cookie
   return { data: out?.data ?? null, error: out?.error ?? (res.ok ? null : { message: `server error ${res.status}`, code: String(res.status) }) };
 }
 
@@ -50,9 +70,23 @@ function builder(table) {
   return q;
 }
 
+// A sign-out made with no connection, still to be told to the server.
+const OUT_KEY = 'sd-cf-signout-pending';
+async function finishSignOut() {
+  let pending = false;
+  try { pending = localStorage.getItem(OUT_KEY) === '1'; } catch { return; }
+  if (!pending || read()) return; // signed in again since: that sign-in replaced the old cookie
+  try {
+    const r = await fetch('/api/auth/signout', { method: 'POST', headers: { ...HDR, 'Content-Type': 'application/json' }, body: '{}' });
+    if (r.ok) localStorage.removeItem(OUT_KEY);
+  } catch { /* still offline: next time */ }
+}
+if (typeof window !== 'undefined') { finishSignOut(); window.addEventListener('online', finishSignOut); }
+
 export function createCloudflareClient() {
-  const session = () => { const s = read(); return s?.access_token ? s : null; };
-  const signedIn = (r) => { if (r.data?.access_token) write(r.data); return r.error ? { data: {}, error: r.error } : { data: { session: r.data, user: r.data.user }, error: null }; };
+  const session = () => { const s = read(); return s?.user?.id ? s : null; };
+  // A new sign-in replaces the cookie, so an old one still waiting to be ended can't be reached any more.
+  const signedIn = (r) => { if (r.data?.user?.id) { write({ user: r.data.user, expires_at: r.data.expires_at }); try { localStorage.removeItem(OUT_KEY); } catch { /* blocked */ } } return r.error ? { data: {}, error: r.error } : { data: { session: read(), user: r.data.user }, error: null }; };
   return {
     cloudflare: true,
     from: builder,
@@ -63,7 +97,7 @@ export function createCloudflareClient() {
     async itemImage(pharmacy, code, blob = undefined) {
       const q = `/api/item-image?pharmacy=${encodeURIComponent(pharmacy)}&code=${encodeURIComponent(code)}`;
       const s = read();
-      const auth = s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {};
+      const auth = { ...HDR, ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}) };
       try {
         if (blob === undefined) { const r = await fetch(q, { headers: auth }); return r.ok ? URL.createObjectURL(await r.blob()) : null; }
         const r = await fetch(q, blob === null ? { method: 'DELETE', headers: auth } : { method: 'POST', headers: { ...auth, 'Content-Type': blob.type }, body: blob });
@@ -87,10 +121,24 @@ export function createCloudflareClient() {
         if (s && s.expires_at && s.expires_at < new Date().toISOString()) { write(null); return { data: { session: null }, error: null }; }
         return { data: { session: s }, error: null };
       },
-      async signInWithPassword({ email, password }) { return signedIn(await call('/api/auth/signin', { email, password })); },
+      async signInWithPassword({ email, password, code }) { return signedIn(await call('/api/auth/signin', { email, password, ...(code ? { code } : {}) })); },
+      // Forgotten password (a link by email) and two-step sign-in (an authenticator app).
+      forgot: (email) => call('/api/auth/forgot', { email }),
+      async resetPassword(token, password) { const r = await call('/api/auth/reset', { token, password }); if (r.data?.user?.id) write({ user: r.data.user, expires_at: r.data.expires_at }); return r; },
+      status: () => call('/api/auth/user', null, 'GET'),
+      mfaSetup: (currentPassword) => call('/api/auth/mfa/setup', { current_password: currentPassword }),
+      mfaEnable: (code) => call('/api/auth/mfa/enable', { code }),
+      mfaDisable: (currentPassword, code) => call('/api/auth/mfa/disable', { current_password: currentPassword, code }),
       async signUp({ email, password }) { return signedIn(await call('/api/auth/signup', { email, password })); },
-      async updateUser({ password }) { return signedIn(await call('/api/auth/password', { password })); },
-      async signOut() { const r = await call('/api/auth/signout', {}); write(null); return { error: r.error && !/Failed to fetch/.test(r.error.message) ? r.error : null }; },
+      async updateUser({ password, currentPassword }) { return signedIn(await call('/api/auth/password', { password, current_password: currentPassword })); },
+      async signOut() {
+        const r = await call('/api/auth/signout', {});
+        write(null);
+        // No connection: the device forgets the sign-in now, and the session on the server (the cookie)
+        // is ended the next time the app reaches it (finishSignOut, below).
+        if (r.error && /Failed to fetch/.test(r.error.message)) { try { localStorage.setItem(OUT_KEY, '1'); } catch { /* blocked */ } }
+        return { error: r.error && !/Failed to fetch/.test(r.error.message) ? r.error : null };
+      },
       onAuthStateChange() { return { data: { subscription: { unsubscribe() {} } } }; },
     },
   };

@@ -2,6 +2,7 @@ import { watchErrors } from './errors.js';
 import { analyze, profitAt, targetFloor, suggestOffer, parseSheet, startOfDay, addDays, partnerSummary, ownersOf, UNASSIGNED, ledger, fromExport, toExport, settingsFromSaved, expiryBands, inBand } from './core.js';
 import { backupFingerprint, verifyLocalBackup } from './local-db.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
+import { treasury, CASH_KINDS } from './treasury.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
 import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
 import { arabicError } from './supabase-store.js';
@@ -10,11 +11,13 @@ import { suggestMapping } from './mapping.js';
 import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
 import { normalizeEgPhone } from './report.js';
 import { isGeniusBackup } from './genius.js';
+import { readAll, showDataAlert, incompleteText } from './paged.js';
+import { reconcile, openingItems } from './stock-reconcile.js';
 import { kvGet, kvSet, enqueue, flush, pending, stuck, retryStuck, discardStuck, describe, onOutboxChange, isOnline, registerServiceWorker, clearLocal } from './offline.js';
 import { subscriptionState, monthlyPrice } from './subscription.js';
 import { geniusCorrections, correctionRows } from './genius-sync.js';
 import { setupGeniusLive } from './genius-live-ui.js';
-import { labelHtml } from './labels.js';
+import { labelHtml, qrSvg } from './labels.js';
 import { planOf, hasFeature } from './plans.js';
 import { answerLocally, runTool, toolSpecs, EXAMPLES } from './assistant.js';
 import { overview, monthlySeries, categoryPerformance, trending, profitClasses, supplierPerformance, healthScore, forecast, stockoutPlan, anomalies, alerts, recommendations } from './insights.js';
@@ -129,7 +132,7 @@ const SECTIONS = [
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
-  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'الفواتير والمبيعات'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
+  ['money', 'الفلوس', [['profit', 'الأرباح'], ['pos', 'الفواتير والمبيعات'], ['shifts', 'الورديات'], ['expenses', 'المصروفات'], ['withdrawals', 'المسحوبات'], ['books', 'الحسابات'], ['treasury', 'الخزينة'], ['partners', 'الشركاء'], ['calc', 'حاسبة المكسب'], ['log', 'سجل التعديلات']]],
   ['sell', 'البيع', [['offers', 'العروض'], ['prices', 'أسعار السوق'], ['changes', 'أسعار اتغيرت']]],
   ['patients', 'المرضى', [['patients', 'تذكير المرضى']]],
 ];
@@ -238,6 +241,7 @@ function render(background = false) {
   else if (TAB === 'supaccounts') html = renderSupplierAccounts();
   else if (TAB === 'expenses') html = renderExpenses();
   else if (TAB === 'withdrawals') html = renderWithdrawals();
+  else if (TAB === 'treasury') html = renderTreasury();
   else if (TAB === 'pos') html = renderPosSales();
   else if (TAB === 'shifts') html = renderShifts();
   else if (TAB === 'log') html = renderLog();
@@ -274,7 +278,7 @@ function render(background = false) {
   } else if (TAB === 'morning') {
     const name = SESS.pharmacy?.name || 'الصيدلية';
     html = `<p>ملخص اليوم في رسالة واحدة: الفلوس اللي في خطر، تطلب إيه، وتعمل عرض على إيه. انسخه وابعته على واتساب${OWNER !== 'all' ? ` (ده لبضاعة ${esc(OWNER)} بس)` : ''}${BRANCH !== 'all' && multi() ? ` (${esc(branchName(BRANCH))})` : ''}.</p>
-      <div class="card msg"><textarea id="morningMsg" aria-label="تقرير الصبح" style="min-height:320px">${esc(morningReport(A, { pharmacyName: name, shortages: FEATURES_READY ? shortagePlan(SHORTAGES, A.rows).filter((x) => x.found) : [], priceChanged: nChanged }))}</textarea>
+      <div class="card msg"><textarea class="u-h320" id="morningMsg" aria-label="تقرير الصبح">${esc(morningReport(A, { pharmacyName: name, shortages: FEATURES_READY ? shortagePlan(SHORTAGES, A.rows).filter((x) => x.found) : [], priceChanged: nChanged }))}</textarea>
       <div class="row"><button class="btn primary" id="copyMorning">انسخ التقرير</button><span class="note" id="copyMorningNote"></span></div></div>`;
   } else if (TAB === 'books') {
     html = renderBooks(full, only);
@@ -292,6 +296,8 @@ function render(background = false) {
   const focused = document.activeElement?.closest?.('#panel') ? document.activeElement.id : null;
   if (background) for (const el of $('panel').querySelectorAll('input[id], select[id], textarea[id]')) if (el.type !== 'file' && el.value !== el.defaultValue) typed.push([el.id, el.value]);
   $('panel').innerHTML = html;
+  // Bar widths are set from script: the page's security policy allows no style written into the HTML.
+  for (const el of $('panel').querySelectorAll('[data-w]')) el.style.width = `${+el.dataset.w}%`;
   for (const [id, v] of typed) { const el = $(id); if (el) el.value = v; }
   if (background && focused) $(focused)?.focus();
   if (has && TAB === 'calc') bindCalc(A, s);
@@ -382,7 +388,7 @@ function renderExpenses() {
       <div class="row"><button class="btn primary" type="button" id="addFixed">سجّلهم للشهر ده</button></div></div>` : '';
   return `${fixedCard}<div class="calc">
     ${form}
-    <div class="card"><div class="row" style="justify-content:space-between"><h3>المجموع</h3>${periodSelect('expPeriodSel', EXP_PERIOD)}</div>
+    <div class="card"><div class="row u-between"><h3>المجموع</h3>${periodSelect('expPeriodSel', EXP_PERIOD)}</div>
       <div class="ledger">${kinds || '<div><span class="muted">مفيش مصروفات في الفترة دي.</span><span></span></div>'}
         <div class="tot"><span>المصروفات (من غير المسحوبات)</span><span class="n">${fmt(T.operating, 2)}</span></div>
         ${T.withdrawals ? `<div class="tot"><span>المسحوبات</span><span class="n">${fmt(T.withdrawals, 2)}</span></div>` : ''}
@@ -390,6 +396,59 @@ function renderExpenses() {
   </div>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>النوع</th>${multi() ? '<th>الفرع</th>' : ''}<th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`
     : '');
+}
+
+// ---------- Treasury: all the pharmacy's cash as one balance (src/treasury.js) ----------
+let CASH_MOVES = [], CASH_READY = null, CASH_NOTE = '';
+async function loadCashMoves() {
+  try {
+    CASH_MOVES = await loadTable('cash_moves', 'id, branch_id, moved_at, kind, amount, note, created_by, created_at', 'moved_at');
+    if (CUST_READY && !CUSTOMERS.length) await loadCustomers();
+    CASH_READY = true;
+  } catch (e) { CASH_READY = false; }
+}
+function renderTreasury() {
+  // The treasury is the whole pharmacy's cash: supplier payments and the counted cash have no branch.
+  // Someone who sees only some branches would get a wrong number, so it is for those who see them all.
+  // Members limited to branches (pharmacist, accountant, stock, device) can't be sure they see them all.
+  if (isScopedMember()) return '<div class="card emptybox"><h3>الخزينة للصيدلية كلها</h3><p>بتظهر لصاحب الصيدلية والشريك بس، لأن دفعات الموردين وعدّ الخزينة مش لفرع واحد.</p></div>';
+  if (CASH_READY === null) { CASH_READY = false; loadCashMoves().then(() => { if (TAB === 'treasury') render(true); }); return '<p class="note">بيحمّل…</p>'; }
+  if (!CASH_READY) return '<div class="card emptybox"><h3>الخزينة محتاجة تحديث قاعدة البيانات</h3><p>التحديث <code>0015</code> بيضيف الخزينة. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
+  const T = treasury({ moves: CASH_MOVES, sales: POS_SALES, customerPayments: CUST_PAYMENTS, expenses: EXPENSES, supplierPayments: SUP_PAYMENTS, purchases: PURCHASES });
+  const p = T.parts;
+  const line = (label, v, sign) => (v ? `<div><span>${label}</span><span class="n">${sign}${fmt(v, 2)}</span></div>` : '');
+  const form = isOwner() ? `<form id="cashForm" class="card stack">
+      <h3>سجّل حركة في الخزينة</h3>
+      <div class="grid2">
+        <label>النوع<select id="cmKind">${Object.entries(CASH_KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+        <label>المبلغ (جنيه)<input id="cmAmount" type="number" inputmode="decimal" step="0.01" required></label>
+        <label class="span2">ملاحظة (اختياري)<input id="cmNote" maxlength="300" placeholder="مثلاً: عدّينا الخزنة آخر اليوم"></label>
+      </div>
+      <p class="note">«عدّ الخزينة»: اكتب الفلوس اللي عدّيتها فعلاً (الدرج + اللي برّه)، والحساب يبدأ منها من جديد. «تصحيح» ممكن يبقى بالسالب.</p>
+      <div class="row"><button class="btn primary" type="submit">سجّل</button><span class="note" id="cmMsg" role="status">${esc(CASH_NOTE)}</span></div>
+    </form>` : '';
+  const rows = [...CASH_MOVES].sort((a, b) => String(b.moved_at).localeCompare(String(a.moved_at))).slice(0, 100)
+    .map((m) => `<tr class="${m.pending ? 'pend' : ''}"><td class="n">${esc(String(m.moved_at).slice(0, 16).replace('T', ' '))}</td><td>${esc(CASH_KINDS[m.kind] || m.kind)}</td><td class="n">${fmt(m.amount, 2)}</td><td class="muted">${esc(m.note || '')}</td>${isOwner() ? `<td class="acts"><button class="btn" data-delcash="${esc(m.id)}">امسح</button></td>` : ''}</tr>`);
+  return `<p>كل الكاش اللي في الصيدلية (أدراج الكاشير + اللي برّه) في رقم واحد. بيبدأ من آخر مرة عدّيت فيها الخزينة، وبيتحسب من الكاشير والمصروفات والمسحوبات ودفعات العملاء والموردين. الكارت والمحفظة بيروحوا البنك، مش الخزينة.</p>
+  <div class="tiles"><div class="tile ${T.balance < 0 ? 'crit' : ''}"><span class="k">رصيد الخزينة دلوقتي</span><span class="v">${fmt(T.balance, 2)}</span><span class="s">${T.since ? `من آخر عدّ: ${esc(String(T.since).slice(0, 16).replace('T', ' '))}` : 'من غير عدّ: من أول ما اتسجل حاجة'}</span></div>
+    <div class="tile"><span class="k">دخل كاش</span><span class="v">${fmt(T.cashIn, 2)}</span></div><div class="tile"><span class="k">خرج كاش</span><span class="v">${fmt(T.cashOut, 2)}</span></div>${p.card ? `<div class="tile"><span class="k">كارت ومحفظة (للبنك)</span><span class="v">${fmt(p.card, 2)}</span></div>` : ''}</div>
+  <div class="calc">${form}
+    <div class="card"><h3>إزاي اتحسب</h3><div class="ledger">
+      <div><span>${T.since ? 'آخر عدّ' : 'البداية'}</span><span class="n">${fmt(T.start, 2)}</span></div>
+      ${line('مبيعات كاش', p.sales, '+')}${line('دفعات العملاء', p.customers, '+')}${line('فلوس رجعت من الموردين', p.supplierRefunds, '+')}${line('جبت من البنك', p.fromBank, '+')}
+      ${line('مرتجعات للعملاء', p.refunds, '−')}${line('مصروفات', p.expenses, '−')}${line('مسحوبات', p.withdrawals, '−')}${line('دفعات الموردين', p.suppliers, '−')}${line('وديت البنك', p.toBank, '−')}
+      ${p.adjust ? `<div><span>تصحيح</span><span class="n">${p.adjust > 0 ? '+' : ''}${fmt(p.adjust, 2)}</span></div>` : ''}
+      <div class="tot"><span>الرصيد</span><span class="n">${fmt(T.balance, 2)}</span></div></div>
+      <p class="note">بيعتمد على الكاشير: لو بتبيع من برنامج تاني، مبيعاته مش هنا.</p></div>
+  </div>` + (rows.length ? `<div class="tablebox"><table><thead><tr><th>الوقت</th><th>الحركة</th><th>المبلغ</th><th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '');
+}
+async function addCashMove(ev) {
+  ev.preventDefault();
+  const kind = $('cmKind').value;
+  const amount = Math.round((+$('cmAmount').value || 0) * 100) / 100;
+  if (!amount || (kind !== 'adjust' && amount < 0)) { $('cmMsg').textContent = 'اكتب المبلغ.'; return; }
+  CASH_NOTE = `اتسجل: ${CASH_KINDS[kind]} ${fmt(amount, 2)} ج.`;
+  await localInsert('cash_moves', { moved_at: new Date().toISOString(), kind, amount, note: $('cmNote').value.trim() || null });
 }
 
 // ---------- Owner withdrawals: money or goods the owner (or a partner) took for themselves ----------
@@ -428,7 +487,7 @@ function renderWithdrawals() {
   const rows = W.rows.map((r) => `<tr class="${r.pending ? 'pend' : ''}"><td class="n">${esc(r.date)}</td><td><b>${esc(r.person)}</b></td><td>${r.type === 'goods' ? '<span class="pill warn">بضاعة</span>' : r.fromDrawer ? '<span class="pill ok">من الدرج</span>' : 'فلوس'}${r.pending ? ' <span class="pill warn">مستني النت</span>' : ''}</td><td>${egp(r.amount)}</td>${multi() ? `<td>${esc(branchName(key(r.branch_id)))}</td>` : ''}<td class="muted">${esc(r.note)}</td>${isOwner() ? `<td class="acts"><button class="btn" data-delwd="${esc(r.id)}" data-wdtype="${r.type}" aria-label="امسح">امسح</button></td>` : ''}</tr>`);
   return `<p>اللي صاحب الصيدلية أو شريك أخده لنفسه، فلوس أو بضاعة. المسحوبات مش مصروف ومش بتقلل المكسب، بس بتتخصم من «اللي فاضل في الصيدلية» في «الحسابات».</p>
   <div class="calc">${form}
-    <div class="card"><div class="row" style="justify-content:space-between"><h3>كل واحد أخد كام</h3>${periodSelect('wdPeriodSel', WD_PERIOD)}</div>${people}</div>
+    <div class="card"><div class="row u-between"><h3>كل واحد أخد كام</h3>${periodSelect('wdPeriodSel', WD_PERIOD)}</div>${people}</div>
   </div>` + (rows.length ? `<div class="tablebox"><table><thead><tr><th>التاريخ</th><th>مين</th><th>النوع</th><th>القيمة</th>${multi() ? '<th>الفرع</th>' : ''}<th>ملاحظة</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '');
 }
 async function addWithdrawal(ev) {
@@ -567,7 +626,7 @@ function renderReorder(A, s) {
       const msg = orderMessage(g, { pharmacyName: SESS.pharmacy?.name || 'الصيدلية', branchName: bname });
       // Items that run out before this supplier's delivery arrives are marked.
       const late = g.supplier?.lead ? g.lines.filter((l) => { const r = A.reorder.find((x) => x.code === l.code); return r && Number.isFinite(r.daysCover) && r.daysCover < g.supplier.lead; }).length : 0;
-      return `<div class="card msg"><div class="row" style="justify-content:space-between"><b>${esc(g.supplier?.name || (sup.length ? 'من غير مورد' : 'الطلبية'))}${g.supplier?.lead != null && g.supplier.lead !== '' ? ` <span class="muted">· بيوصّل في ${fmt(g.supplier.lead)} يوم</span>` : ''}${late ? ` <span class="pill crit">${fmt(late)} صنف هيخلص قبل ما الطلبية توصل</span>` : ''}</b>
+      return `<div class="card msg"><div class="row u-between"><b>${esc(g.supplier?.name || (sup.length ? 'من غير مورد' : 'الطلبية'))}${g.supplier?.lead != null && g.supplier.lead !== '' ? ` <span class="muted">· بيوصّل في ${fmt(g.supplier.lead)} يوم</span>` : ''}${late ? ` <span class="pill crit">${fmt(late)} صنف هيخلص قبل ما الطلبية توصل</span>` : ''}</b>
         <span class="muted">${fmt(g.lines.length)} صنف · ${egp(g.cost)}${g.saved > 0.5 ? ` · وفّرت <span class="n">${fmt(g.saved)}</span> ج` : ''}</span></div>
         ${g.lines.length > 40
           // A long order is kept folded: drawing thousands of lines is slow on an older PC. Copy and WhatsApp still send all of it.
@@ -588,7 +647,7 @@ function renderSuppliers() {
   const list = sup.length ? `<div class="tablebox"><table><thead><tr><th>المورد</th><th>واتساب</th><th>الخصم العادي</th><th>أدوية</th><th>تجميل</th><th>مستلزمات</th>${isOwner() ? '<th></th>' : ''}</tr></thead><tbody>${sup.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${x.phone ? `…${esc(String(x.phone).slice(-4))}` : '<span class="muted">—</span>'}</td>
     ${['all', 'medicine', 'cosmetics', 'supplies'].map((k) => `<td class="n">${x.discounts?.[k] !== undefined && x.discounts[k] !== '' ? `${fmt(+x.discounts[k], 1)}%` : '<span class="muted">—</span>'}</td>`).join('')}
     ${isOwner() ? `<td class="acts"><button class="btn" type="button" data-editsup="${esc(x.id)}">عدّل</button> <button class="btn" type="button" data-delsup="${esc(x.id)}">امسح</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : '';
-  const form = isOwner() ? `<form id="supForm" class="stack" style="margin-top:10px">
+  const form = isOwner() ? `<form id="supForm" class="stack u-mt10">
       <b>${E ? `عدّل ${esc(E.name)}` : 'مورد جديد'}</b>
       <div class="grid2">
         <label>اسم المورد<input id="supName" maxlength="80" required value="${esc(E?.name || '')}" placeholder="مثلاً: مخزن الأمل"></label>
@@ -733,12 +792,12 @@ function renderPosSales() {
       <div class="tot"><span>الصافي</span><span class="n">${fmt(sum.net, 2)}</span></div>
       ${R.profit !== null ? `<div class="tot"><span>المكسب${R.costMissing ? ` <span class="muted">(من غير ${fmt(R.costMissing)} صنف سعر شرائه مش معروف)</span>` : ''}</span><span class="n">${fmt(R.profit, 2)}</span></div>` : ''}
     </div></div>`;
-  const hours = `<div class="card"><h3>${day ? 'بالساعة' : 'بالساعة (كل الأيام)'}</h3>${R.hours.length ? `<div class="hours">${R.hours.map((h) => `<div class="hr"><span class="n">${hourLabel(h.hour)}</span><span class="bar"><i style="width:${Math.max(2, Math.round((Math.abs(h.net) / maxHour) * 100))}%"></i></span><span class="n">${fmt(h.net)}</span><span class="muted n">${fmt(h.receipts)} فاتورة</span></div>`).join('')}</div>` : '<p class="note">مفيش فواتير في الفترة دي.</p>'}</div>`;
+  const hours = `<div class="card"><h3>${day ? 'بالساعة' : 'بالساعة (كل الأيام)'}</h3>${R.hours.length ? `<div class="hours">${R.hours.map((h) => `<div class="hr"><span class="n">${hourLabel(h.hour)}</span><span class="bar"><i data-w="${Math.max(2, Math.round((Math.abs(h.net) / maxHour) * 100))}"></i></span><span class="n">${fmt(h.net)}</span><span class="muted n">${fmt(h.receipts)} فاتورة</span></div>`).join('')}</div>` : '<p class="note">مفيش فواتير في الفترة دي.</p>'}</div>`;
   const items = R.items.length ? `<h3>اتباع إيه (${fmt(R.items.length)} صنف)</h3>` + table(['الصنف', 'الكمية', 'فواتير', 'المبيعات', 'المكسب'],
     R.items.map((i) => `<tr><td class="name">${esc(i.name)}<span class="cat n">${esc(i.code)}</span></td><td class="n"><b>${fmt(i.qty)}</b></td><td class="n">${fmt(i.receipts)}</td><td>${egp(i.value)}</td><td>${i.profit === null ? '<span class="muted">—</span>' : `<span class="pill ${i.profit < 0 ? 'crit' : 'ok'}"><span class="n">${fmt(i.profit)}</span> ج</span>`}</td></tr>`)) : '';
   const rows = list.slice(0, POS_Q || SHOW_ALL.has(TAB) ? 2000 : 200).map((x) => `<tr class="sale-row${POS_OPEN.has(x.id) ? ' open' : ''}" data-sale="${esc(x.id)}" tabindex="0"><td class="n">${esc(x.number)}</td>
       <td class="n">${esc(posWhen(x))}</td>
-      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill warn">مرتجع</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : 'بيع'}</td>
+      ${multi() ? `<td>${esc(branchName(key(x.branch_id)))}</td>` : ''}<td>${x.kind === 'return' ? `<span class="pill ${x.is_void ? 'crit' : 'warn'}">${x.is_void ? 'إلغاء' : 'مرتجع'}</span>${x.return_of ? ` <span class="muted">من ${esc(POS_SALES.find((y) => y.id === x.return_of)?.number ?? 'فاتورة')}</span>` : x.note ? ' <span class="pill crit">من غير فاتورة</span>' : ''}` : POS_SALES.some((y) => y.is_void && y.return_of === x.id) ? 'بيع <span class="pill crit">ملغية</span>' : 'بيع'}</td>
       <td class="n">${fmt((x.lines || []).reduce((a, l) => a + boxQty(l), 0))}</td><td class="n"><b>${fmt(x.total, 2)}</b></td><td>${esc(payName(x.payment))}</td><td>${esc(custName(x.customer_id))}</td><td>${esc(x.employee_name || '')}</td></tr>${POS_OPEN.has(x.id) ? posLines(x) : ''}`);
   const invoices = `<h3>الفواتير (${fmt(list.length)}${POS_Q ? ` من ${fmt(all.length)}` : ''})</h3>` + (rows.length
     ? `<div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th>${multi() ? '<th>الفرع</th>' : ''}<th>النوع</th><th>علب</th><th>الإجمالي</th><th>الدفع</th><th>العميل</th><th>الكاشير</th></tr></thead><tbody>${rows.join('')}</tbody></table>${list.length > rows.length ? `<div class="more"><span class="muted">ظاهر أول ${fmt(rows.length)} من ${fmt(list.length)}. دوّر برقم الفاتورة أو الصنف عشان توصلها أسرع.</span> <button class="btn" type="button" data-showall>اعرض كله</button></div>` : ''}</div>`
@@ -785,7 +844,7 @@ function dayCloseHtml(R) {
     <div><span>مصروفات اتدفعت النهارده</span><span class="n">−${fmt(f.spent, 2)}</span></div>
     <div><span>مسحوبات فلوس</span><span class="n">−${fmt(f.taken, 2)}</span></div>
     <div class="tot"><span>الكاش المفروض يبقى موجود</span><span class="n">${fmt(f.expected, 2)}</span></div></div>
-    ${canPay() ? `<form id="closeDayForm" class="row"><label>الكاش المعدود<input id="cdCash" type="number" min="0" step="0.5" inputmode="decimal" style="width:8rem"></label><input id="cdNote" maxlength="300" placeholder="ملاحظة (اختياري)" style="flex:1;min-width:8rem"><button class="btn primary" type="submit">اقفل اليوم</button><span class="note" id="cdMsg" role="status"></span></form>` : ''}
+    ${canPay() ? `<form id="closeDayForm" class="row"><label>الكاش المعدود<input class="u-w8" id="cdCash" type="number" min="0" step="0.5" inputmode="decimal"></label><input class="u-grow8" id="cdNote" maxlength="300" placeholder="ملاحظة (اختياري)"><button class="btn primary" type="submit">اقفل اليوم</button><span class="note" id="cdMsg" role="status"></span></form>` : ''}
     <p class="note">القفل بيحفظ أرقام اليوم زي ما هي دلوقتي. لو اتسجلت حاجة بعده، الفرق هيبان هنا.</p></div>`;
 }
 // The report on paper (or PDF): the totals, the hours and what sold.
@@ -795,10 +854,7 @@ function printPosReport() {
   const sum = R.summary;
   const title = POS_PERIOD === 'day' ? dayText(POS_DAY) : POS_PERIODS.find(([v]) => v === POS_PERIOD)[1];
   const row = (a, b) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`;
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير المبيعات</title><style>
-    body{font:13px/1.5 system-ui,sans-serif;margin:16px;color:#000} h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:16px 0 6px}
-    table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid #ccc;padding:4px 6px;text-align:start} .n{direction:ltr;text-align:end;font-variant-numeric:tabular-nums}
-  </style></head><body><h1>${esc(SESS.pharmacy?.name || 'الصيدلية')}: مبيعات ${esc(title)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' && multi() ? ` · ${esc(branchName(BRANCH))}` : ''}</p>
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير المبيعات</title><link rel="stylesheet" href="${new URL('./src/print/report.css', location.href)}"></head><body><h1>${esc(SESS.pharmacy?.name || 'الصيدلية')}: مبيعات ${esc(title)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' && multi() ? ` · ${esc(branchName(BRANCH))}` : ''}</p>
     <table>${row('فواتير', fmt(sum.receipts))}${row('مبيعات', fmt(sum.sales, 2))}${sum.returns ? row(`مرتجعات (${fmt(sum.returns)})`, fmt(sum.returned, 2)) : ''}${row('خصومات', fmt(sum.discount, 2))}
     ${Object.entries(sum.byPayment).map(([k, v]) => row(esc(payName(k)), fmt(v, 2))).join('')}${row('<b>الصافي</b>', `<b>${fmt(sum.net, 2)}</b>`)}${R.profit !== null ? row('المكسب', fmt(R.profit, 2)) : ''}</table>
     <h2>بالساعة</h2><table>${R.hours.map((h) => row(`${hourLabel(h.hour)} · ${fmt(h.receipts)} فاتورة`, fmt(h.net, 2))).join('')}</table>
@@ -810,10 +866,7 @@ function printPosReport() {
 function printSale(id) {
   const x = POS_SALES.find((y) => y.id === id); if (!x) return;
   const ret = x.kind === 'return';
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(x.number)}</title><style>
-    @page{margin:0} body{font:12px/1.45 system-ui,sans-serif;width:72mm;margin:0;padding:2mm 3mm;color:#000} .c{text-align:center;border-bottom:1px dashed #000;padding-bottom:2mm;margin-bottom:2mm}
-    table{width:100%;border-collapse:collapse} td{padding:0 0 1px} .n{direction:ltr;text-align:left} .t{border-top:1px dashed #000;margin-top:2mm;padding-top:2mm} .t div{display:flex;justify-content:space-between} .b{font-size:15px;font-weight:700}
-  </style></head><body><div class="c"><b>${esc(SESS.pharmacy?.name || '')}</b><div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(x.number)}</span> (نسخة)</div><div>${esc(new Date(x.sold_at).toLocaleString('ar-EG'))}</div></div>
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(x.number)}</title><link rel="stylesheet" href="${new URL('./src/print/receipt.css', location.href)}"></head><body><div class="c"><b>${esc(SESS.pharmacy?.name || '')}</b><div>${ret ? 'مرتجع' : 'فاتورة'} رقم <span class="n">${esc(x.number)}</span> (نسخة)</div><div>${esc(new Date(x.sold_at).toLocaleString('ar-EG'))}</div></div>
     <table>${(x.lines || []).map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td class="n">${fmt(l.qty)}${+l.per > 1 ? ` ${unitLabel(l)}` : ''} × ${fmt(l.price, 2)}${l.discount ? ` −${fmt(l.discount, 2)}` : ''}</td><td class="n">${fmt(l.price * l.qty - (l.discount || 0), 2)}</td></tr>`).join('')}</table>
     <div class="t">${+x.discount ? `<div><span>الخصم</span><span class="n">${fmt(+x.discount, 2)}</span></div>` : ''}<div class="b"><span>${ret ? 'المرتجع' : 'الإجمالي'}</span><span class="n">${fmt(Math.abs(x.total), 2)}</span></div>
     <div><span>الدفع</span><span>${esc(payName(x.payment))}</span></div>${x.employee_name ? `<div><span>الكاشير</span><span>${esc(x.employee_name)}</span></div>` : ''}</div></body></html>`;
@@ -825,7 +878,11 @@ function printDoc(html) {
   f.style.cssText = 'position:fixed;width:0;height:0;border:0;left:0;bottom:0';
   document.body.append(f);
   f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
-  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } finally { setTimeout(() => f.remove(), 1000); } }, 50);
+  // Print once its stylesheet has loaded (the styles are a file: the security policy allows no inline style).
+  let done = false;
+  const go = () => { if (done) return; done = true; try { f.contentWindow.focus(); f.contentWindow.print(); } finally { setTimeout(() => f.remove(), 1000); } };
+  const link = f.contentDocument.querySelector('link[rel=stylesheet]');
+  if (link && !link.sheet) { link.addEventListener('load', () => setTimeout(go, 50), { once: true }); link.addEventListener('error', go, { once: true }); setTimeout(go, 3000); } else setTimeout(go, 50);
 }
 
 // Barcode labels for an item: its own barcode (set here, learned at the cashier, or from the pharmacy
@@ -848,12 +905,7 @@ function printLabels(list) {
     parts.push(labelHtml({ pharmacy: SESS.pharmacy?.name || '', name: it.name, price: it.price ? fmt(it.price, 2) : '', barcode: itemBarcode(code) }).repeat(n));
   }
   if (!parts.length) return;
-  printDoc(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ملصقات</title><style>
-    @page { size: 38mm 25mm; margin: 0 } body { margin: 0; font-family: system-ui, Tahoma, sans-serif }
-    .label { width: 38mm; height: 25mm; box-sizing: border-box; padding: 1mm 1.5mm; page-break-after: always; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between }
-    .lb-ph { font-size: 6pt; color: #444; white-space: nowrap; overflow: hidden } .lb-name { font-size: 7.5pt; font-weight: 700; line-height: 1.1; max-height: 2.2em; overflow: hidden }
-    .lb-bc svg { width: 100%; height: 9mm; display: block } .lb-row { display: flex; justify-content: space-between; font-size: 7pt } .n { font-variant-numeric: tabular-nums; direction: ltr }
-  </style></head><body>${parts.join('')}</body></html>`);
+  printDoc(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ملصقات</title><link rel="stylesheet" href="${new URL('./src/print/labels.css', location.href)}"></head><body>${parts.join('')}</body></html>`);
 }
 
 // ---------- Cashier shifts and the log of changes (database update 013) ----------
@@ -884,8 +936,10 @@ function renderShifts() {
       <td>${d === null ? '—' : d === 0 ? '<span class="pill ok">مظبوط</span>' : `<span class="pill ${d < 0 ? 'crit' : 'warn'}">${d < 0 ? 'ناقص' : 'زيادة'} <span class="n">${fmt(Math.abs(d), 2)}</span></span>`}</td><td>${esc(x.note || '')}</td></tr>`;
   })) : '<div class="card emptybox"><h3>لسه مفيش ورديات</h3><p>من جهاز الكاشير: «إعدادات الطباعة على الجهاز ده» ← علّم «كل كاشير يدخل برقمه السري». جهاز الصيدلية بيطلبه لوحده.</p></div>'}`;
 }
-const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم' };
-const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح' };
+const LOG_TABLES = { catalog_items: 'صنف', purchases: 'فاتورة شراء', stock_moves: 'جرد / تعديل رصيد', supplier_payments: 'دفعة لمورد', customers: 'عميل', customer_payments: 'دفعة من عميل', expenses: 'مصروف', pos_shifts: 'وردية', employees: 'موظف', tasks: 'مهمة', day_closes: 'قفل يوم', pos_sales: 'فاتورة كاشير', return_approvals: 'موافقة مرتجع' };
+const LOG_OPS = { insert: 'إضافة', update: 'تعديل', delete: 'مسح', flag: 'وقت محتاج نظرة' };
+// Why a receipt's time was flagged by the server (worker/src/rpc.js timeFlags). Kept, never refused.
+const FLAG_TEXT = { time_not_number_day: 'وقتها مش في يوم رقمها (ساعة الجهاز اتغيرت؟)', before_shift_opened: 'قبل ما ورديتها تتفتح', after_shift_closed: 'بعد ما ورديتها اتقفلت', return_before_sale: 'مرتجع وقته قبل فاتورة البيع', after_day_closed: 'وصلت ليوم اتقفل خلاص', before_base: 'وقتها قبل آخر ملف اترفع من برنامج الصيدلية' };
 // What changed in an edit: only the fields that differ (lists of lines are summed up).
 function logChanges(x) {
   const show = (v) => (v === null || v === undefined || v === '' ? '—' : Array.isArray(v) ? `${v.length} سطر` : typeof v === 'object' ? '…' : String(v));
@@ -895,17 +949,69 @@ function logChanges(x) {
     return keys.map((k) => `${k}: ${show(x.old_row?.[k])} ← ${show(x.new_row?.[k])}`).join('، ');
   }
   const r = x.new_row || x.old_row || {};
+  if (x.op === 'flag') return [r.number, ...(r.flags || []).map((f) => FLAG_TEXT[f] || f)].filter(Boolean).join(' · ');
+  if (x.table_name === 'return_approvals') return `${r.total} ج · ${r.reason} · الكاشير ${r.cashier_name} · وافق ${r.approver_name}`;
   return [r.name, r.code, r.invoice_no, r.supplier_name, r.amount != null ? `${r.amount} ج` : '', r.qty != null ? `كمية ${r.qty}` : '', r.employee_name, r.note].filter(Boolean).join(' · ');
+}
+let LOG_VERIFY = '';
+let LOG_VERIFY_REASON = '';
+let LOG_VERIFY_PROOF = null;
+let LOG_VERIFY_RUNNING = false;
+async function verifyLog() {
+  if (LOG_VERIFY_RUNNING) return;
+  LOG_VERIFY_RUNNING = true; LOG_VERIFY_PROOF = null; LOG_VERIFY_REASON = '';
+  const pharmacy = SESS.pharmacy.id, user = SESS.user.id, client = SESS.client;
+  LOG_VERIFY = 'بيتأكد…'; render(true);
+  let r, cursor = null;
+  try {
+    do {
+      r = await client.rpc('audit_verify', { p_pharmacy: pharmacy, p_cursor: cursor });
+      if (SESS?.pharmacy?.id !== pharmacy || SESS?.user?.id !== user || SESS?.client !== client) return;
+      const progress = r.data || {};
+      if (r.error || progress.reason !== 'in_progress') break;
+      if (!progress.cursor || progress.cursor === cursor) { r = { error: { message: 'تعذر استكمال فحص السجل' } }; break; }
+      cursor = progress.cursor;
+      LOG_VERIFY = `بيفحص السجل: ${fmt(progress.rows)} من ${fmt(progress.total_rows)} سطر…`; render(true);
+    } while (cursor);
+  } catch (error) { r = { error }; } finally { LOG_VERIFY_RUNNING = false; }
+  const d = r.data || {};
+  LOG_VERIFY_PROOF = d.proof ? { pharmacy, user, value: d.proof } : null;
+  LOG_VERIFY_REASON = r.error ? '' : d.reason || '';
+  LOG_VERIFY = r.error ? arabicError(r.error).message
+    : d.ok === null && d.reason === 'changed_during_verification' ? 'السجل أو نسخة R2 اتغيرت أثناء الفحص؛ النتيجة غير مكتملة. حاول تاني.'
+    : d.ok === null && d.reason === 'unsealed' ? `التحقق غير مكتمل: فيه ${fmt(d.unsealed)} سطر لسه ما اتختمش. مش هنعتبر السجل سليم لحد ما الختم يكتمل.`
+    : d.ok === null && d.reason === 'anchor_missing' ? 'التحقق متوقف: نسخة R2 الموثوقة مفقودة. الختم الجديد متوقف لحد الاستعادة أو إعادة التأسيس بموافقة المالك.'
+    : d.ok === null && d.reason === 'anchor_unreadable' ? 'التحقق متوقف: نسخة R2 غير قابلة للقراءة. الأدلة محفوظة؛ يلزم إجراء المالك.'
+    : d.ok === null && d.reason === 'anchor_unavailable' ? 'التحقق متوقف: خدمة R2 غير متاحة. حاول لاحقًا.'
+    : d.ok === null ? 'ختم السجل لسه مش متفعّل على السيرفر (المفتاح AUDIT_SEAL_KEY). كلّم صاحب البرنامج.'
+    : d.ok ? `${d.epoch ? `من بعد إعادة تأسيس المالك (المرحلة ${fmt(d.epoch)}؛ المراحل السابقة محفوظة): ` : ''}اكتمل فحص ${fmt(d.rows)} سطر خلال فترة الفحص، ولم يظهر تغيير. الفحص على دفعات وليس لقطة ثابتة.`
+    : d.reason === 'key_missing' ? 'مش قادر يتأكد: جزء من السجل مختوم بمفتاح مش موجود على السيرفر دلوقتي. كلّم صاحب البرنامج.'
+    : d.reason === 'anchor_mismatch' ? 'تحذير: نسخة R2 لا تطابق آخر ختم في قاعدة البيانات. الأدلة محفوظة والختم متوقف.'
+    : `تحذير: السجل ${d.reason === 'truncated' ? 'اتمسح آخره' : 'اتغير'} من برّه البرنامج (${new Date(d.broken_at).toLocaleString('ar-EG')}). كلّم صاحب البرنامج.`;
+  render(true);
+}
+async function rebaselineLog() {
+  const reason = prompt('اكتب سبب استعادة/إعادة تأسيس ختم السجل (من 10 إلى 500 حرف). الأدلة القديمة ستظل محفوظة.');
+  if (!reason || reason.trim().length < 10 || reason.trim().length > 500) return;
+  if (prompt('للتأكيد، اكتب REBASELINE_AUDIT_ANCHOR') !== 'REBASELINE_AUDIT_ANCHOR') return;
+  LOG_VERIFY = 'بيتحقق من النسخة الموثوقة أو يبدأ مرحلة جديدة…'; render(true);
+  const proof = LOG_VERIFY_PROOF?.pharmacy === SESS.pharmacy.id && LOG_VERIFY_PROOF?.user === SESS.user.id ? LOG_VERIFY_PROOF.value : null;
+  const r = await SESS.client.rpc('audit_rebaseline', { p_pharmacy: SESS.pharmacy.id, p_reason: reason.trim(), p_confirm: 'REBASELINE_AUDIT_ANCHOR', p_proof: proof });
+  LOG_VERIFY = r.error ? arabicError(r.error).message : r.data?.action === 'restored_from_trusted_backup'
+    ? 'تمت استعادة الختم من النسخة الموثوقة، وسُجلت العملية في سجل التعديلات.'
+    : 'بدأت مرحلة ختم جديدة بموافقة المالك، وسُجل السبب مع الاحتفاظ بالأختام السابقة.';
+  if (r.error) { render(true); return; }
+  await verifyLog();
 }
 function renderLog() {
   if (LOG_ROWS === null) { loadLatest('audit_log', 'id, at, user_id, table_name, op, row_id, old_row, new_row', 'at', 500).then((r) => { LOG_ROWS = r || []; render(true); }); return '<p class="note">لحظة…</p>'; }
   if (LOG_ROWS === 'missing') return '<div class="card emptybox"><h3>سجل التعديلات محتاج تحديث قاعدة البيانات 013</h3></div>';
   const who = (id) => (id === SESS.user.id ? 'إنت' : SESS.local ? 'الجهاز ده' : 'حساب تاني (شريك أو جهاز الصيدلية)');
   const list = LOG_ROWS.filter((x) => !LOG_FILTER || x.table_name === LOG_FILTER);
-  return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button></div>
+  return `<div class="row"><label>النوع<select id="logFilter"><option value="">الكل</option>${Object.entries(LOG_TABLES).map(([k, v]) => `<option value="${k}" ${k === LOG_FILTER ? 'selected' : ''}>${v}</option>`).join('')}</select></label><button class="btn" type="button" id="logReload">حدّث</button>${SESS.client?.cloudflare && isOwner() ? `<button class="btn" type="button" id="logVerify">اتأكد إن السجل محدش لعب فيه</button>${['anchor_missing', 'anchor_mismatch', 'anchor_unreadable'].includes(LOG_VERIFY_REASON) ? '<button class="btn" type="button" id="logRebaseline">استعادة/إعادة تأسيس الختم (للمالك)</button>' : ''}` : ''}<span class="note" id="logVerifyMsg" role="status">${esc(LOG_VERIFY)}</span></div>
   <p class="note">كل إضافة أو تعديل أو مسح في المشتريات والأصناف والرصيد والعملاء والفلوس والورديات بيتسجل هنا: مين وإمتى وإيه اللي اتغير. محدش يقدر يمسح السجل ده.</p>
   ${list.length ? table(['إمتى', 'مين', 'إيه', 'العملية', 'التفاصيل'], list.slice(0, 500).map((x) => `<tr><td class="n">${esc(new Date(x.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</td>
-    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
+    <td>${esc(who(x.user_id))}</td><td>${esc(LOG_TABLES[x.table_name] || x.table_name)}</td><td><span class="pill ${x.op === 'delete' ? 'crit' : x.op === 'update' || x.op === 'flag' ? 'warn' : 'ok'}">${LOG_OPS[x.op] || x.op}</span></td>
     <td class="name">${esc(logChanges(x))}</td></tr>`)) : '<p class="muted">لسه مفيش حاجة في السجل.</p>'}`;
 }
 
@@ -915,7 +1021,7 @@ let SHORTAGES = [], PRICES = [], PATIENTS = [], REMINDERS = [];
 let SHORT_CODES = new Set();
 const LISTS = { shortages: () => SHORTAGES, market_prices: () => PRICES, patients: () => PATIENTS, reminders: () => REMINDERS, pos_sales: () => POS_SALES,
   customers: () => CUSTOMERS, customer_payments: () => CUST_PAYMENTS,
-  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS, day_closes: () => DAY_CLOSES };
+  catalog_items: () => CATALOG, purchases: () => PURCHASES, supplier_payments: () => SUP_PAYMENTS, stock_moves: () => MOVES, tasks: () => TASKS, day_closes: () => DAY_CLOSES, cash_moves: () => CASH_MOVES };
 const cacheKey = (table) => `${table}:${SESS.pharmacy.id}`;
 const needUpdate = () => '<div class="card emptybox"><h3>الجزء ده محتاج تحديث قاعدة البيانات</h3><p>التحديث بيضيف جداول النواقص وأسعار السوق وتذكير المرضى. بعد ما يتطبق، الصفحة دي هتشتغل على طول.</p></div>';
 const itemOptions = () => `<datalist id="itemList">${[...DATA.items].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((i) => `<option value="${esc(i.name)}">`).join('')}</datalist>`;
@@ -927,6 +1033,8 @@ function refreshDerived() {
 }
 
 // Server rows, plus local changes still waiting in the outbox; falls back to the copy on this device.
+// The most rows of one table this screen loads (Phase 2 moves stock to the server and removes this).
+const LOAD_MAX = 50000;
 async function loadTable(table, cols, order = 'created_at') {
   const q = await pending();
   const mine = (t) => (e) => e.payload?.table === table && e.type === t;
@@ -935,14 +1043,9 @@ async function loadTable(table, cols, order = 'created_at') {
   const upd = q.filter(mine('update'));
   let rows = null;
   if (isOnline()) {
-    // The server sends at most 1000 rows at a time: read page by page (stock needs every row).
-    let all = [], error = null;
-    for (let from = 0; from < 50000; from += 1000) {
-      const res = await SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }).range(from, from + 999);
-      if (res.error) { error = res.error; break; }
-      all.push(...res.data);
-      if (res.data.length < 1000) break;
-    }
+    // Every row (stock and money need all of them), page by page; never part of the table.
+    const { data: all, error } = await readAll(() => SESS.client.from(table).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(order, { ascending: false }), { table, max: LOAD_MAX });
+    if (error?.incomplete) { showDataAlert($('dataAlert'), error); throw error; }
     if (error && !/fetch|network/i.test(error.message)) throw Object.assign(new Error(error.message), { missing: true });
     if (!error) rows = all;
   }
@@ -966,7 +1069,7 @@ async function loadFeatures() {
     // an older database is read without them.
     const base = 'id, branch_id, number, sold_at, kind, lines, total, discount, paid, payment';
     POS_READY = false;
-    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
+    for (const extra of [', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to, is_void', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id, delivery_fee, delivery_to', ', customer_id, credit, claim_no, return_of, note, employee_id, employee_name, shift_id', ', customer_id, credit, claim_no, return_of, note', ', customer_id, credit, claim_no', '']) {
       try { POS_SALES = await loadTable('pos_sales', base + extra, 'sold_at'); POS_READY = true; break; } catch (e) { if (!e.missing) break; }
     }
     if (isOwner()) {
@@ -1067,7 +1170,7 @@ function renderPrices(A) {
     <td>${isOwner() || p.created_by === SESS.user.id ? `<button class="btn" data-pricedel="${esc(p.id)}" aria-label="امسح">امسح</button>` : ''}</td></tr>`);
   return form
     + (rows.length ? `<h3>سعرك قصاد السوق</h3><div class="tablebox"><table><thead><tr><th>الصنف</th><th>سعرك</th><th>أرخص سعر برا</th><th>فين وإمتى</th><th></th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<div class="tablebox"><p class="empty">لسه مفيش أسعار متسجلة لأصنافك.</p></div>')
-    + (hist.length ? `<details class="help"><summary>آخر الأسعار المتسجلة</summary><div class="tablebox" style="margin-top:8px"><table><tbody>${hist.join('')}</tbody></table></div></details>` : '')
+    + (hist.length ? `<details class="help"><summary>آخر الأسعار المتسجلة</summary><div class="tablebox u-mt8"><table><tbody>${hist.join('')}</tbody></table></div></details>` : '')
     + '<p class="note">الأدوية ليها تسعيرة جبرية، فالمقارنة دي للتجميل والمستلزمات أساساً.</p>';
 }
 async function addPrice(row) {
@@ -1432,7 +1535,7 @@ function editableBatches(it) {
 function renderItems() {
   if (!INV_READY) return needInv();
   return `<p>كل أصناف الصيدلية، حتى اللي رصيدها صفر. الرصيد = آخر ملف اترفع + الطلبيات اللي وصلت − مبيعات الكاشير.</p>
-    <div class="row"><input id="itemsQ" type="search" autocomplete="off" placeholder="دوّر بالاسم أو الكود أو الباركود…" value="${esc(ITEMS_Q)}" style="flex:1;min-width:0" aria-label="دوّر على صنف">
+    <div class="row"><input class="u-grow0" id="itemsQ" type="search" autocomplete="off" placeholder="دوّر بالاسم أو الكود أو الباركود…" value="${esc(ITEMS_Q)}" aria-label="دوّر على صنف">
       ${canBuy() ? '<button class="btn primary" type="button" id="newItemBtn">+ صنف جديد</button>' : ''}</div>
     ${ITEM_NOTE ? `<p class="note" role="status">${esc(ITEM_NOTE)}</p>` : ''}
     ${ITEM_FORM && !ITEM_FORM.forReceive ? itemForm() : ''}
@@ -1497,8 +1600,8 @@ function receiveLinesHtml() {
     <td><input class="disc n" type="number" min="0" step="1" data-l="${i}" data-f="bonus" value="${esc(l.bonus)}" aria-label="بونص"></td>
     <td><input class="disc n" type="number" min="0" step="0.01" data-l="${i}" data-f="cost" value="${esc(l.cost)}" aria-label="سعر الشراء"></td>
     <td><input class="disc n" type="number" min="0" step="0.25" data-l="${i}" data-f="price" value="${esc(l.price)}" aria-label="سعر البيع"></td>
-    <td><input type="month" data-l="${i}" data-f="expiry" value="${esc(l.expiry)}" aria-label="الصلاحية" style="min-width:130px"></td>
-    <td><input class="disc" data-l="${i}" data-f="lot" maxlength="40" value="${esc(l.lot || '')}" aria-label="رقم التشغيلة" placeholder="اختياري" style="min-width:90px"></td>
+    <td><input class="u-minw130" type="month" data-l="${i}" data-f="expiry" value="${esc(l.expiry)}" aria-label="الصلاحية"></td>
+    <td><input class="disc u-minw90" data-l="${i}" data-f="lot" maxlength="40" value="${esc(l.lot || '')}" aria-label="رقم التشغيلة" placeholder="اختياري"></td>
     <td class="n" id="rl${i}">${fmt((+l.qty || 0) * (+l.cost || 0), 2)}</td>
     <td><button class="btn" type="button" data-rcvdel="${i}" aria-label="شيل السطر">✕</button></td></tr>`).join('');
 }
@@ -1688,7 +1791,7 @@ function adjustForm() {
   return `<form id="adjForm" class="card stack" novalidate>
     <h3>شيل بضاعة من الرصيد${multi() ? ' أو حوّلها لفرع تاني' : ''}</h3>
     <div class="row">${kinds.map(([k, t]) => `<button type="button" class="btn ${ADJ.kind === k ? 'sel' : ''}" data-adjkind="${k}" aria-pressed="${ADJ.kind === k}">${t}</button>`).join('')}</div>
-    ${it ? `<div class="row" style="justify-content:space-between"><b>${esc(it.name)}</b><span class="muted">الرصيد دلوقتي <b class="n">${fmt(it.qty)}</b></span><button type="button" class="btn" id="adjChange">صنف تاني</button></div>`
+    ${it ? `<div class="row u-between"><b>${esc(it.name)}</b><span class="muted">الرصيد دلوقتي <b class="n">${fmt(it.qty)}</b></span><button type="button" class="btn" id="adjChange">صنف تاني</button></div>`
       : `<div class="pos-search"><input id="adjQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه…" aria-label="الصنف"><div id="adjResults" class="results" hidden></div></div>`}
     <div class="grid2">
       <label>الكمية<input id="adjQty" type="number" min="1" step="1" inputmode="numeric" value="${esc(ADJ.qty)}"></label>
@@ -2010,7 +2113,7 @@ function customerForm() {
 function statementHtml(c) {
   const rows = statement(c.id, POS_SALES, CUST_PAYMENTS);
   const label = { sale: 'فاتورة', return: 'مرتجع', payment: 'دفع' };
-  return `<div class="card"><div class="row" style="justify-content:space-between"><h3>كشف حساب ${esc(c.name)}</h3><div class="row">
+  return `<div class="card"><div class="row u-between"><h3>كشف حساب ${esc(c.name)}</h3><div class="row">
     ${c.phone ? `<button class="btn" type="button" data-sendstmt="${esc(c.id)}">ابعته واتساب</button>` : ''}<button class="btn" type="button" data-closestmt="1">اقفل</button></div></div>`
     + table(['يوم', 'البيان', 'رقم', 'المبلغ', 'الرصيد'], rows.map((r) => `<tr><td>${dayText(r.at)}</td><td>${label[r.kind]}${r.claim ? ` · موافقة <span class="n">${esc(r.claim)}</span>` : ''}</td><td class="n">${esc(r.ref || '')}</td>
       <td class="n"><span class="pill ${r.amount < 0 ? 'ok' : 'warn'}">${r.amount > 0 ? '+' : ''}${fmt(r.amount, 2)}</span></td><td class="n"><b>${fmt(r.balance, 2)}</b></td></tr>`)) + '</div>';
@@ -2079,10 +2182,10 @@ function renderClaims() {
   const list = claims(CUSTOMERS, POS_SALES, from, to);
   const head = `<div class="row">${periodSelect('claimPeriodSel', CLAIM_PERIOD)}</div><p>فواتير شركات التأمين في الفترة دي: رقم الفاتورة، ورقم الموافقة، ونصيب الشركة. انسخها وابعتها للشركة مع المطالبة.</p>`;
   if (!list.length) return head + '<div class="card emptybox"><h3>مفيش فواتير تأمين في الفترة دي</h3><p>في الكاشير، اختار شركة التأمين في خانة العميل قبل الدفع، والبرنامج يحسب نصيبها لوحده.</p></div>';
-  return head + list.map((g, i) => `<div class="card"><div class="row" style="justify-content:space-between"><h3>${esc(g.customer.name)} <span class="muted">(${fmt(+g.customer.coverage_pct)}%)</span></h3>
+  return head + list.map((g, i) => `<div class="card"><div class="row u-between"><h3>${esc(g.customer.name)} <span class="muted">(${fmt(+g.customer.coverage_pct)}%)</span></h3>
     <span>${fmt(g.bills.length)} فاتورة · الإجمالي <b class="n">${fmt(g.total, 2)}</b> · نصيب الشركة <b class="n">${fmt(g.share, 2)}</b> ج</span></div>`
     + table(['يوم', 'رقم الفاتورة', 'رقم الموافقة', 'الفاتورة', 'نصيب الشركة'], g.bills.map((s) => `<tr><td>${dayText(s.sold_at)}</td><td class="n">${esc(s.number)}</td><td class="n">${esc(s.claim_no || '—')}</td><td class="n">${fmt(+s.total, 2)}</td><td class="n"><b>${fmt(+s.credit, 2)}</b></td></tr>`))
-    + `<textarea readonly id="claimMsg${i}" aria-label="المطالبة" style="min-height:120px">${esc([`مطالبة ${SESS.pharmacy?.name || 'الصيدلية'} — ${g.customer.name}`, ...g.bills.map((s) => `${dayText(s.sold_at)} · فاتورة ${s.number}${s.claim_no ? ` · موافقة ${s.claim_no}` : ''} · ${fmt(+s.credit, 2)} ج`), `الإجمالي المطلوب: ${fmt(g.share, 2)} ج (${g.bills.length} فاتورة)`].join('\n'))}</textarea>
+    + `<textarea class="u-h120" readonly id="claimMsg${i}" aria-label="المطالبة">${esc([`مطالبة ${SESS.pharmacy?.name || 'الصيدلية'} — ${g.customer.name}`, ...g.bills.map((s) => `${dayText(s.sold_at)} · فاتورة ${s.number}${s.claim_no ? ` · موافقة ${s.claim_no}` : ''} · ${fmt(+s.credit, 2)} ج`), `الإجمالي المطلوب: ${fmt(g.share, 2)} ج (${g.bills.length} فاتورة)`].join('\n'))}</textarea>
     <div class="row"><button class="btn" type="button" data-copyclaim="${i}">انسخ المطالبة</button><span class="note" id="claimNote${i}"></span></div></div>`).join('');
 }
 
@@ -2123,7 +2226,7 @@ function recsHtml(A) {
   const list = currentRecs(A).filter((r) => !REC_DISMISSED.has(r.key) && !done.has(`rec:${r.key}`));
   if (!list.length) return '';
   const P = { high: ['مهم', 'crit'], medium: ['متوسط', 'warn'], low: ['ممكن', 'ok'] };
-  return `<h3>اقتراحات</h3><div class="stack">${list.slice(0, 6).map((r) => `<div class="card rec"><div class="row" style="justify-content:space-between"><b>${esc(r.title)}</b><span class="pill ${P[r.priority][1]}">${P[r.priority][0]}</span></div>
+  return `<h3>اقتراحات</h3><div class="stack">${list.slice(0, 6).map((r) => `<div class="card rec"><div class="row u-between"><b>${esc(r.title)}</b><span class="pill ${P[r.priority][1]}">${P[r.priority][0]}</span></div>
     <p class="note"><b>البيانات:</b> ${esc(r.data)}</p>
     <p class="note"><b>الفايدة:</b> ${esc(r.benefit)} · <b>الثقة:</b> ${esc(r.confidence)} · <b>الخطر:</b> ${esc(r.risk)}</p>
     <div class="row"><button class="btn" type="button" data-gotab="${r.tab}">${esc(r.action)}</button>${isOwner() && TASKS_READY ? `<button class="btn primary" type="button" data-rectask="${esc(r.key)}">اعملها (مهمة)</button>` : ''}<button class="btn" type="button" data-recno="${esc(r.key)}">مش دلوقتي</button></div></div>`).join('')}</div>`;
@@ -2224,7 +2327,7 @@ function renderAssistant() {
   return `<p class="note">اسأل بالعربي أو بالإنجليزي عن المبيعات والأرباح والمخزون والصلاحية والموردين. كل رقم بيطلع من حسابات البرنامج على بيانات الصيدلية، ومعاه الفترة ومصدره${AI_ON ? '. (فيه نموذج ذكاء اصطناعي بيفهم السؤال ويصيغ الإجابة، والأرقام برضه من البرنامج)' : '.'} المساعد مش بيشخّص ولا بيوصف أدوية.</p>
   <div class="chips">${EXAMPLES.map((q) => `<button class="btn" type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>
   <div class="chat" id="chatLog">${CHAT.map((m) => (m.role === 'user' ? `<div class="msg me">${esc(m.text)}</div>` : `<div class="msg bot card">${m.results.map((r) => `<b>${esc(r.title)}</b>${resultHtml(r)}`).join('')}${m.text ? `<p>${esc(m.text)}</p>` : ''}</div>`)).join('')}${CHAT_BUSY ? '<div class="msg bot card"><p class="muted">بيحسب…</p></div>' : ''}</div>
-  <form id="askForm" class="row"><input id="askQ" autocomplete="off" maxlength="300" placeholder="مثلاً: كام مبيعات النهارده؟" style="flex:1;min-width:0" aria-label="سؤالك"><button class="btn primary" type="submit">اسأل</button>${CHAT.length ? '<button class="btn" type="button" id="chatClear">امسح</button>' : ''}</form>`;
+  <form id="askForm" class="row"><input class="u-grow0" id="askQ" autocomplete="off" maxlength="300" placeholder="مثلاً: كام مبيعات النهارده؟" aria-label="سؤالك"><button class="btn primary" type="submit">اسأل</button>${CHAT.length ? '<button class="btn" type="button" id="chatClear">امسح</button>' : ''}</form>`;
 }
 async function ask(q) {
   q = String(q || '').trim();
@@ -2239,7 +2342,7 @@ async function ask(q) {
   try {
     const messages = [{ role: 'user', content: q }];
     for (let round = 0; round < 4; round++) {
-      const res = await SESS.client.ai({ pharmacy: SESS.pharmacy.id, messages, tools: toolSpecs(SESS.role) });
+      const res = await SESS.client.ai({ pharmacy: SESS.pharmacy.id, messages, tools: toolSpecs(SESS.role).map((t) => t.name) });
       if (res.error) throw new Error(res.error.message);
       const content = res.data.content || [];
       text = content.filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
@@ -2267,7 +2370,7 @@ function renderTasks() {
   if (!TASKS_READY) return '<div class="card emptybox"><h3>المهام محتاجة تحديث قاعدة البيانات 0007</h3></div>';
   const open = TASKS.filter((t) => t.status !== 'done').sort((a, b) => (a.due_on || '9999').localeCompare(b.due_on || '9999'));
   const done = TASKS.filter((t) => t.status === 'done').sort((a, b) => String(b.done_at).localeCompare(String(a.done_at))).slice(0, 30);
-  const row = (t) => `<div class="card task ${t.status}"><div class="row" style="justify-content:space-between"><b>${esc(t.title)}</b><span class="pill ${PRIO[t.priority]?.[1] || ''}">${PRIO[t.priority]?.[0] || ''}</span></div>
+  const row = (t) => `<div class="card task ${t.status}"><div class="row u-between"><b>${esc(t.title)}</b><span class="pill ${PRIO[t.priority]?.[1] || ''}">${PRIO[t.priority]?.[0] || ''}</span></div>
     ${t.note ? `<p class="note">${esc(t.note)}</p>` : ''}<p class="muted">${t.assignee ? `لـ ${esc(t.assignee)} · ` : ''}${t.due_on ? `لحد ${dayText(t.due_on)}` : 'من غير ميعاد'}${t.status === 'done' && t.done_at ? ` · خلصت ${dayText(String(t.done_at).slice(0, 10))}` : ''}</p>
     ${isOwner() ? `<div class="row">${t.status === 'done' ? `<button class="btn" type="button" data-taskopen="${esc(t.id)}">رجّعها</button>` : `<button class="btn primary" type="button" data-taskdone="${esc(t.id)}">خلصت</button>`}<button class="btn" type="button" data-taskdel="${esc(t.id)}">امسح</button></div>` : ''}</div>`;
   return `${isOwner() ? `<form id="taskForm" class="card stack"><h3>مهمة جديدة</h3><div class="grid2">
@@ -2362,7 +2465,7 @@ function payInfo() {
   const price = monthlyPrice(APPCFG, BRANCHES.filter((b) => b.id).length || 1, SUB?.price_month);
   const wa = String(APPCFG.support_phone || '').replace(/\D/g, '').replace(/^0/, '20');
   return `${price ? `<p>الاشتراك: <b class="n">${fmt(price)}</b> ج في الشهر${BRANCHES.length > 1 ? ' (لكل الفروع)' : ''}.</p>` : ''}
-    ${APPCFG.pay_note ? `<p style="white-space:pre-line">${esc(APPCFG.pay_note)}</p>` : ''}
+    ${APPCFG.pay_note ? `<p class="u-pre">${esc(APPCFG.pay_note)}</p>` : ''}
     ${wa ? `<p><a class="btn primary" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`عايز أجدد اشتراك صيدليتي: ${SESS.pharmacy.name}`)}" target="_blank" rel="noopener">كلّمنا على واتساب</a></p>` : ''}`;
 }
 function renderSubBanner() {
@@ -2394,14 +2497,13 @@ async function cloudBackup() {
     tables: { pharmacies: [{ id: SESS.pharmacy.id, name: SESS.pharmacy.name, settings: SESS.pharmacy.settings || {}, created_at: new Date().toISOString() }] } };
   for (const [t, cols] of CLOUD_TABLES) {
     $('cloudBackupMsg').textContent = `بنزّل ${t}…`;
-    const rows = [];
-    for (let from = 0; from < 500000; from += 1000) {
-      const r = await SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }).range(from, from + 999);
-      if (r.error) { if (!/fetch|network/i.test(r.error.message)) break; throw new Error('النت فصل. جرّب تاني.'); }
-      rows.push(...r.data);
-      if (r.data.length < 1000) break;
-    }
-    out.tables[t] = rows;
+    // A backup is all or nothing: any table that can't be read whole stops it with the reason.
+    const { data: rows, error } = await readAll(() => SESS.client.from(t).select(cols).eq('pharmacy_id', SESS.pharmacy.id).order(t === 'attendance' ? 'check_in' : 'id', { ascending: true }), { table: t, max: 500000 });
+    if (error?.incomplete) throw new Error(incompleteText(error));
+    if (error && /fetch|network/i.test(error.message)) throw new Error('النت فصل. جرّب تاني.');
+    // A table the database doesn't have yet (an update not applied) is empty; any other refusal stops the backup.
+    if (error && !/does not exist|schema cache|42P01/i.test(`${error.code ?? ''} ${error.message}`)) throw new Error(`مقدرتش أنزّل ${t}: ${error.message}`);
+    out.tables[t] = rows ?? [];
   }
   // The latest uploaded data of each branch (the starting stock).
   $('cloudBackupMsg').textContent = 'بنزّل آخر رفع لكل فرع…';
@@ -2415,6 +2517,134 @@ async function cloudBackup() {
   out.tables.snapshots = snaps;
   return out;
 }
+// ---------- Stock kept by the server (Phase 2 M1) ----------
+// The branch the section works on: the one shown, or the only one.
+const stockBranch = () => (BRANCH === 'all' ? (BRANCHES.length === 1 ? BRANCHES[0] : null) : BRANCHES.find((b) => key(b.id) === BRANCH)) ?? null;
+async function refreshStockBox() {
+  const b = stockBranch();
+  $('stockOpen').disabled = $('stockCheck').disabled = $('stockBlock').disabled = !b || !isOnline();
+  if (!b) { $('stockState').textContent = 'اختار فرع من فوق الأول.'; return null; }
+  const r = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id });
+  if (r.error) { $('stockState').textContent = arabicError(r.error).message; return null; }
+  const st = r.data;
+  const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('stockState').textContent = !st.opened_at ? `فرع ${b.name}: رصيد السيرفر لسه ما بدأش.`
+    : st.stale ? `فرع ${b.name}: اترفع ملف جديد بعد آخر بداية (${t(st.opened_at)}). ابدأ تاني عشان رصيد السيرفر يمشي على الملف الجديد. لحد كده مش بيمنع بيع.`
+    : `فرع ${b.name}: رصيد السيرفر شغال من ${t(st.opened_at)}.${st.block_negative ? ' البيع بعد ما الرصيد يخلص ممنوع.' : ''}`;
+  $('stockBlock').checked = !!st.block_negative;
+  $('stockBlockWrap').hidden = !isOwner();
+  return st;
+}
+$('stockBox').addEventListener('toggle', () => { if ($('stockBox').open) refreshStockBox(); });
+$('stockOpen').addEventListener('click', async () => {
+  const b = stockBranch(); if (!b) return;
+  if (!confirm(`رصيد السيرفر لفرع ${b.name} هيبقى الأرقام اللي في البرنامج دلوقتي، وأي حركة بعدها بتتحسب لوحدها. تكمّل؟`)) return;
+  $('stockOpen').disabled = true;
+  try {
+    // The server's clock first, then fresh data: anything the server gets after that is added on top.
+    const st = await SESS.client.rpc('stock_status', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id });
+    if (st.error) throw arabicError(st.error);
+    $('stockState').textContent = 'بنحمّل آخر الأرقام…';
+    await Promise.all([loadSnapshots(), loadFeatures(), loadInventory()]);
+    setView();
+    const items = openingItems(branchData(b).items);
+    const r = await SESS.client.rpc('open_stock', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id, p_base_at: SNAP.get(key(b.id))?.at ?? null, p_watermark: st.data.server_now, p_items: items });
+    if (r.error) throw arabicError(r.error);
+    await refreshStockBox();
+    $('stockDiff').textContent = `اتسجل رصيد ${fmt(items.length)} صنف.`;
+  } catch (e) { $('stockState').textContent = `ما اتسجلش: ${e.message}`; }
+  $('stockOpen').disabled = false;
+});
+$('stockCheck').addEventListener('click', async () => {
+  const b = stockBranch(); if (!b) return;
+  $('stockDiff').textContent = 'بنقارن…';
+  const lv = await readAll(() => SESS.client.from('stock_levels').select('code, qty').eq('pharmacy_id', SESS.pharmacy.id).eq('branch_id', b.id).order('code'), { table: 'stock_levels', max: LOAD_MAX });
+  if (lv.error) { $('stockDiff').textContent = lv.error.incomplete ? incompleteText(lv.error) : arabicError(lv.error).message; return; }
+  const { diffs, checked } = reconcile(lv.data, branchData(b).items);
+  $('stockDiff').innerHTML = !diffs.length ? `<p class="note">${fmt(checked)} صنف: رصيد السيرفر هو نفس رصيد البرنامج.</p>`
+    : `<p class="note">${fmt(diffs.length)} صنف مختلف من ${fmt(checked)}. الفرق معناه إن فيه حركة ناقصة عند واحد منهم: شوف «حركة الصنف»، وبعدين ابدأ تاني لو الأرقام اللي في البرنامج صح.</p>`
+      + table(['الصنف', 'السيرفر', 'البرنامج', 'الفرق'], diffs.slice(0, 50).map((d) => `<tr><td>${esc(d.name)}</td><td class="n">${fmt(d.server, 2)}</td><td class="n">${fmt(d.app, 2)}</td><td class="n">${fmt(d.diff, 2)}</td></tr>`));
+});
+$('stockBlock').addEventListener('change', async (e) => {
+  const b = stockBranch(); if (!b) return;
+  const want = e.target.checked;
+  const r = await SESS.client.rpc('set_stock_policy', { p_pharmacy: SESS.pharmacy.id, p_branch: b.id, p_block_negative: want });
+  if (r.error) { e.target.checked = !want; $('stockState').textContent = arabicError(r.error).message; return; }
+  await refreshStockBox();
+});
+
+// Encrypted backups the server keeps (Phase 2 M2): the latest one, and one now.
+async function refreshServerBackups() {
+  if (!SESS.client?.cloudflare || !isOwner()) return;
+  const r = await SESS.client.rpc('list_backups', { p_pharmacy: SESS.pharmacy.id });
+  if (r.error) return; // an older server without backups: nothing shown
+  $('serverBackups').hidden = false;
+  const ok = r.data.find((b) => b.status === 'ok'), failed = r.data.find((b) => b.status === 'failed');
+  const t = (v) => new Date(v).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('serverBackupState').textContent = ok ? `آخر نسخة: ${t(ok.created_at)}.` : 'لسه مفيش نسخة.';
+  // Older than 36 hours (the daily job should have made one): said in red.
+  const old = !ok || Date.now() - Date.parse(ok.created_at) > 36 * 3600000;
+  $('serverBackupState').className = old ? 'err' : 'note';
+  if (ok && old) $('serverBackupState').textContent += ' النسخة دي قديمة: النسخة اليومية ما اتعملتش.';
+  if (failed && (!ok || failed.created_at > ok.created_at)) $('serverBackupState').textContent += ` آخر محاولة ما نجحتش (${t(failed.created_at)}).`;
+}
+$('cloudBackupBox').addEventListener('toggle', () => { if ($('cloudBackupBox').open) refreshServerBackups(); });
+
+// ---------- Account security: change the password, two-step sign-in ----------
+async function refreshMfa() {
+  if (!SESS.client?.auth?.status) return;
+  const r = await SESS.client.auth.status();
+  const on = !!r.data?.user?.mfa;
+  $('mfaState').textContent = r.error ? arabicError(r.error).message : on ? 'التحقق بخطوتين شغال على الحساب ده.' : 'التحقق بخطوتين مقفول.';
+  $('mfaSteps').innerHTML = on
+    ? `<div class="grid2"><label>كلمة السر<input id="mfaOffPw" type="password" autocomplete="current-password"></label><label>كود من التطبيق أو كود احتياطي<input id="mfaOffCode" autocomplete="one-time-code" inputmode="numeric" maxlength="12"></label></div>
+       <div class="row"><button class="btn" type="button" id="mfaOff">اقفل التحقق بخطوتين</button><span class="note" id="mfaMsg" role="status"></span></div>`
+    : `<div class="row"><label>كلمة السر<input id="mfaPw" type="password" autocomplete="current-password"></label><button class="btn primary" type="button" id="mfaStart">شغّل التحقق بخطوتين</button><span class="note" id="mfaMsg" role="status"></span></div>`;
+}
+$('securityBox').addEventListener('toggle', () => { if ($('securityBox').open) refreshMfa(); });
+$('pwForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if ($('pwNew').value.length < 8) { $('pwMsg').textContent = 'كلمة السر الجديدة لازم تبقى 8 حروف أو أكتر.'; return; }
+  $('pwMsg').textContent = 'لحظة…';
+  const r = await SESS.client.auth.updateUser({ password: $('pwNew').value, currentPassword: $('pwOld').value });
+  $('pwMsg').textContent = r.error ? (/Current password/.test(r.error.message) ? 'كلمة السر الحالية غلط.' : arabicError(r.error).message) : 'اتغيرت. الأجهزة التانية اللي كانت داخلة على الحساب خرجت.';
+  if (!r.error) { $('pwOld').value = ''; $('pwNew').value = ''; }
+});
+$('mfaSteps').addEventListener('click', async (e) => {
+  const say = (t) => { if ($('mfaMsg')) $('mfaMsg').textContent = t; };
+  if (e.target.id === 'mfaStart') {
+    const r = await SESS.client.auth.mfaSetup($('mfaPw').value);
+    if (r.error) { say(r.error.code === 'mfa_not_configured' ? 'التحقق بخطوتين لسه مش متفعّل على السيرفر. كلّم صاحب البرنامج.' : /Current password/.test(r.error.message) ? 'كلمة السر غلط.' : arabicError(r.error).message); return; }
+    $('mfaSteps').innerHTML = `<p>1. افتح تطبيق التحقق على موبايلك وامسح الكود ده (أو اكتب المفتاح بإيدك):</p>
+      <div class="row" data-no-i18n>${qrSvg(r.data.url, 160)}<code class="n u-brk">${esc(r.data.secret)}</code></div>
+      <p>2. اكتب الكود اللي ظهر في التطبيق:</p>
+      <div class="row"><input id="mfaFirst" class="n u-w8" inputmode="numeric" maxlength="6" autocomplete="one-time-code"><button class="btn primary" type="button" id="mfaConfirm">أكّد وشغّل</button><span class="note" id="mfaMsg" role="status"></span></div>`;
+    $('mfaFirst').focus();
+  }
+  if (e.target.id === 'mfaConfirm') {
+    const r = await SESS.client.auth.mfaEnable($('mfaFirst').value.trim());
+    if (r.error) { say(r.error.code === 'mfa_invalid' ? 'الكود غلط أو خلص وقته. اكتب اللي ظاهر دلوقتي.' : arabicError(r.error).message); return; }
+    $('mfaState').textContent = 'التحقق بخطوتين اشتغل.';
+    $('mfaSteps').innerHTML = `<p><b>اكتب الأكواد الاحتياطية دي واحفظها في مكان أمين.</b> لو الموبايل ضاع، كل كود منهم بيدخّلك مرة واحدة. مش هتظهر تاني.</p>
+      <div class="row" data-no-i18n>${r.data.recovery.map((c) => `<code class="n">${esc(c)}</code>`).join(' ')}</div>
+      <div class="row"><button class="btn" type="button" id="mfaDone">خلاص، حفظتهم</button></div>`;
+  }
+  if (e.target.id === 'mfaDone') refreshMfa();
+  if (e.target.id === 'mfaOff') {
+    const r = await SESS.client.auth.mfaDisable($('mfaOffPw').value, $('mfaOffCode').value.trim());
+    if (r.error) { say(r.error.code === 'mfa_invalid' ? 'الكود غلط.' : /Current password/.test(r.error.message) ? 'كلمة السر غلط.' : arabicError(r.error).message); return; }
+    refreshMfa();
+  }
+});
+$('serverBackupBtn').addEventListener('click', async () => {
+  $('serverBackupBtn').disabled = true;
+  $('serverBackupState').textContent = 'بنعمل النسخة…';
+  const r = await SESS.client.rpc('backup_now', { p_pharmacy: SESS.pharmacy.id });
+  $('serverBackupBtn').disabled = false;
+  if (r.error) { $('serverBackupState').textContent = `ما اتعملتش: ${arabicError(r.error).message}`; return; }
+  await refreshServerBackups();
+});
+
 $('cloudBackupBtn').addEventListener('click', async () => {
   if (!isOnline()) { $('cloudBackupMsg').textContent = 'النسخة الكاملة محتاجة نت.'; return; }
   $('cloudBackupBtn').disabled = true;
@@ -2603,16 +2833,12 @@ function exportPrint(which) {
   const rows = exportTables().find(([t]) => t === which)?.[1] || [];
   if (!rows.length) throw new Error('مفيش بيانات هنا.');
   const cols = Object.keys(rows[0]);
-  const w = window.open('', '_blank');
-  if (!w) throw new Error('المتصفح منع فتح الصفحة. اسمح بالنوافذ المنبثقة للموقع.');
-  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(which)} — ${esc(SESS.pharmacy?.name || '')}</title>
-    <style>body{font-family:system-ui,'IBM Plex Sans Arabic',sans-serif;margin:16px}h1{font-size:18px;margin:0 0 4px}p{margin:0 0 12px;color:#555;font-size:12px}
-    table{border-collapse:collapse;width:100%;font-size:11px}th,td{border:1px solid #ccc;padding:3px 5px;text-align:right}th{background:#eef3f1}tr{break-inside:avoid}</style></head>
+  // Printed through the same hidden frame as the receipts and reports (printDoc): it waits for the
+  // stylesheet, and the browser's print window offers «Save as PDF».
+  printDoc(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(which)} — ${esc(SESS.pharmacy?.name || '')}</title>
+    <link rel="stylesheet" href="${new URL('./src/print/export.css', location.href)}"></head>
     <body><h1>${esc(SESS.pharmacy?.name || 'صيدليتي')} — ${esc(which)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' ? ` · ${esc(branchName(BRANCH))}` : ''} · ${fmt(rows.length)} سطر</p>
     <table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 300);
 }
 $('exportBox').addEventListener('click', (e) => {
   const b = e.target.closest('[data-export]'); if (!b) return;
@@ -2714,7 +2940,7 @@ function renderMemberBranches() {
   $('memberBranchList').innerHTML = BRANCH_MEMBERS.map((m) => {
     const assigned = new Set(m.branch_ids || []);
     return `<section class="card" data-branch-member="${esc(m.user_id)}"><b>${esc(m.email)}</b> · ${esc(ROLE_LABEL[m.role] || m.role)}
-      <div class="row" style="margin-top:8px">${BRANCHES.map((b) => `<label><input type="checkbox" name="branchId" value="${esc(b.id)}" ${assigned.has(b.id) ? 'checked' : ''}> ${esc(b.name)}</label>`).join('')}</div>
+      <div class="row u-mt8">${BRANCHES.map((b) => `<label><input type="checkbox" name="branchId" value="${esc(b.id)}" ${assigned.has(b.id) ? 'checked' : ''}> ${esc(b.name)}</label>`).join('')}</div>
       <div class="row"><button class="btn" type="button" data-save-branches="${esc(m.user_id)}">احفظ الفروع</button><span class="note" role="status"></span></div></section>`;
   }).join('');
 }
@@ -2842,6 +3068,15 @@ async function boot() {
   if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>البرنامج مش متوصل بقاعدة البيانات</h2><p class="note">لازم يتضاف <code>SUPABASE_URL</code> و<code>SUPABASE_PUBLISHABLE_KEY</code> في إعدادات Vercel، وبعدها تقدر تسجّل دخول.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
+  // A password-reset link opened while already signed in: it is not used silently, and its token is taken
+  // out of the address bar. The link still works after signing out (it is valid for 30 minutes).
+  if (/^#reset=[0-9a-f]{64}$/i.test(location.hash) && !document.getElementById('resetNotice')) {
+    history.replaceState(null, '', location.pathname + location.search);
+    const n = document.createElement('p');
+    n.id = 'resetNotice'; n.className = 'note err'; n.setAttribute('role', 'status');
+    n.textContent = `فتحت لينك تغيير كلمة السر وإنت داخل بحساب ${SESS.user?.email || ''}. لو اللينك لحساب تاني أو عايز تغيّر كلمة السر بيه: اخرج الأول، وافتح اللينك من الإيميل تاني (شغال نص ساعة). كلمة السر الحالية ما اتغيرتش.`;
+    $('app').prepend(n);
+  }
   if (SESS.client?.cloudflare && SESS.branchScopeVersion !== 1) {
     $('auth').innerHTML = '<h2>لازم تحديث صلاحيات الفروع</h2><p class="note">اتصل بالإنترنت وافتح البرنامج تاني علشان يحدّث قائمة الفروع المسموح لك تشوفها.</p>'; return;
   }
@@ -2877,6 +3112,8 @@ async function boot() {
   if (SESS.offline) $('fileMsg').textContent = 'إنت من غير نت. بتشوف آخر بيانات اتحفظت على الجهاز.';
 
   $('cloudBackupBox').hidden = !isOwner() || !!SESS.local;
+  $('securityBox').hidden = !SESS.client?.auth?.status || !SESS.client?.auth?.mfaSetup || !!SESS.local;
+  $('stockBox').hidden = !['owner', 'stock'].includes(SESS.role) || !!SESS.local || !SESS.client?.cloudflare;
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();
@@ -2901,6 +3138,7 @@ $('panel').addEventListener('toggle', (e) => { if (e.target.id === 'supBox') SUP
 $('panel').addEventListener('submit', (e) => {
   if (e.target.id === 'expForm') addExpense(e);
   if (e.target.id === 'wdForm') addWithdrawal(e);
+  if (e.target.id === 'cashForm') addCashMove(e);
   if (e.target.id === 'shortForm') addShortage(e);
   if (e.target.id === 'priceForm') submitPrice(e);
   if (e.target.id === 'remForm') addReminder(e);
@@ -2919,6 +3157,9 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.id === 'expCancel') { EDIT_EXP = null; render(); }
   if (e.target.id === 'wdGoods') { ADJ = { ...ADJ, kind: 'withdrawal', code: null, qty: '' }; ADJ_NOTE = ''; TAB = 'adjust'; render(); $('adjQ')?.focus(); }
   const dw = e.target.closest('[data-delwd]'); if (dw) deleteWithdrawal(dw.dataset.delwd, dw.dataset.wdtype);
+  if (e.target.id === 'logVerify') verifyLog();
+  if (e.target.id === 'logRebaseline') rebaselineLog();
+  const dc = e.target.closest('[data-delcash]'); if (dc && confirm('تمسح الحركة دي من الخزينة؟')) { CASH_NOTE = ''; localDelete('cash_moves', dc.dataset.delcash); }
   if (e.target.id === 'addFixed') addFixedExpenses();
   const es = e.target.closest('[data-editsup]'); if (es) { EDIT_SUP = es.dataset.editsup; render(); $('supForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   const ds = e.target.closest('[data-delsup]'); if (ds) deleteSupplier(ds.dataset.delsup);
@@ -2977,7 +3218,7 @@ $('inviteBox').addEventListener('click', async (e) => {
   if (error) { $('branchMsg').textContent = arabicError(error).message; return; }
   $('branchMsg').textContent = '';
   INVITE = { code: data, role };
-  $('inviteText').innerHTML = `الكود: <b class="n" style="font-size:1.2rem">${esc(data)}</b> (${{ device: 'لجهاز الصيدلية', partner: 'لشريك', pharmacist: 'لصيدلي', accountant: 'لمحاسب', stock: 'لمسؤول مخزن' }[role] || ''})`;
+  $('inviteText').innerHTML = `الكود: <b class="n u-fs12">${esc(data)}</b> (${{ device: 'لجهاز الصيدلية', partner: 'لشريك', pharmacist: 'لصيدلي', accountant: 'لمحاسب', stock: 'لمسؤول مخزن' }[role] || ''})`;
   $('inviteOut').hidden = false;
 });
 $('memberBranches').addEventListener('toggle', () => { if ($('memberBranches').open) loadBranchMembers(); });

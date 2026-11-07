@@ -2,9 +2,13 @@
 // pharmacies and branches, employees and attendance, invites, uploads, the cashier's PIN and
 // returns, subscriptions and the admin page, and error reports.
 import { planOf, readPlans } from '../../src/plans.js';
+import { checkSaleRow, checkReturnAgainst, checkVoid } from '../../src/sale-rules.js';
 import { ApiError, requireRole, requireBranch, nowIso, todayIso, uuid, runBatch, blobKey, fromDb } from './db.js';
 import { TABLES } from './schema.js';
-import { hashPin, sha256, randomHex } from './auth.js';
+import { hashPin, oldPinHashes, sha256, randomHex } from './auth.js';
+import { openStock } from './stock.js';
+import { runBackup, backupHealth } from './backup.js';
+import { verifyAudit, rebaselineAudit } from './audit-seal.js';
 
 const signedIn = (ctx) => { if (!ctx.user) throw new ApiError('not signed in', '42501', 401); };
 const isAdmin = async (env, ctx) => !!ctx.user && !!(await env.DB.prepare('SELECT 1 FROM app_admins WHERE user_id = ?').bind(ctx.user.id).first());
@@ -50,6 +54,8 @@ export async function storeSnapshotText(env, pharmacyId, branchId, userId, text,
   const r = await one(env, 'INSERT INTO snapshots (pharmacy_id, branch_id, created_at, created_by, item_count) VALUES (?, ?, ?, ?, ?) RETURNING id',
     pharmacyId, branchId, createdAt && !Number.isNaN(Date.parse(createdAt)) ? new Date(createdAt).toISOString() : nowIso(), userId, Math.max(0, Math.trunc(+itemCount || 0)));
   await env.FILES.put(blobKey('snapshots', r.id), text, { httpMetadata: { contentType: 'application/json' } });
+  // A new upload is a new starting stock for the app: the server's levels wait for the next opening.
+  await env.DB.prepare('UPDATE stock_bases SET stale = 1, updated_at = ? WHERE pharmacy_id = ? AND branch_id = ?').bind(nowIso(), pharmacyId, branchId ?? await mainBranch(env, pharmacyId)).run();
   const old = await all(env, 'SELECT id FROM snapshots WHERE branch_id IS ? AND pharmacy_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET 10', branchId, pharmacyId);
   if (old.length) {
     await env.DB.prepare(`DELETE FROM snapshots WHERE id IN (${old.map(() => '?').join(', ')})`).bind(...old.map((o) => o.id)).run();
@@ -184,7 +190,7 @@ export const RPC = {
     if (!name) throw new ApiError('name required');
     if (!/^\d{4,6}$/.test(String(p_pin))) throw new ApiError('PIN must be 4-6 digits');
     const h = await hashPin(env, p_pharmacy, p_pin);
-    if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', p_pharmacy, h)) throw new ApiError('PIN already used');
+    for (const x of [h, ...await oldPinHashes(env, p_pharmacy, p_pin)]) if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', p_pharmacy, x)) throw new ApiError('PIN already used');
     const e = { id: uuid(), pharmacy_id: p_pharmacy, name: name.slice(0, 120), pin_hash: h, shift_start: `${p_shift_start}:00`.slice(0, 8), shift_end: `${p_shift_end}:00`.slice(0, 8),
       work_days: p_work_days, grace_minutes: Math.max(0, Math.min(600, +p_grace || 0)), active: true, created_at: nowIso() };
     await env.DB.batch([
@@ -200,7 +206,7 @@ export const RPC = {
     if (!e) throw new ApiError('not allowed', '42501', 403);
     requireRole(ctx, e.pharmacy_id, ['owner']);
     const h = await hashPin(env, e.pharmacy_id, p_pin);
-    if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND id <> ? AND active = 1 AND pin_hash = ?', e.pharmacy_id, e.id, h)) throw new ApiError('PIN already used');
+    for (const x of [h, ...await oldPinHashes(env, e.pharmacy_id, p_pin)]) if (await one(env, 'SELECT 1 FROM employees WHERE pharmacy_id = ? AND id <> ? AND active = 1 AND pin_hash = ?', e.pharmacy_id, e.id, x)) throw new ApiError('PIN already used');
     await env.DB.prepare('UPDATE employees SET pin_hash = ? WHERE id = ?').bind(h, e.id).run();
     return null;
   },
@@ -224,6 +230,89 @@ export const RPC = {
   },
 
   // ---------- Selling Saydaliti ----------
+  // A return without the original receipt, approved on the spot by a manager: an employee the owner
+  // marked "may approve returns" types their own PIN (checked here, with the same limit on wrong tries
+  // as every PIN). The approval is kept for this one return only: its id, the amount given back, the
+  // reason, the cashier (signed in with their PIN at the cashier) and the approver, who must be someone
+  // else. The return is then saved with approval_id, and checkPosSale makes sure it matches.
+  async approve_no_receipt_return(env, ctx, { p_pharmacy, p_branch = null, p_return_id, p_total, p_reason, p_cashier, p_pin }) {
+    requireRole(ctx, p_pharmacy, ['owner', 'device', 'pharmacist']);
+    const branch = requireBranch(ctx, p_pharmacy, p_branch);
+    const isId = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    if (!isId(p_return_id)) throw new ApiError('bad return id');
+    const total = Math.round(+p_total * 100) / 100;
+    if (!Number.isFinite(total) || total >= 0 || total < -99999999.99) throw new ApiError('bad return total');
+    const reason = String(p_reason ?? '').trim();
+    if (!reason || reason.length > 300) throw new ApiError('a return without a receipt needs a reason');
+    if (!isId(p_cashier)) throw new ApiError('the cashier must sign in with their PIN first');
+    const cashier = await one(env, 'SELECT id, name FROM employees WHERE id = ? AND pharmacy_id = ? AND active = 1', p_cashier, p_pharmacy);
+    if (!cashier) throw new ApiError('the cashier must sign in with their PIN first');
+    const approver = await pinEmployee(env, ctx, p_pharmacy, p_pin, 'wrong pin');
+    const can = await one(env, 'SELECT can_approve_returns FROM employees WHERE id = ?', approver.id);
+    if (!can?.can_approve_returns) throw new ApiError('this employee may not approve returns', '42501', 403);
+    if (approver.id === cashier.id) throw new ApiError('the approver must be another employee', '42501', 403);
+    // The same return asked again (a lost answer): the approval already given, if it is the same one.
+    const had = await one(env, 'SELECT id, pharmacy_id, total, cashier_employee_id, approver_name FROM return_approvals WHERE return_id = ?', p_return_id);
+    if (had) {
+      if (had.pharmacy_id !== p_pharmacy || Math.abs(had.total - total) > 0.005 || had.cashier_employee_id !== cashier.id) throw new ApiError('return already approved differently', '23505', 409);
+      return { approval_id: had.id, approver_name: had.approver_name };
+    }
+    const row = { id: uuid(), pharmacy_id: p_pharmacy, branch_id: branch, return_id: p_return_id, total, reason, cashier_employee_id: cashier.id, cashier_name: cashier.name,
+      approver_employee_id: approver.id, approver_name: approver.name, approved_by_user: ctx.user.id, created_at: nowIso() };
+    const cols = Object.keys(row);
+    await runBatch(env, [
+      env.DB.prepare(`INSERT INTO return_approvals (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).bind(...cols.map((c) => row[c])),
+      audit(env, ctx, 'return_approvals', 'insert', null, row),
+    ]);
+    return { approval_id: row.id, approver_name: approver.name };
+  },
+  // ---------- Stock kept by the server (Phase 2 M1, stock.js) ----------
+  // The state of a branch's levels, and the server's clock (the app takes it before loading its data,
+  // as the watermark for open_stock).
+  async stock_status(env, ctx, { p_pharmacy, p_branch = null }) {
+    requireRole(ctx, p_pharmacy, ['owner', 'partner', 'device', 'pharmacist', 'accountant', 'stock']);
+    const branch = requireBranch(ctx, p_pharmacy, p_branch);
+    const b = await one(env, 'SELECT base_at, opened_at, stale, block_negative FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ?', p_pharmacy, branch);
+    return { server_now: nowIso(), branch_id: branch, base_at: b?.base_at ?? null, opened_at: b?.opened_at ?? null, stale: !!b?.stale, block_negative: !!b?.block_negative };
+  },
+  async open_stock(env, ctx, args) {
+    requireRole(ctx, args.p_pharmacy, ['owner', 'stock']);
+    requireBranch(ctx, args.p_pharmacy, args.p_branch ?? null);
+    return openStock(env, ctx, args);
+  },
+  // Selling below zero: allowed (as today) or blocked, per branch. The owner decides; it is logged.
+  async set_stock_policy(env, ctx, { p_pharmacy, p_branch = null, p_block_negative }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    const branch = requireBranch(ctx, p_pharmacy, p_branch);
+    if (typeof p_block_negative !== 'boolean') throw new ApiError('bad policy');
+    const now = nowIso();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO stock_bases (pharmacy_id, branch_id, block_negative, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT (pharmacy_id, branch_id) DO UPDATE SET block_negative = excluded.block_negative, updated_at = excluded.updated_at`).bind(p_pharmacy, branch, p_block_negative ? 1 : 0, now),
+      audit(env, ctx, 'stock_bases', 'update', null, { id: branch, pharmacy_id: p_pharmacy, block_negative: p_block_negative }),
+    ]);
+    return { block_negative: p_block_negative };
+  },
+  // ---------- Encrypted server backups (Phase 2 M2, backup.js) ----------
+  // The owner makes one now, or sees the list (not the files: restoring is a recovery procedure,
+  // docs/operations/DISASTER_RECOVERY.md).
+  async backup_now(env, ctx, { p_pharmacy }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    const recentOne = await one(env, "SELECT count(*) AS n FROM backups WHERE pharmacy_id = ? AND created_at > ? AND source = 'manual'", p_pharmacy, recent(60));
+    if (recentOne.n >= 6) throw new ApiError('too many backups this hour', '429', 429);
+    const r = await runBackup(env, p_pharmacy, { by: ctx.user.id, source: 'manual' });
+    return { id: r.id, bytes: r.bytes, counts: r.counts };
+  },
+  // The app admin: which pharmacies' backups need a look (none, too old, or failing).
+  async admin_backup_health(env, ctx) {
+    await needAdmin(env, ctx);
+    return backupHealth(env);
+  },
+  async list_backups(env, ctx, { p_pharmacy }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    return (await all(env, 'SELECT id, created_at, status, bytes, summary, error, source FROM backups WHERE pharmacy_id = ? ORDER BY created_at DESC LIMIT 60', p_pharmacy))
+      .map((b) => ({ ...b, summary: b.summary ? JSON.parse(b.summary) : null }));
+  },
   async is_app_admin(env, ctx) { return isAdmin(env, ctx); },
   async admin_pharmacies(env, ctx) {
     await needAdmin(env, ctx);
@@ -236,6 +325,40 @@ export const RPC = {
         (SELECT max(x.sold_at) FROM pos_sales x WHERE x.pharmacy_id = p.id) AS last_sale,
         (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS sales_30d
       FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id ORDER BY p.created_at DESC`, since);
+  },
+  // Verification is read-only. New rows are sealed by the scheduled job after this check.
+  async audit_verify(env, ctx, { p_pharmacy, p_cursor }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    return verifyAudit(env, p_pharmacy, { cursor: p_cursor || null, userId: ctx.user.id });
+  },
+  async audit_rebaseline(env, ctx, { p_pharmacy, p_reason, p_confirm, p_proof }) {
+    requireRole(ctx, p_pharmacy, ['owner']);
+    return rebaselineAudit(env, p_pharmacy, { userId: ctx.user.id, reason: p_reason, confirm: p_confirm, proof: p_proof || null });
+  },
+  // How much the app is used, for the app owner: counts only (no money, no names of customers or items).
+  async admin_usage(env, ctx) {
+    await needAdmin(env, ctx);
+    const d7 = recent(7 * 1440), d30 = recent(30 * 1440);
+    const per = await all(env, `SELECT p.id AS pharmacy_id, p.name,
+        (SELECT count(*) FROM members m WHERE m.pharmacy_id = p.id) AS accounts,
+        (SELECT count(DISTINCT s.user_id) FROM sessions s JOIN members m ON m.user_id = s.user_id WHERE m.pharmacy_id = p.id AND s.created_at > ?) AS signed_in_30d,
+        (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS receipts_7d,
+        (SELECT count(*) FROM pos_sales x WHERE x.pharmacy_id = p.id AND x.sold_at > ?) AS receipts_30d,
+        (SELECT count(*) FROM purchases x WHERE x.pharmacy_id = p.id AND x.created_at > ?) AS purchases_30d,
+        (SELECT count(*) FROM catalog_items x WHERE x.pharmacy_id = p.id) AS items,
+        (SELECT max(t) FROM (SELECT max(sold_at) AS t FROM pos_sales WHERE pharmacy_id = p.id UNION ALL SELECT max(created_at) FROM purchases WHERE pharmacy_id = p.id
+          UNION ALL SELECT max(created_at) FROM snapshots WHERE pharmacy_id = p.id)) AS last_activity
+      FROM pharmacies p ORDER BY receipts_30d DESC, p.created_at DESC`, d30, d7, d30, d30);
+    const signups = await all(env, "SELECT substr(created_at, 1, 10) AS day, count(*) AS n FROM pharmacies WHERE created_at > ? GROUP BY day ORDER BY day", d30);
+    const status = await all(env, "SELECT coalesce(s.status, 'trial') AS status, count(*) AS n FROM pharmacies p LEFT JOIN subscriptions s ON s.pharmacy_id = p.id GROUP BY 1");
+    const totals = {
+      pharmacies: per.length,
+      active_7d: per.filter((r) => r.receipts_7d > 0).length,
+      active_30d: per.filter((r) => r.receipts_30d > 0 || r.purchases_30d > 0).length,
+      receipts_30d: per.reduce((a, r) => a + r.receipts_30d, 0),
+      accounts: per.reduce((a, r) => a + r.accounts, 0),
+    };
+    return { totals, status, signups, pharmacies: per };
   },
   async admin_set_subscription(env, ctx, { p_pharmacy, p_status, p_trial_ends = null, p_paid_until = null, p_price = null, p_note = null, p_plan }) {
     await needAdmin(env, ctx);
@@ -281,11 +404,25 @@ export const RPC = {
     return importBackup(env, ctx, p_pharmacy, p_dump);
   },
 };
+// No prototype: a name from the address (/api/rpc/<name>) can only ever be one of the functions above,
+// never something inherited such as `constructor` (Object, which would hand back env with its secrets).
+Object.setPrototypeOf(RPC, null);
+// The function for a name taken from a request, or null.
+export const rpcNamed = (name) => (typeof name === 'string' && Object.hasOwn(RPC, name) && typeof RPC[name] === 'function' ? RPC[name] : null);
 
 // The employee a PIN belongs to; wrong PINs are counted (20 in 15 minutes and the account waits).
 async function pinEmployee(env, ctx, pharmacyId, pin, wrongMessage) {
   if ((await one(env, 'SELECT count(*) AS n FROM pin_attempts WHERE user_id = ? AND at > ?', ctx.user.id, recent(15))).n >= 20) throw new ApiError('too many attempts');
-  const e = /^\d{4,6}$/.test(String(pin)) ? await one(env, 'SELECT id, name FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', pharmacyId, await hashPin(env, pharmacyId, pin)) : null;
+  let e = null;
+  if (/^\d{4,6}$/.test(String(pin))) {
+    const h = await hashPin(env, pharmacyId, pin);
+    e = await one(env, 'SELECT id, name FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', pharmacyId, h);
+    // A PIN hashed before PIN_PEPPER changed: accepted with the old value once, and hashed again now.
+    for (const old of e ? [] : await oldPinHashes(env, pharmacyId, pin)) {
+      e = await one(env, 'SELECT id, name FROM employees WHERE pharmacy_id = ? AND active = 1 AND pin_hash = ?', pharmacyId, old);
+      if (e) { await env.DB.prepare('UPDATE employees SET pin_hash = ? WHERE id = ? AND pin_hash = ?').bind(h, e.id, old).run(); break; }
+    }
+  }
   if (!e) {
     await env.DB.batch([
       env.DB.prepare('INSERT INTO pin_attempts (user_id, at) VALUES (?, ?)').bind(ctx.user.id, nowIso()),
@@ -346,6 +483,9 @@ async function importBackup(env, ctx, pharmacyId, dump) {
     snaps += 1;
   }
   counts.snapshots = snaps;
+  // Moved-in sales, purchases and stock moves have no stock ledger rows: the server's stock of this
+  // pharmacy is stale until the owner opens it again (so nothing is blocked on wrong numbers).
+  await env.DB.prepare('UPDATE stock_bases SET stale = 1, updated_at = ? WHERE pharmacy_id = ?').bind(nowIso(), pharmacyId).run();
   // Where each old branch went, so the app can upload the snapshots of the backup itself.
   return { ...counts, branches: Object.fromEntries(oldBranches.map((x) => [x.id, ids.get(x.id)])) };
 }
@@ -380,17 +520,69 @@ export async function markRemindersSent(env, items) {
 
 // ---------- Rules on cashier receipts (were database triggers) ----------
 // A return names its sale receipt and can't take back more than that receipt sold.
+// Every receipt the cashier sends is checked here before it is stored (rules: src/sale-rules.js).
+// A return against a receipt is also checked against that receipt and its earlier returns; the
+// quantity and the receipt number are checked again inside the insert itself (db.js), atomically.
 export async function checkPosSale(ctx, env, row) {
-  if (row.kind !== 'return') { if (row.return_of) throw new ApiError('return_of is only for returns'); return; }
-  if (!row.return_of) return;
-  const o = await one(env, "SELECT lines, branch_id FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
+  try {
+    checkSaleRow(row);
+  } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
+  const flags = await timeFlags(env, row);
+  if (row.is_void && (row.kind !== 'return' || !row.return_of)) throw new ApiError('a void must be a return of a receipt');
+  if (row.kind === 'return' && !row.return_of) { await checkApproval(env, row); return { flags }; }
+  if (row.kind !== 'return') return { flags };
+  const o = await one(env, "SELECT id, kind, lines, branch_id, discount, customer_id, sold_at FROM pos_sales WHERE id = ? AND pharmacy_id = ? AND kind = 'sale'", row.return_of, row.pharmacy_id);
   if (!o) throw new ApiError('receipt not found');
   if (requireBranch(ctx, row.pharmacy_id, o.branch_id) !== requireBranch(ctx, row.pharmacy_id, row.branch_id)) throw new ApiError('receipt belongs to another branch', '42501', 403);
-  // In boxes: a line sold by the strip or pill has qty of them and per = how many in a box.
-  const sum = (lines) => { const m = new Map(); for (const l of lines || []) m.set(String(l.code), (m.get(String(l.code)) || 0) + (+l.qty || 0) / (+l.per > 1 ? +l.per : 1)); return m; };
-  const sold = sum(JSON.parse(o.lines));
-  const back = new Map();
-  for (const p of await all(env, 'SELECT lines FROM pos_sales WHERE return_of = ? AND id <> ?', row.return_of, row.id)) for (const [k, v] of sum(JSON.parse(p.lines))) back.set(k, (back.get(k) || 0) + v);
-  for (const [code, q] of sum(row.lines)) if (q > (sold.get(code) || 0) - (back.get(code) || 0) + 0.0001) throw new ApiError('return more than sold');
+  const earlier = (await all(env, "SELECT lines FROM pos_sales WHERE return_of = ? AND pharmacy_id = ? AND kind = 'return' AND id <> ?", row.return_of, row.pharmacy_id, row.id))
+    .map((r) => ({ lines: JSON.parse(r.lines) }));
+  try {
+    checkReturnAgainst(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
+    if (row.is_void) checkVoid(row, { ...o, lines: JSON.parse(o.lines) }, earlier);
+  } catch (e) { if (e.saleRule) throw new ApiError(e.message); throw e; }
+  // Cancelling a whole receipt: the owner, or a cashier with a manager's approval for this very return.
+  if (row.is_void && ctx.roles.get(String(row.pharmacy_id)) !== 'owner') await checkApproval(env, row);
+  if (o.sold_at && Date.parse(row.sold_at) < Date.parse(o.sold_at) - SKEW) flags.push('return_before_sale');
+  return { flags };
+}
+
+// Signs that a receipt's time was set by hand or by a wrong clock. A receipt made offline arrives late
+// and that alone is normal, so nothing here refuses a receipt: the signs go to the log of changes
+// (op 'flag') for the owner to look at. Policy and edge cases: docs/architecture/OFFLINE_SYNC.md.
+const SKEW = 10 * 60000; // device clocks drift; the same 10 minutes the future check allows
+async function timeFlags(env, row) {
+  const flags = [];
+  const t = Date.parse(row.sold_at);
+  // The receipt number carries the day the device numbered it (YYMMDD, the device's own date).
+  const m = /^(\d{2})(\d{2})(\d{2})-/.exec(String(row.number));
+  if (m && row.receipt_device) {
+    const day = Date.UTC(2000 + +m[1], +m[2] - 1, +m[3]);
+    if (t < day - 86400000 || t > day + 2 * 86400000) flags.push('time_not_number_day');
+  }
+  // Inside the shift it says it was sold in.
+  if (row.shift_id) {
+    const sh = await one(env, 'SELECT opened_at, closed_at FROM pos_shifts WHERE id = ? AND pharmacy_id = ?', row.shift_id, row.pharmacy_id);
+    if (sh && t < Date.parse(sh.opened_at) - SKEW) flags.push('before_shift_opened');
+    if (sh?.closed_at && t > Date.parse(sh.closed_at) + SKEW) flags.push('after_shift_closed');
+  }
+  // Dated before the uploaded file the branch's stock starts from (an old offline receipt, or a clock set back).
+  const base = await one(env, 'SELECT base_at FROM stock_bases WHERE pharmacy_id = ? AND branch_id = ?', row.pharmacy_id, row.branch_id ?? await mainBranch(env, row.pharmacy_id));
+  if (base?.base_at && t <= Date.parse(base.base_at)) flags.push('before_base');
+  // A day already closed for this branch: the receipt changes totals the owner already signed off.
+  const tz = (await one(env, 'SELECT timezone FROM pharmacies WHERE id = ?', row.pharmacy_id))?.timezone || 'Africa/Cairo';
+  let day = null;
+  try { day = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t)); } catch { /* unknown zone */ }
+  if (day && await one(env, 'SELECT 1 FROM day_closes WHERE pharmacy_id = ? AND day = ? AND branch_id IS ?', row.pharmacy_id, day, row.branch_id ?? null)) flags.push('after_day_closed');
+  return flags;
+}
+// A return without a receipt must carry the manager's approval given for it (see
+// approve_no_receipt_return): same pharmacy, same return, same amount, same cashier.
+async function checkApproval(env, row) {
+  if (!row.approval_id) throw new ApiError('a return without a receipt needs a manager approval', '42501', 403);
+  if (!row.employee_id) throw new ApiError('the cashier must sign in with their PIN first', '42501', 403);
+  const a = await one(env, 'SELECT pharmacy_id, return_id, total, cashier_employee_id FROM return_approvals WHERE id = ?', String(row.approval_id));
+  if (!a || a.pharmacy_id !== row.pharmacy_id || a.return_id !== row.id) throw new ApiError('approval not for this return', '42501', 403);
+  if (Math.abs(a.total - +row.total) > 0.005) throw new ApiError('approval not for this amount', '42501', 403);
+  if (a.cashier_employee_id !== row.employee_id) throw new ApiError('approval not for this cashier', '42501', 403);
 }
 export { fromDb };

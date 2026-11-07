@@ -25,7 +25,10 @@ before(async () => {
     if (path === 'api/config') { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ configured: true, local: true })); return; }
     const file = join(ROOT, path === '' ? 'index.html' : path);
     if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
-    try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' }).end(body); } catch { res.writeHead(404).end(); }
+    // The same security policy the Windows program gives its pages (desktop/main.js), plus the SheetJS and font
+    // address the repository's pages still name (the program points them at its bundled copy).
+    const csp = extname(file) === '.html' ? { 'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" } : {};
+    try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', ...csp }).end(body); } catch { res.writeHead(404).end(); }
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://localhost:${server.address().port}/`;
@@ -35,6 +38,7 @@ before(async () => {
   await ctx.route(/^https?:\/\/(?!localhost)/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
+  ctx.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy|Refused to/i.test(m.text())) errors.push(`CSP: ${m.text()}`); });
   page.on('dialog', (d) => d.accept());
 });
 after(async () => { await browser?.close(); server?.close(); });
@@ -208,8 +212,9 @@ test('a United (Genius) backup file is read straight away', async () => {
   await page.goto(base);
   await page.waitForSelector('#app:not([hidden])');
   await page.setInputFiles('#file', file);
-  assert.ok(await until(async () => /باك اب المتحدة/.test(await text('#fileMsg'))), 'saved from the backup');
-  assert.match(await text('#fileMsg'), /3 صنف/);
+  // «بقرا باك اب المتحدة…» shows while it reads; wait for the result itself, not just the words.
+  assert.ok(await until(async () => /3 صنف/.test(await text('#fileMsg')), 20000), `saved from the backup: ${await text('#fileMsg')}`);
+  assert.match(await text('#fileMsg'), /باك اب المتحدة/);
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=items]');
   await page.fill('#itemsQ', 'بانادول');
@@ -276,7 +281,43 @@ test('fixes made here become a correction file for United', async () => {
   assert.ok(!fix.items.some((x) => x.code === '5004'), 'items not touched here are left as United has them');
 });
 
+test('cancelling a whole receipt: a written reason, everything back on the shelf', async () => {
+  await page.goto(`${base}cashier.html`);
+  await page.waitForSelector('#pos:not([hidden])');
+  await page.evaluate(() => { window.print = () => {}; });
+  // PINs are on since the shift test: the cashier signs in first (the offline version is the owner's, no approval).
+  await page.waitForSelector('#pinDlg[open]');
+  await page.fill('#pinIn', '1234');
+  await page.click('#pinOk');
+  // A new shift asks for the drawer; one still open from before does not.
+  await until(async () => !(await page.locator('#openCashWrap').isHidden()) || /سارة/.test(await text('#cashierChip')));
+  if (!(await page.locator('#openCashWrap').isHidden())) { await page.fill('#openCash', '0'); await page.click('#pinOk'); }
+  assert.ok(await until(async () => /سارة/.test(await text('#cashierChip'))));
+  const stock = async () => { await page.fill('#q', 'شاش'); let n = NaN; await until(async () => { const m = /رصيد\s*([−-]?\d+)/.exec(await text('#results')); n = m ? +m[1].replace('−', '-') : NaN; return Number.isFinite(n); }); await page.fill('#q', ''); return n; };
+  const before = await stock();
+  await page.fill('#q', '6220000000001');
+  await page.press('#q', 'Enter');
+  assert.ok(await until(async () => (await page.locator('#cart tr').count()) === 1), `cart: ${await text('#posMsg')} | ${await text('#cart')}`);
+  await page.click('#cart [data-inc]');
+  assert.equal(await page.inputValue('#cart [data-qty]'), '2');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /الفاتورة اتسجلت/.test(await text('#posMsg'))), `sale: ${await text('#posMsg')}`);
+  assert.equal(await stock(), before - 2);
+  await page.click('#modeReturn');
+  await page.click('#dayList [data-retid]'); // the newest receipt first
+  assert.ok(await until(async () => !(await page.locator('#voidWrap').isHidden())));
+  await page.check('#retVoid');
+  await page.keyboard.press('F2');
+  assert.match(await text('#posMsg'), /سبب إلغاء/);
+  await page.fill('#voidWhy', 'اتعملت غلط');
+  await page.keyboard.press('F2');
+  assert.ok(await until(async () => /اتلغت/.test(await text('#posMsg'))));
+  assert.equal(await stock(), before, 'both boxes back on the shelf');
+  await page.click('#modeReturn');
+  await page.click('#dayList [data-retid]');
+  assert.ok(await until(async () => /اترجع قبل كده/.test(await text('#retInfo'))), 'nothing left to return');
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
 });
-

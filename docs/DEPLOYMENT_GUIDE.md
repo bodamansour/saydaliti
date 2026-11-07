@@ -6,12 +6,15 @@
 
 - حساب Cloudflare بصلاحيات Workers وD1 وR2، وبيانات D1/R2 المطابقة لـ`worker/wrangler.toml`.
 - أسرار GitHub Actions: `CLOUDFLARE_API_TOKEN` و`CLOUDFLARE_ACCOUNT_ID`.
-- أسرار Worker حسب الوظائف المفعلة: `PIN_PEPPER`, `ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`.
+- أسرار Worker حسب الوظائف المفعلة: `PIN_PEPPER` (لازم: الأرقام السرية)، `TOTP_KEY` (الدخول بخطوتين)، `AUDIT_SEAL_KEY` (ختم سجل التعديلات)، `BACKUP_KEY` (النسخ المشفّرة)، `ANTHROPIC_API_KEY`، `WHATSAPP_TOKEN`، `WHATSAPP_PHONE_ID`، و`RESEND_API_KEY` + `EMAIL_FROM` (إيميل «نسيت كلمة السر»؛ `EMAIL_FROM` لازم يبقى من دومين متأكَّد منه في Resend).
+- كل مفتاح 32 حرف على الأقل ومستقل عن التانيين. تغيير أي واحد فيهم بيتعمل بـ `*_OLD` من غير ما حد يتقفل عليه: الخطوات وخطة أرقام الموظفين في `docs/security/KEYS_AND_SECRETS.md`.
+- **لا تغيّر `PIN_PEPPER` من غير `PIN_PEPPER_OLD`:** كل الأرقام السرية هتبطل مرة واحدة.
+- `SEAL_BUDGET` (150) و`VERIFY_MAX_ROWS` (200) في `wrangler.toml`: حدود ختم السجل والتحقق منه على حد الـ CPU (القياس في نفس الملف).
 - الإعدادات العامة مثل `SITE_URL`, `PBKDF2_ITER` ومواعيد Cron تُراجع في `worker/wrangler.toml`.
 
 ## النشر الآلي
 
-الدفع إلى `main` يشغل `.github/workflows/cloudflare.yml`: تثبيت حزم Worker، تطبيق ترحيلات D1 البعيدة، ثم بناء الأصول ونشر Worker. إذا لم توجد مفاتيح Cloudflare، يتوقف النشر مع تنبيه. لا تعدّل migration سبق تطبيقه؛ أضف ملفًا جديدًا.
+**تغيّر في 2026-11-03:** النشر للإنتاج بقى يدوي بس (`workflow_dispatch` مع كتابة `DEPLOY-PRODUCTION`)، والدمج في `main` مبقاش بينشر ولا بيعدّل قاعدة البيانات. التفاصيل في [`deployment/DEPLOYMENT_AND_RELEASE.md`](deployment/DEPLOYMENT_AND_RELEASE.md). لا تعدّل migration سبق تطبيقه؛ أضف ملفًا جديدًا.
 
 ## تشغيل محلي على Windows
 
@@ -36,7 +39,7 @@ node --test worker/test/api.test.mjs e2e/cloudflare.e2e.mjs
 
 ## Windows وAndroid
 
-- دفع تغييرات `src/`, ملفات HTML أو `desktop/` يشغل Workflow Windows. ينتج مثبتًا عاديًا ونسخة Win7/32-bit في Release `desktop-latest`.
+- دفع تغييرات `src/`, ملفات HTML أو `desktop/` يشغل Workflow Windows. ينتج مثبت Windows 10/11 (64 بت) في Release `desktop-latest`. ويندوز 7 و8 و32 بت مش مدعومين (Electron 22 منتهي الدعم).
 - Workflow Android يبني APK من `mobile/`. من دون مفاتيح توقيع Android المخصصة، قد لا يقبل الهاتف التحديث فوق APK سابق؛ راجع رسالة Workflow قبل التوزيع.
 
 ## الإطلاق والاستعادة

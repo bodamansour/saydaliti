@@ -18,6 +18,10 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 
 let server, base, browser, ctx, page;
 const errors = [];
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
+const blocked = [];   // external requests refused by the route
+const escaped = [];   // connections that reached the browser-level trap
+let trap;
 
 before(async () => {
   server = createServer(async (req, res) => {
@@ -29,19 +33,32 @@ before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://localhost:${server.address().port}/`;
   const stub = await readFile(join(ROOT, 'e2e/supabase-stub.js'), 'utf8');
-  browser = await chromium.launch();
+  // Nothing may leave this computer. Two layers:
+  // 1. Browser level: every non-loopback connection Chromium makes (WebSocket included, which page/context
+  //    routes do not see) goes to a local trap that records it and closes it.
+  trap = createServer((req, res) => { escaped.push(`${req.method} ${req.url}`); res.destroy(); });
+  trap.on('connect', (req, sock) => { escaped.push(`CONNECT ${req.url}`); sock.destroy(); });
+  await new Promise((r) => trap.listen(0, '127.0.0.1', r));
+  browser = await chromium.launch({ proxy: { server: `http://127.0.0.1:${trap.address().port}`, bypass: 'localhost,127.0.0.1' } });
   ctx = await browser.newContext({ locale: 'ar-EG', viewport: { width: 1200, height: 900 }, acceptDownloads: true });
+  // 2. Request level: anything not for this computer is refused (registered first, so the stubs below win).
+  //    Playwright 1.63 routes the service worker's own requests here too (checked in the test at the end).
+  await ctx.route('**/*', (r) => {
+    const u = new URL(r.request().url());
+    if (LOCAL_HOSTS.has(u.hostname)) return r.fallback();
+    blocked.push(u.href);
+    return r.abort('blockedbyclient');
+  });
   await ctx.route('**/api/config', (r) => r.fulfill({ json: { configured: true, url: 'https://stub.supabase.test', key: 'pk_test' } }));
   await ctx.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ contentType: 'text/javascript', body: stub }));
-  // The Excel library comes from the local copy; fonts are skipped.
+  // The Excel library comes from the local copy; fonts are refused by the catch-all route above.
   const xlsx = await readFile(join(ROOT, 'node_modules/xlsx/dist/xlsx.full.min.js'), 'utf8');
   await ctx.route('https://cdn.sheetjs.com/**', (r) => r.fulfill({ contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: xlsx }));
-  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   page = await ctx.newPage();
   page.on('pageerror', (e) => { errors.push(e.message); if (process.env.DEBUG) console.log('PAGEERROR', e.message, e.stack); });
   page.on('dialog', (d) => d.accept());
 });
-after(async () => { await browser?.close(); server?.close(); });
+after(async () => { await browser?.close(); server?.close(); trap?.close(); });
 
 const text = (sel, p = page) => p.locator(sel).first().innerText();
 const db = (k) => page.evaluate((k) => window.__DB?.[k] ?? [], k);
@@ -73,7 +90,7 @@ test('dashboard opens with no example data, grouped in sections', async () => {
   assert.deepEqual(await page.locator('#sections .sec').allInnerTexts(), ['الملخص', 'المخزون', 'المشتريات', 'العملاء', 'الفلوس', 'البيع', 'المرضى']);
   assert.match(await text('#panel'), /لسه مفيش بيانات/);
   await page.click('[data-sec=money]');
-  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'الفواتير والمبيعات', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
+  assert.deepEqual(await page.locator('#tabs .tab').allInnerTexts(), ['الأرباح', 'الفواتير والمبيعات', 'الورديات', 'المصروفات', 'المسحوبات', 'الحسابات', 'الخزينة', 'الشركاء', 'حاسبة المكسب', 'سجل التعديلات']);
   await page.click('[data-sec=patients]');
   assert.equal(await page.locator('#tabs').isHidden(), true, 'one-tab section has no tab row');
   await page.click('[data-sec=stock]');
@@ -285,7 +302,37 @@ test('cashier: a return, and a sale with no connection', async () => {
   await page.click('#retNoReceipt');
   await page.fill('#retReason', 'بيعة قبل البرنامج');
   await page.keyboard.press('F2');
-  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140 && /بيعة قبل البرنامج/.test(x.note))));
+  // A return without the receipt needs a manager's PIN; with no staff set up there is nobody to approve.
+  assert.ok(await until(async () => /محتاج موافقة مدير/.test(await text('#posMsg'))));
+  assert.equal((await db('pos_sales')).length, 1, 'not saved without an approval');
+  // Staff with PINs: a cashier, and a manager the owner allowed to approve returns.
+  await page.evaluate(() => { window.__DB.staff = [{ id: 'e1', name: 'منى', pin: '1111' }, { id: 'e2', name: 'د. كريم', pin: '2222', can_approve_returns: true }]; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
+  await page.reload();
+  await page.waitForSelector('#pos:not([hidden])');
+  // Wait until the cashier has loaded (loading starts a new bill in sale mode).
+  assert.ok(await until(async () => /صنف/.test(await text('#posMsg')), 15000));
+  await page.click('#modeReturn');
+  await page.waitForSelector('#retBox:not([hidden])');
+  await page.fill('#q', '303');
+  await page.press('#q', 'Enter');
+  await page.click('#retNoReceipt');
+  await page.fill('#retReason', 'بيعة قبل البرنامج');
+  await page.keyboard.press('F2');
+  await page.waitForSelector('#pinDlg[open]'); // the cashier signs in first
+  await page.fill('#pinIn', '1111'); await page.click('#pinOk');
+  await page.waitForSelector('#openCashWrap:not([hidden])'); await page.fill('#openCash', '0'); await page.click('#pinOk');
+  assert.ok(await until(async () => /منى/.test(await text('#cashierChip'))));
+  await page.keyboard.press('F2');
+  await page.waitForSelector('#apprDlg[open]');
+  await page.fill('#apprPin', '1111'); // the cashier is not an approver
+  await page.click('#apprForm button[type=submit]');
+  assert.ok(await until(async () => /مش مسموح/.test(await text('#apprMsg'))));
+  await page.fill('#apprPin', '2222');
+  await page.click('#apprForm button[type=submit]');
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.kind === 'return' && x.total === -140 && /بيعة قبل البرنامج/.test(x.note) && x.approval_id === 'ap1' && x.employee_id === 'e1')));
+  assert.equal((await db('return_approvals'))[0].approver_name, 'د. كريم');
+  // The later tests run with no staff, as before.
+  await page.evaluate(() => { window.__DB.staff = []; localStorage.setItem('__stubdb', JSON.stringify(window.__DB)); });
   await goOffline();
   await page.fill('#q', '101');
   await page.press('#q', 'Enter');
@@ -501,7 +548,7 @@ test('customers: credit and insurance at the cashier, balances, collecting, clai
   assert.equal(await text('#tChange'), '22.00');
   await shot('cashier-insurance');
   await page.keyboard.press('F2');
-  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 112 && x.claim_no === 'APP-1' && x.paid === 50)));
+  assert.ok(await until(async () => (await db('pos_sales')).some((x) => x.credit === 112 && x.claim_no === 'APP-1' && x.paid === 50)), `insurance sale: ${await text('#posMsg')} ${JSON.stringify((await db('pos_sales')).map((x) => [x.credit, x.claim_no, x.paid]))}`);
   assert.match(await text('#daySum'), /آجل/);
 
   await page.goto(base);
@@ -650,9 +697,9 @@ test('closing the day: the cash that should be there, the count, kept once', asy
 test('phone size: no sideways scrolling in any section', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.selectOption('#branchSel', 'all');
-  const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
+  const tabs = ['overview', 'analysis', 'health', 'alerts', 'assistant', 'tasks', 'customers', 'claims', 'profit', 'items', 'adjust', 'receive', 'invoices', 'supaccounts', 'reorder', 'expiry', 'dead', 'shortages', 'movers', 'morning', 'pos', 'expenses', 'withdrawals', 'books', 'treasury', 'partners', 'calc', 'offers', 'prices', 'changes', 'patients'];
   for (const tab of tabs) {
-    const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
+    const sec = await page.evaluate((t) => ({ overview: 'insights', analysis: 'insights', health: 'insights', alerts: 'insights', assistant: 'insights', tasks: 'insights', customers: 'customers', claims: 'customers', profit: 'money', items: 'stock', adjust: 'stock', receive: 'buy', invoices: 'buy', supaccounts: 'buy', reorder: 'stock', expiry: 'stock', dead: 'stock', shortages: 'stock', movers: 'stock', morning: 'stock', pos: 'money', expenses: 'money', withdrawals: 'money', books: 'money', treasury: 'money', partners: 'money', calc: 'money', offers: 'sell', prices: 'sell', changes: 'sell', patients: 'patients' })[t], tab);
     await page.click(`[data-sec=${sec}]`);
     if (await page.locator(`#tabs [data-tab=${tab}]`).isVisible()) await page.click(`#tabs [data-tab=${tab}]`);
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // open boxes are the widest
@@ -779,10 +826,12 @@ test('English interface: the button switches the dashboard and cashier to Englis
   await page.waitForSelector('html[dir=ltr]');
   await page.waitForSelector('#app:not([hidden])');
   assert.equal(await page.getAttribute('html', 'lang'), 'en');
+  // The label only (.lbl): a section's button also shows its count of urgent items (.cnt) when it has any.
+  let labels = [];
   assert.ok(await until(async () => {
-    const labels = await page.locator('#sections .sec').allInnerTexts();
+    labels = (await page.locator('#sections .sec .lbl').allInnerTexts()).map((x) => x.trim());
     return labels.includes('Summary') && labels.includes('Stock');
-  }, 10000));
+  }, 10000), `section labels: ${JSON.stringify(labels)}`);
   await shot('english-dashboard');
   await page.goto(`${base}cashier.html`);
   await page.waitForSelector('#pos:not([hidden])');
@@ -794,6 +843,106 @@ test('English interface: the button switches the dashboard and cashier to Englis
   assert.equal(await page.evaluate(() => localStorage.getItem('saydaliti-lang')), 'ar');
 });
 
+test('treasury: counting it sets the balance, and a trip to the bank takes it down', async () => {
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+  await page.click('[data-sec=money]');
+  await page.click('[data-tab=treasury]');
+  await page.waitForSelector('#cashForm');
+  await page.selectOption('#cmKind', 'count');
+  await page.fill('#cmAmount', '1500');
+  await page.click('#cashForm button[type=submit]');
+  assert.ok(await until(async () => (await db('cash_moves')).some((m) => m.kind === 'count' && +m.amount === 1500)));
+  await page.selectOption('#cmKind', 'to_bank');
+  await page.fill('#cmAmount', '400');
+  await page.click('#cashForm button[type=submit]');
+  assert.ok(await until(async () => /1,?100/.test(await text('#panel .tiles .tile'))), 'balance 1500 − 400');
+});
+
+test('a password-reset link opened while signed in: a clear notice, the token taken out of the address bar', async () => {
+  await page.goto(`${base}#reset=${'ab'.repeat(32)}`);
+  await page.reload(); // the same page with only a new #hash: opened again, like a click on the email link
+  await page.waitForSelector('#resetNotice');
+  assert.match(await page.locator('#resetNotice').innerText(), /اخرج الأول/);
+  assert.equal(await page.evaluate(() => location.hash), '', 'no token left in the URL');
+  assert.ok(await page.locator('#app').isVisible(), 'still signed in, nothing changed');
+  await page.goto(base);
+  await page.waitForSelector('#app:not([hidden])');
+});
+
+test('printing: the receipt, the sales report, labels and the export page each print with their stylesheet loaded', async () => {
+  // Print documents take their look from src/print/*.css (the security policy allows no inline style).
+  // Each print is caught before it happens, and the frame's styles are checked at that moment.
+  await page.evaluate(() => {
+    window.__prints = [];
+    const record = (w, how) => {
+      const d = w.document;
+      const sheets = [...d.styleSheets].map((x) => { try { return x.cssRules.length; } catch { return -1; } });
+      window.__prints.push({ how, title: d.title, href: d.querySelector('link[rel=stylesheet]')?.href ?? null, sheets, bodyMargin: w.getComputedStyle(d.body).margin });
+    };
+    new MutationObserver((list) => {
+      for (const m of list) for (const n of m.addedNodes) if (n.tagName === 'IFRAME') { const w = n.contentWindow; w.print = () => record(w, 'frame'); }
+    }).observe(document.body, { childList: true });
+  });
+  const printed = async (n) => until(async () => (await page.evaluate(() => window.__prints.length)) >= n, 8000);
+  // A receipt again, and the sales report.
+  await page.click('[data-sec=money]');
+  await page.click('#tabs [data-tab=pos]');
+  await page.waitForSelector('#panel .sale-row');
+  await page.click('#panel .sale-row');
+  await page.click('#panel [data-printsale]');
+  assert.ok(await printed(1), 'the receipt printed');
+  await page.click('#posPrint');
+  assert.ok(await printed(2), 'the report printed');
+  // Labels for an item.
+  await page.click('[data-sec=stock]');
+  await page.click('#tabs [data-tab=items]');
+  await page.click('#itemsBody [data-edititem]');
+  await page.click('#printLabels');
+  assert.ok(await printed(3), 'the labels printed');
+  await page.keyboard.press('Escape');
+  // A table on its own page (print / PDF).
+  await openTools(page);
+  if (!(await page.locator('#exportBox').getAttribute('open') !== null)) await page.click('#exportBox summary');
+  await page.click('[data-export=print]');
+  assert.ok(await printed(4), 'the export page printed');
+  const prints = await page.evaluate(() => window.__prints);
+  const want = ['receipt', 'report', 'labels', 'export'];
+  prints.forEach((p, i) => {
+    assert.match(p.href || '', new RegExp(`/src/print/${want[i]}\\.css$`), `${want[i]}: its own stylesheet`);
+    assert.ok(p.sheets.length === 1 && p.sheets[0] > 0, `${want[i]}: the stylesheet was loaded before printing (${JSON.stringify(p.sheets)})`);
+  });
+  assert.equal(prints[0].bodyMargin, '0px', 'the receipt style is applied (body margin 0)');
+  assert.equal(prints[2].bodyMargin, '0px', 'the labels style is applied');
+  assert.ok(prints.every((p) => p.how === 'frame'), 'all four through the hidden frame (no popup window)');
+});
+
 test('no script errors', () => {
   assert.deepEqual(errors, []);
+});
+
+test('no request leaves this computer: external fetch, raw IP, WebSocket and the service worker are refused; localhost works', async () => {
+  await page.goto(base);
+  const r = await page.evaluate(async () => {
+    const t = async (fn) => { try { return await fn(); } catch { return 'failed'; } };
+    const ws = (url) => new Promise((ok) => { const w = new WebSocket(url); w.onopen = () => { w.close(); ok('open'); }; w.onerror = () => ok('failed'); setTimeout(() => ok('timeout'), 5000); });
+    return {
+      localhost: await t(async () => (await fetch('./index.html')).status),
+      external: await t(async () => (await fetch('https://egress-probe.invalid/x')).status),
+      raw_ip: await t(async () => (await fetch('http://203.0.113.7/x')).status),
+      websocket: await ws('wss://egress-probe.invalid/'),
+      // fonts.gstatic.com is one of the hosts sw.js fetches itself (not the page).
+      via_service_worker: navigator.serviceWorker.controller ? await t(async () => (await fetch('https://fonts.gstatic.com/egress-probe.woff2')).status) : 'no sw',
+    };
+  });
+  assert.equal(r.localhost, 200, 'localhost still works');
+  for (const k of ['external', 'raw_ip', 'websocket', 'via_service_worker']) assert.equal(r[k], 'failed', `${k}: ${r[k]}`);
+  assert.ok(blocked.includes('https://egress-probe.invalid/x') && blocked.includes('http://203.0.113.7/x'), 'refused by the route');
+  assert.ok(blocked.includes('https://fonts.gstatic.com/egress-probe.woff2'), 'the service worker request went through the route');
+  assert.deepEqual(escaped, ['CONNECT egress-probe.invalid:443'], 'only the probe WebSocket reached the browser trap, and it was closed there');
+  // Over the whole run the app asked only for the web fonts and the stub database address (public.js reads the
+  // public prices straight from it); both refused. Any new external host fails this test.
+  const EXPECTED = ['fonts.googleapis.com', 'fonts.gstatic.com', 'stub.supabase.test', 'egress-probe.invalid', '203.0.113.7'];
+  const hosts = [...new Set(blocked.map((u) => new URL(u).hostname))];
+  assert.deepEqual(hosts.filter((h) => !EXPECTED.includes(h)), [], `unexpected external hosts: ${hosts}`);
 });
