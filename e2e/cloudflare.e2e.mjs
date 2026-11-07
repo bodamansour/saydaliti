@@ -83,6 +83,11 @@ test('the owner signs up, makes the pharmacy, uploads the item list, receives a 
   await owner.fill('[data-l="0"][data-f="cost"]', '9');
   await owner.click('#rcvForm button[type=submit]');
   assert.ok(await until(owner, async () => /اتسجلت الطلبية/.test(await text(owner, '#rcvMsg'))));
+  assert.ok(await until(owner, async () => owner.evaluate(async () => {
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' },
+      body: JSON.stringify({ op: 'select', table: 'purchases', cols: 'lines', filters: [], limit: 10 }) });
+    return (await r.json()).data?.some((p) => p.lines?.some((l) => l.code === '6220000000001' && +l.qty === 5));
+  })), 'the delivery reached the server before opening the cashier');
   // Opening again (a new page on the same device) shows what was saved on the server.
   await owner.reload();
   await owner.waitForSelector('#app:not([hidden])');
@@ -100,7 +105,7 @@ test('the cashier sells, with and without a connection; stock goes down', { skip
   await owner.fill('#q', '6220000000001');
   await owner.press('#q', 'Enter');
   await owner.keyboard.press('F2');
-  assert.ok(await until(owner, async () => /الفاتورة اتسجلت/.test(await text(owner, '#posMsg'))));
+  assert.ok(await until(owner, async () => /الفاتورة اتسجلت/.test(await text(owner, '#posMsg'))), await text(owner, '#posMsg'));
   await owner.context().setOffline(true);
   await owner.evaluate(() => dispatchEvent(new Event('offline')));
   await owner.fill('#q', '6220000000001');
@@ -111,7 +116,7 @@ test('the cashier sells, with and without a connection; stock goes down', { skip
   await owner.evaluate(() => dispatchEvent(new Event('online')));
   assert.ok(await until(owner, async () => /متصل/.test(await text(owner, '#netChip'))), 'uploaded once the connection is back');
   await owner.fill('#q', 'شاش');
-  assert.ok(await until(owner, async () => /رصيد 13/.test(await text(owner, '#results'))));
+  assert.ok(await until(owner, async () => /رصيد 13/.test(await text(owner, '#results'))), `${await text(owner, '#results')}\n${await text(owner, '#dayList')}`);
 });
 
 test('the cashier sells by the strip', { skip }, async () => {
@@ -190,6 +195,7 @@ test('the pharmacy device: PIN, shift, and the owner sees the shift and the log'
   await d.waitForSelector('#joinCode');
   await d.fill('#joinCode', dcode);
   await d.click('#joinForm button[type=submit]');
+  await d.waitForSelector('#app:not([hidden])');
   await d.goto(`${BASE}/cashier.html`);
   await d.waitForSelector('#pinDlg[open]');
   await d.evaluate(() => { window.print = () => {}; });
