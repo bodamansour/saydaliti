@@ -222,11 +222,16 @@ test('the pharmacy device: PIN, shift, and the owner sees the shift and the log'
   await d.fill('#shCount', '200');
   await d.click('#shiftForm button[type=submit]');
   await d.waitForSelector('#pinDlg[open]');
+  assert.ok(await until(owner, async () => owner.evaluate(async () => {
+    const r = await fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saydaliti': '1' },
+      body: JSON.stringify({ op: 'select', table: 'pos_shifts', cols: 'employee_name, closed_at', filters: [], limit: 10 }) });
+    return (await r.json()).data?.some((s) => s.employee_name === 'سارة' && s.closed_at);
+  })), 'the closed shift reached the server before the owner reloads');
   await owner.goto(BASE);
   await owner.waitForSelector('#app:not([hidden])');
   await owner.click('[data-sec=money]');
   await owner.click('[data-tab=shifts]');
-  assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#panel')) && /مظبوط/.test(await text(owner, '#panel'))));
+  assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#panel')) && /مظبوط/.test(await text(owner, '#panel'))), await text(owner, '#panel'));
   await owner.click('[data-tab=log]');
   assert.ok(await until(owner, async () => /وردية/.test(await text(owner, '#panel')) && /طلبية|فاتورة شراء/.test(await text(owner, '#panel'))));
 });
@@ -387,7 +392,7 @@ test('a return without a receipt: the cashier signs in, a manager the owner allo
   await owner.evaluate(() => { window.print = () => {}; });
   const signIn = async () => {
     await owner.fill('#pinIn', '1234'); await owner.click('#pinOk');
-    await owner.waitForTimeout(500);
+    assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip')) || (await owner.locator('#openCashWrap:not([hidden])').count()) > 0), 'the cashier PIN check completed');
     if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); }
     assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip'))), `step 3: posMsg=${await text(owner, '#posMsg').catch(() => '')} apprMsg=${await text(owner, '#apprMsg').catch(() => '')} chip=${await text(owner, '#cashierChip').catch(() => '')}`);
   };
