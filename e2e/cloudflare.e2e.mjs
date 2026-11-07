@@ -454,10 +454,15 @@ test('stock on the server: the owner opens it from the app\'s numbers, they matc
   await owner.goto(`${BASE}/cashier.html`);
   await owner.waitForSelector('#pos:not([hidden])');
   await owner.evaluate(() => { window.print = () => {}; });
-  if (await owner.locator('#pinDlg[open]').count()) { await owner.fill('#pinIn', '1234'); await owner.click('#pinOk'); await owner.waitForTimeout(500); if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); } }
-  await owner.waitForTimeout(1500); // the branch's policy is read with the rest of the data
+  if (await owner.locator('#pinDlg[open]').count()) {
+    await owner.fill('#pinIn', '1234'); await owner.click('#pinOk');
+    assert.ok(await until(owner, async () => /سارة/.test(await text(owner, '#cashierChip')) || (await owner.locator('#openCashWrap:not([hidden])').count()) > 0), 'the cashier PIN check completed');
+    if (await owner.locator('#openCashWrap:not([hidden])').count()) { await owner.fill('#openCash', '0'); await owner.click('#pinOk'); }
+  }
+  assert.ok(await until(owner, async () => /صنف/.test(await text(owner, '#posMsg'))), 'the cashier loaded its items and policy');
   await owner.fill('#q', '6220000000001');
   await owner.press('#q', 'Enter');
+  assert.ok(await until(owner, async () => (await owner.locator('#cart tr').count()) > 0), `the item entered the cart: ${await text(owner, '#posMsg')}`);
   await owner.fill('[data-qty="0"]', '999');
   await owner.press('[data-qty="0"]', 'Tab');
   const before = null; // the page's own sign-in (HttpOnly cookie) is used
