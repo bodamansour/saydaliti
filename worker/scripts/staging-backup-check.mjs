@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getPlatformProxy } from 'wrangler';
 import { decryptBackup, restoreInto, verifyRestore, summarize } from '../src/backup.js';
-import { STAGING, WORKER, CONFIG, BACKUP_DIR, BACKUP_REQUEST, BACKUP_FILE, BACKUP_META, BACKUP_MAX_BYTES, readBackupRequest } from './staging-guard.mjs';
+import { STAGING, WORKER, CONFIG, BACKUP_DIR, BACKUP_REQUEST, BACKUP_FILE, BACKUP_META, BACKUP_MAX_BYTES, readBackupRequest, wranglerBin } from './staging-guard.mjs';
 
 const PREPARE_REPORT = join(BACKUP_DIR, 'prepare-report.json');
 const [mode, arg] = process.argv.slice(2);
@@ -31,7 +31,7 @@ async function prepare(rowsArg = '300') {
   const BASE = process.env.STAGING_URL;
   if (!BASE || !STAGING.urlHost.test(BASE)) { console.error('refusing: STAGING_URL is missing or not the staging URL'); process.exit(2); }
   const call = async (token, path, body) => {
-    const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
+    const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Want-Token': '1', 'X-Saydaliti': '1', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body ?? {}) });
     return { status: r.status, ...(await r.json()) };
   };
   const report = { at: new Date().toISOString(), target: BASE, synthetic_rows: +rowsArg };
@@ -91,7 +91,7 @@ async function verify(outFile = '../staging-backup-report.json') {
     };
     // 4. Restore into a separate, empty LOCAL database (--local: on this runner's disk; no token in this step).
     const dst = join(work, 'restore');
-    execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', dst, '--config', CONFIG], { cwd: WORKER, stdio: 'pipe' });
+    execFileSync(process.execPath, [wranglerBin(), 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', dst, '--config', CONFIG], { cwd: WORKER, stdio: 'pipe' });
     const proxy = await getPlatformProxy({ configPath: CONFIG, persist: { path: join(dst, 'v3') } });
     try {
       const t = Date.now();

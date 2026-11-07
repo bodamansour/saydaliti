@@ -19,7 +19,7 @@
 </head>
 <body>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<svg class="u-abs" width="0" height="0" aria-hidden="true">
   <symbol id="i-insights" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   <symbol id="i-stock" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
   <symbol id="i-buy" viewBox="0 0 24 24"><path d="M2.5 6h11.5v10H2.5z"/><path d="M14 9.5h4l3.5 3.5v3H14"/><circle cx="6.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/></symbol>
@@ -81,6 +81,7 @@
     <div class="notices">
       <div class="card" id="stuckBox" hidden></div>
       <div class="card" id="subBanner" role="status" hidden></div>
+      <div class="card data-alert" id="dataAlert" role="alert" hidden></div>
     </div>
 
     <div id="workView" class="view">
@@ -95,8 +96,8 @@
       <details class="help" id="branchBox">
         <summary>الفروع والشركاء</summary>
         <div id="branchList"></div>
-        <form id="branchForm" class="row" style="margin-top:10px">
-          <label style="flex:1">اسم فرع جديد<input id="branchName" maxlength="80" placeholder="فرع شارع الجمهورية"></label>
+        <form id="branchForm" class="row u-mt10">
+          <label class="u-grow">اسم فرع جديد<input id="branchName" maxlength="80" placeholder="فرع شارع الجمهورية"></label>
           <button class="btn primary" type="submit">ضيف الفرع</button>
         </form>
         <p class="note" id="branchMsg" role="status"></p>
@@ -135,14 +136,45 @@
           <span class="note" id="backupMsg" role="status"></span></div>
       </details>
 
+      <details class="help" id="stockBox" hidden>
+        <summary>الرصيد على السيرفر</summary>
+        <p>السيرفر بيسجّل كل حركة (بيع، مرتجع، مشتريات، جرد، تحويل) لحظة ما توصله. «ابدأ» بياخد الأرقام اللي ظاهرة في البرنامج دلوقتي للفرع ده كرصيد بداية، وأي حركة بعدها بتتحسب لوحدها. بعد ما ترفع ملف جديد من برنامج الصيدلية، ابدأ تاني.</p>
+        <p class="note" id="stockState" role="status"></p>
+        <div class="row"><button class="btn primary" type="button" id="stockOpen">ابدأ رصيد السيرفر من الأرقام الحالية</button><button class="btn" type="button" id="stockCheck">قارن رصيد السيرفر بالبرنامج</button></div>
+        <label class="checkline" id="stockBlockWrap"><input type="checkbox" id="stockBlock"> امنع البيع لو الرصيد على السيرفر هيقل عن صفر (الكاشير لازم يبقى متصل)</label>
+        <div id="stockDiff"></div>
+      </details>
+
       <details class="help" id="cloudBackupBox" hidden>
         <summary>نسخة احتياطية من كل بياناتك</summary>
         <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>
         <div class="row"><button class="btn primary" type="button" id="cloudBackupBtn">نزّل نسخة كاملة دلوقتي</button><span class="note" id="cloudBackupMsg" role="status"></span></div>
+        <div id="serverBackups" hidden>
+          <hr>
+          <p><b>النسخ المشفّرة على السيرفر:</b> السيرفر بيعمل نسخة مشفّرة كل يوم ويحتفظ بآخر 14. <span id="serverBackupState" class="note" role="status"></span></p>
+          <div class="row"><button class="btn" type="button" id="serverBackupBtn">اعمل نسخة على السيرفر دلوقتي</button></div>
+        </div>
         <div id="cloudImport" hidden>
           <hr>
           <p><b>نقل من النسخة القديمة:</b> لو الصيدلية دي جديدة وفاضية، رجّع فيها النسخة الكاملة اللي نزلتها من البرنامج القديم: الأصناف والرصيد والفواتير والعملاء والموظفين كلهم هيتنقلوا. الأرقام السرية للموظفين لازم تتكتب تاني من صفحة الحضور.</p>
           <label class="btn" for="cloudImportFile">رجّع نسخة كاملة هنا<input id="cloudImportFile" type="file" accept=".json" hidden></label>
+        </div>
+      </details>
+
+      <details class="help" id="securityBox" hidden>
+        <summary>أمان الحساب (كلمة السر والتحقق بخطوتين)</summary>
+        <form id="pwForm" class="stack">
+          <b>غيّر كلمة السر</b>
+          <div class="grid2"><label>كلمة السر الحالية<input id="pwOld" type="password" autocomplete="current-password" required></label>
+            <label>كلمة السر الجديدة<input id="pwNew" type="password" autocomplete="new-password" minlength="8" required></label></div>
+          <div class="row"><button class="btn" type="submit">غيّرها</button><span class="note" id="pwMsg" role="status"></span></div>
+        </form>
+        <hr>
+        <div class="stack" id="mfaBox">
+          <b>التحقق بخطوتين</b>
+          <p class="note">بعد كلمة السر، الدخول بيطلب كود بيتغير كل 30 ثانية من تطبيق على موبايلك (Google Authenticator أو Microsoft Authenticator). لو حد عرف كلمة السر، مش هيقدر يدخل من غير الموبايل.</p>
+          <p class="note" id="mfaState" role="status"></p>
+          <div id="mfaSteps"></div>
         </div>
       </details>
 
@@ -151,7 +183,7 @@
         <p>بيصدّر اللي ظاهر في اللوحة دلوقتي: الفرع المختار، أو كل الفروع.</p>
         <div class="row"><button class="btn primary" type="button" data-export="xlsx">Excel (كل حاجة في ملف واحد)</button>
           <button class="btn" type="button" data-export="json">ملف صيدليتي (JSON يترفع تاني)</button></div>
-        <div class="row" style="margin-top:8px"><label class="owner">جدول<select id="exportWhich">
+        <div class="row u-mt8"><label class="owner">جدول<select id="exportWhich">
           <option>الأصناف</option><option>الصلاحيات</option><option>المبيعات</option><option>المشتريات</option><option>فواتير الكاشير</option><option>الموردين</option><option>العملاء</option><option>المصروفات</option><option>جرد وتعديلات</option></select></label>
           <button class="btn" type="button" data-export="csv">CSV</button><button class="btn" type="button" data-export="print">اطبع / PDF</button></div>
         <p class="note" id="exportMsg" role="status"></p>
@@ -163,7 +195,7 @@
 
       <details class="help" id="settingsBox">
         <summary>الإعدادات (ضرايب، تقدير المصاريف، طلبيات)</summary>
-        <div class="grid2" style="margin-top:10px">
+        <div class="grid2 u-mt10">
           <label>نظام الضرايب
             <select id="taxMode">
               <option value="unsure">مش متأكد (من غير ضرايب في الحسبة)</option>
@@ -179,14 +211,14 @@
           <label>المخزن بيوصّل بعد كام يوم<input id="lead" type="number" min="1" step="1" value="3"></label>
           <label>عايز المخزون يكفي كام يوم<input id="cover" type="number" min="7" step="1" value="30"></label>
         </div>
-        <p class="note" style="margin-top:14px"><b>تقدير المصاريف في الشهر:</b> بيتحسب في مكسب كل علبة لحد ما تسجّل مصروفات فعلية في تبويب «المصروفات». بعدها البرنامج بياخد متوسط اللي سجلته.</p>
+        <p class="note u-mt14"><b>تقدير المصاريف في الشهر:</b> بيتحسب في مكسب كل علبة لحد ما تسجّل مصروفات فعلية في تبويب «المصروفات». بعدها البرنامج بياخد متوسط اللي سجلته.</p>
         <div class="grid2">
           <label>الإيجار في الشهر<input id="exRent" type="number" min="0" step="100" placeholder="0"></label>
           <label>الكهربا والمية في الشهر<input id="exUtil" type="number" min="0" step="100" placeholder="0"></label>
           <label>المرتبات في الشهر<input id="exSal" type="number" min="0" step="100" placeholder="0"></label>
           <label>مصاريف تانية في الشهر<input id="exOther" type="number" min="0" step="100" placeholder="0"></label>
         </div>
-        <p class="note" id="taxNote" style="margin-top:8px"></p>
+        <p class="note u-mt8" id="taxNote"></p>
         <p class="note" id="settingsMsg" role="status"></p>
       </details>
 
@@ -229,10 +261,10 @@
         <p>وملف المبيعات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code>، ولو موجود <code>السعر</code> اللي اتباع بيه فعلاً و<code>الخصم</code>. وملف المشتريات: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>سعر الشراء</code>. وملف الهالك: <code>التاريخ</code> <code>الكود</code> <code>الكمية</code> <code>السبب</code>. ممكن يبقوا شيتات في ملف واحد. <b>متحطش أسماء أو أرقام زباين.</b></p>
         <hr>
         <p><b>ربط برنامج الصيدلية:</b> بعد ما تشغّل <code>restore-and-discover.ps1</code>، ارفع ملف <code>schema.json</code> هنا، وأنا أقترح <code>mapping.json</code>.</p>
-        <label class="btn" for="schemaFile" style="display:inline-block">ارفع schema.json<input id="schemaFile" type="file" accept=".json" hidden></label>
+        <label class="btn u-ib" for="schemaFile">ارفع schema.json<input id="schemaFile" type="file" accept=".json" hidden></label>
         <div id="mapOut" hidden>
           <div id="mapSummary"></div>
-          <textarea id="mapJson" readonly aria-label="mapping.json" style="min-height:260px"></textarea>
+          <textarea class="u-h260" id="mapJson" readonly aria-label="mapping.json"></textarea>
           <div class="row"><button class="btn primary" id="copyMap">انسخ mapping.json</button><span class="note" id="copyMapMsg"></span></div>
           <p class="note">احفظه باسم <code>mapping.json</code> جنب سكريبتات الوصلة، وشغّل <code>export.ps1</code>.</p>
         </div>

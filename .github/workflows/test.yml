@@ -5,7 +5,8 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    # main, plus the staging-hardening branch (it has no pull request; tests only, no secrets, no deploy).
+    branches: [main, staging-egress-isolation]
   # Also run by the production release (cloudflare.yml) on the commit being released.
   workflow_call:
 
@@ -16,6 +17,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # PowerShell (used by test/genius-live.test.js when installed) must not send usage data.
+      POWERSHELL_TELEMETRY_OPTOUT: '1'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -37,7 +41,7 @@ jobs:
         run: |
           npm ci
           npm run build
-          printf 'PIN_PEPPER=ci-pepper\nSIGNUP_PER_HOUR=10000\n' > .dev.vars
+          printf 'PIN_PEPPER=ci-pepper\nSIGNUP_PER_HOUR=10000\nBACKUP_KEY=ci-backup-key-not-a-real-secret-0123456789\nEMAIL_OUTBOX=dev\nTOTP_KEY=ci-totp-key-not-a-real-secret-0123456789\nAUDIT_SEAL_KEY=ci-seal-key-not-a-real-secret-0123456789\nSEAL_BUDGET=5000\nVERIFY_MAX_ROWS=200000\n' > .dev.vars
           npx wrangler d1 migrations apply saydaliti --local
           nohup npx wrangler dev --local --port 8787 > ../wrangler.log 2>&1 &
           for i in $(seq 1 90); do curl -sf http://localhost:8787/api/config && curl -sf -o /dev/null http://localhost:8787/ && exit 0; sleep 1; done
@@ -45,7 +49,18 @@ jobs:
       - name: Cloudflare server rules and the whole app on it
         env:
           WORKER_URL: http://localhost:8787
-        run: node --test worker/test/api.test.mjs e2e/cloudflare.e2e.mjs
+          SECRET_VALUES: ci-pepper,ci-backup-key-not-a-real-secret-0123456789,ci-totp-key-not-a-real-secret-0123456789,ci-seal-key-not-a-real-secret-0123456789
+        run: node --test worker/test/security.test.mjs worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs worker/test/finish.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs
+      # M1 inside the Workers runtime (workerd, through Miniflare). It needs the worker/ tools installed by the
+      # `npm ci` two steps above, so it runs here; in `npm test` (before that install) it is skipped. Here it must
+      # run: the step fails if any of its 3 tests fails, is skipped or does not run.
+      - name: Staging egress isolation inside the Workers runtime (must run, not skip)
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap worker/test/staging-egress.workerd.test.mjs 2>&1 | tee workerd.log
+          if ! grep -qx '# pass 3' workerd.log || ! grep -qx '# skipped 0' workerd.log || grep -q '# SKIP' workerd.log; then
+            echo '::error::the workerd egress tests did not all run and pass (see the log above)'; exit 1
+          fi
 
   # The live sync with United on a real SQL Server, read by Windows PowerShell like on the pharmacy PC.
   united-sync:
@@ -57,7 +72,7 @@ jobs:
         with:
           node-version: 22
       - name: SQL Server
-        uses: potatoqualitee/mssqlsuite@v2
+        uses: potatoqualitee/mssqlsuite@bc850f242e5fe551e36cea6fa4bed608c58fa489 # v2
         with:
           install: sqlengine
           version: 2019

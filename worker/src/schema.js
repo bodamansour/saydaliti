@@ -21,8 +21,17 @@ export const TABLES = {
   // ---------- Accounts (not reachable through the data API) ----------
   users: { pk: 'id', internal: true, cols: {
     id: ['id', { nn: true, def: 'uuid' }], email: ['text', { nn: true, max: 254 }], pw_hash: ['text', { nn: true }],
-    created_at: ['ts', { nn: true, def: 'now' }] },
+    created_at: ['ts', { nn: true, def: 'now' }],
+    // Two-step sign-in (migration 0015): the authenticator secret (encrypted), one being set up, recovery codes (hashed).
+    totp_secret: ['text', { added: 15 }], totp_pending: ['text', { added: 15 }], totp_recovery: ['json', { added: 15 }] },
   unique: [['email']] },
+  // A forgotten-password link (only its hash), valid 30 minutes, used once (migration 0015).
+  password_resets: { pk: 'token_hash', internal: true, added: 15, cols: {
+    token_hash: ['text', { nn: true }], user_id: ['id', { nn: true }], created_at: ['ts', { nn: true }], expires_at: ['ts', { nn: true }], used_at: ['ts'] },
+  index: [['user_id']] },
+  // Local development and tests only (EMAIL_OUTBOX=dev): emails written here instead of sent.
+  email_outbox: { pk: 'id', internal: true, added: 15, cols: {
+    id: ['serial'], to_email: ['text', { nn: true }], subject: ['text', { nn: true }], body: ['text', { nn: true }], created_at: ['ts', { nn: true }] } },
   sessions: { pk: 'token_hash', internal: true, cols: {
     token_hash: ['text', { nn: true }], user_id: ['id', { nn: true }], created_at: ['ts', { nn: true, def: 'now' }], expires_at: ['ts', { nn: true }] },
   index: [['user_id']] },
@@ -44,11 +53,13 @@ export const TABLES = {
     id: ['id', { nn: true, def: 'uuid' }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 80, trim: true }],
     created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id']] },
-  employees: { pk: 'id', read: MANAGERS, hidden: ['pin_hash'], update: OWNER, updCols: ['name', 'shift_start', 'shift_end', 'work_days', 'grace_minutes', 'active'], audit: true, cols: {
+  employees: { pk: 'id', read: MANAGERS, hidden: ['pin_hash'], update: OWNER, updCols: ['name', 'shift_start', 'shift_end', 'work_days', 'grace_minutes', 'active', 'can_approve_returns'], audit: true, cols: {
     id: ['id', { nn: true, def: 'uuid' }], pharmacy_id: ['id', { nn: true }], name: ['text', { nn: true, max: 120, trim: true }], pin_hash: ['text', { nn: true }],
     shift_start: ['text', { nn: true, def: '09:00:00', max: 8 }], shift_end: ['text', { nn: true, def: '17:00:00', max: 8 }],
     work_days: ['json', { nn: true, def: [6, 0, 1, 2, 3, 4] }], grace_minutes: ['int', { nn: true, def: 15, min: 0, maxv: 600 }],
-    active: ['bool', { nn: true, def: true }], created_at: ['ts', { nn: true, def: 'now' }] },
+    active: ['bool', { nn: true, def: true }], created_at: ['ts', { nn: true, def: 'now' }],
+    // May approve a return without a receipt (with their own PIN at the cashier). Set by the owner.
+    can_approve_returns: ['bool', { nn: true, def: false, added: 12 }] },
   index: [['pharmacy_id']] },
   attendance: { pk: 'id', read: MANAGERS, update: OWNER, updCols: ['check_out', 'note'], cols: {
     id: ['serial'], pharmacy_id: ['id', { nn: true }], employee_id: ['id', { nn: true }], check_in: ['ts', { nn: true, def: 'now' }],
@@ -99,12 +110,19 @@ export const TABLES = {
   index: [['pharmacy_id'], ['patient_id']] },
   pos_sales: { pk: 'id', read: ROLES_ALL, insert: SELLERS, refs: { branch_id: 'branches', customer_id: 'customers', employee_id: 'employees', shift_id: 'pos_shifts' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], number: ['text', { nn: true, max: 40 }], sold_at: ['ts', { nn: true }],
-    kind: ['text', { nn: true, def: 'sale', in: ['sale', 'return'] }], lines: ['json', { nn: true, array: [1, 300] }], total: ['num', { nn: true }],
-    discount: ['num', { nn: true, def: 0, min: 0 }], paid: ['num'], payment: ['text', { nn: true, def: 'cash', in: ['cash', 'card', 'wallet', 'credit'] }],
-    customer_id: ['id'], credit: ['num', { nn: true, def: 0 }], claim_no: ['text', { max: 60 }], return_of: ['id'], note: ['text', { max: 300 }],
+    kind: ['text', { nn: true, def: 'sale', in: ['sale', 'return'] }], lines: ['json', { nn: true, array: [1, 300] }], total: ['num', { nn: true, min: -99999999.99, maxv: 99999999.99 }],
+    discount: ['num', { nn: true, def: 0, min: 0, maxv: 99999999.99 }], paid: ['num', { min: -99999999.99, maxv: 99999999.99 }], payment: ['text', { nn: true, def: 'cash', in: ['cash', 'card', 'wallet', 'credit'] }],
+    customer_id: ['id'], credit: ['num', { nn: true, def: 0, min: -99999999.99, maxv: 99999999.99 }], claim_no: ['text', { max: 60 }], return_of: ['id'], note: ['text', { max: 300 }],
     employee_id: ['id'], employee_name: ['text', { max: 120 }], shift_id: ['id'], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }],
     // A home delivery: its fee (inside the total) and where it went.
-    delivery_fee: ['num', { min: 0, maxv: 99999, added: 4 }], delivery_to: ['text', { max: 200, trim: true, added: 4 }] },
+    delivery_fee: ['num', { min: 0, maxv: 99999, added: 4 }], delivery_to: ['text', { max: 200, trim: true, added: 4 }],
+    // The device that numbered the receipt (4 letters/digits, kept on that device across sign-outs).
+    // Receipts that carry it have a number unique in the pharmacy (index in migrations/0011).
+    receipt_device: ['text', { re: '^[A-HJ-NP-Z2-9]{4}$', added: 11 }],
+    // A return without a receipt: the manager's approval it was saved with (return_approvals).
+    approval_id: ['id', { added: 12 }],
+    // A return that cancels everything left on its receipt, with a manager's approval (migration 0015).
+    is_void: ['bool', { added: 15 }] },
   index: [['pharmacy_id', 'sold_at'], ['branch_id', 'sold_at'], ['customer_id'], ['return_of'], ['pharmacy_id', 'number'], ['shift_id']] },
   pos_barcodes: { pk: 'id', read: ROLES_ALL, insert: SELLERS, del: OWNER, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], barcode: ['text', { nn: true, max: 64 }], code: ['text', { nn: true, max: 60 }],
@@ -157,6 +175,10 @@ export const TABLES = {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], customer_id: ['id', { nn: true }], paid_on: ['date', { nn: true }],
     amount: ['num', { nn: true, min: 0.01, maxv: 99999999.99 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id'], ['customer_id']] },
+  // Signed fingerprints of the log of changes (migration 0016, audit-seal.js). Server only.
+  audit_seals: { pk: 'id', internal: true, added: 16, cols: {
+    id: ['serial'], pharmacy_id: ['id', { nn: true }], upto_id: ['int', { nn: true }], rows: ['int', { nn: true }], hash: ['text', { nn: true }], key_id: ['text', { nn: true }], created_at: ['ts', { nn: true }] },
+  index: [['pharmacy_id', 'upto_id']] },
   audit_log: { pk: 'id', read: OWNER, cols: {
     id: ['serial'], pharmacy_id: ['id', { nn: true }], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], table_name: ['text', { nn: true }],
     op: ['text', { nn: true }], row_id: ['text'], old_row: ['json'], new_row: ['json'] },
@@ -178,12 +200,41 @@ export const TABLES = {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], day: ['date', { nn: true }], totals: ['json', { nn: true }],
     expected_cash: ['num'], counted_cash: ['num', { min: 0 }], note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
   index: [['pharmacy_id', 'day']] },
+  // The whole pharmacy's cash, so only for those who see every branch: read by the owner and partners,
+  // written by the owner (src/treasury.js). Cash outside the cashier (migration 0015): 'count' = the treasury counted (it starts again from this
+  // amount), 'to_bank' / 'from_bank' = taken to or brought from the bank, 'adjust' = a correction (+ or −).
+  cash_moves: { pk: 'id', added: 15, read: ['owner', 'partner'], insert: OWNER, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], moved_at: ['ts', { nn: true }],
+    kind: ['text', { nn: true, in: ['count', 'to_bank', 'from_bank', 'adjust'] }], amount: ['num', { nn: true, min: -99999999.99, maxv: 99999999.99 }],
+    note: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }] },
+  index: [['pharmacy_id', 'moved_at']] },
   // The owner's to-do list: from a recommendation, an alert, or written by hand (migration 0007).
   tasks: { pk: 'id', added: 7, read: MANAGERS, insert: OWNER, update: OWNER, updCols: ['title', 'note', 'assignee', 'due_on', 'priority', 'status', 'done_at'], del: OWNER, audit: true, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], title: ['text', { nn: true, max: 200, trim: true }], note: ['text', { max: 1000 }],
     assignee: ['text', { max: 120, trim: true }], due_on: ['date'], priority: ['text', { nn: true, def: 'medium', in: ['high', 'medium', 'low'] }],
     status: ['text', { nn: true, def: 'open', in: ['open', 'done'] }], ref: ['text', { max: 300 }], created_by: ['id'], created_at: ['ts', { nn: true, def: 'now' }], done_at: ['ts'] },
   index: [['pharmacy_id', 'status']] },
+  // A manager's approval of one return without a receipt. Written only by the server
+  // (rpc approve_no_receipt_return, after checking the approver's PIN); never changed or removed.
+  return_approvals: { pk: 'id', added: 12, read: MANAGERS, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], return_id: ['id', { nn: true }], total: ['num', { nn: true }],
+    reason: ['text', { nn: true, max: 300 }], cashier_employee_id: ['id', { nn: true }], cashier_name: ['text', { nn: true, max: 120 }],
+    approver_employee_id: ['id', { nn: true }], approver_name: ['text', { nn: true, max: 120 }], approved_by_user: ['id'], created_at: ['ts', { nn: true }] },
+  index: [['pharmacy_id', 'created_at']] },
+  // ---------- Stock kept by the server (Phase 2 M1, migrations/0013; written only by the server) ----------
+  stock_levels: { pk: ['pharmacy_id', 'branch_id', 'code'], added: 13, read: ROLES_ALL, cols: {
+    pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], code: ['text', { nn: true }], qty: ['num', { nn: true }], updated_at: ['ts', { nn: true }] } },
+  stock_ledger: { pk: 'id', added: 13, read: [...MANAGERS, 'stock'], cols: {
+    id: ['text', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], code: ['text', { nn: true }], qty: ['num', { nn: true }],
+    applied: ['num', { nn: true }], kind: ['text', { nn: true }], source_table: ['text', { nn: true }], source_id: ['text', { nn: true }],
+    effective_at: ['ts', { nn: true }], received_at: ['ts', { nn: true }], created_by: ['id'] } },
+  stock_bases: { pk: ['pharmacy_id', 'branch_id'], added: 13, read: ROLES_ALL, cols: {
+    pharmacy_id: ['id', { nn: true }], branch_id: ['id', { nn: true }], base_at: ['ts'], opened_at: ['ts'], stale: ['bool', { nn: true }],
+    block_negative: ['bool', { nn: true }], updated_at: ['ts', { nn: true }] } },
+  // Encrypted server backups (worker/src/backup.js, migrations/0014): the list; the files are in R2.
+  backups: { pk: 'id', internal: true, added: 14, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], created_at: ['ts', { nn: true }], status: ['text', { nn: true }], r2_key: ['text'], bytes: ['int'],
+    sha256: ['text'], summary: ['json'], error: ['text'], created_by: ['id'], source: ['text', { nn: true }] } },
   client_errors: { pk: 'id', internal: true, cols: {
     id: ['serial'], at: ['ts', { nn: true, def: 'now' }], user_id: ['id'], pharmacy_id: ['id'], page: ['text'], message: ['text', { nn: true }],
     stack: ['text'], agent: ['text'], version: ['text'] },

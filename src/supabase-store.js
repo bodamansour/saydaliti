@@ -9,6 +9,36 @@ const MESSAGES = {
   'too many attempts': 'جربت أكواد غلط كتير. استنى ساعة وجرب تاني، أو اطلب كود جديد من صاحب الصيدلية.',
   'return more than sold': 'المرتجع أكتر من اللي اتباع في الفاتورة (أو اترجع منها قبل كده).',
   'receipt not found': 'فاتورة البيع اللي المرتجع منها مش موجودة.',
+  // The server's checks on a cashier receipt (src/sale-rules.js).
+  'PIN secret missing': 'السيرفر محتاج إعداد (كود الكاشير). كلّم الدعم.',
+  'needs a manager approval': 'المرتجع من غير فاتورة محتاج موافقة مدير.',
+  'may not approve returns': 'الموظف ده مش مسموح له يوافق على المرتجع. صاحب الصيدلية يقدر يسمح له من «الحضور والانصراف».',
+  'approver must be another employee': 'الموافقة لازم تبقى من موظف تاني غير الكاشير.',
+  'cashier must sign in with their PIN': 'الكاشير لازم يدخل برقمه السري الأول.',
+  'approval not for this': 'الموافقة دي مش لنفس المرتجع. اطلب موافقة جديدة.',
+  'already approved differently': 'المرتجع ده اتوافق عليه قبل كده ببيانات مختلفة.',
+  'insufficient stock': 'الرصيد على السيرفر مش كفاية للصنف ده (البيع بعد ما الرصيد يخلص ممنوع في الفرع ده). ظبط الرصيد أو سجّل الطلبية اللي وصلت الأول.',
+  'backup key missing': 'النسخ على السيرفر مش متفعّلة لسه (محتاجة إعداد).',
+  'too many backups this hour': 'عملت نسخ كتير الساعة دي. استنى شوية.',
+  'receipt number already used': 'رقم الفاتورة ده اتسجل قبل كده لفاتورة تانية.',
+  'sale total does not match its lines': 'إجمالي الفاتورة مش مطابق للأصناف والخصم.',
+  'return price more than sold': 'سعر الصنف في المرتجع أكبر من سعره في فاتورة البيع.',
+  'refund more than paid': 'المبلغ المرتجع أكبر من اللي العميل دفعه في الأصناف دي.',
+  'return item not on the receipt': 'الصنف ده مش في فاتورة البيع.',
+  'return credit to another customer': 'مرتجع الآجل لازم يرجع على حساب نفس العميل اللي اشترى.',
+  'a return without a receipt needs a reason': 'المرتجع من غير فاتورة محتاج سبب.',
+  'sale time in the future': 'وقت الفاتورة بعد الوقت الحالي: ظبط ساعة الجهاز.',
+  'credit needs a customer': 'الآجل محتاج عميل.',
+  'paid less than the amount due': 'المدفوع أقل من المطلوب.',
+  'paid does not match the amount due': 'المدفوع مش مطابق للمطلوب.',
+  'discount more than': 'الخصم أكبر من قيمة الأصناف.',
+  'bad sale': 'بيانات الفاتورة ناقصة أو غلط.',
+  'sale paid missing': 'بيانات الفاتورة ناقصة أو غلط.',
+  'sale total missing': 'بيانات الفاتورة ناقصة أو غلط.',
+  'must not be negative': 'إجمالي الفاتورة مينفعش يبقى بالسالب.',
+  'must not be positive': 'المرتجع لازم يبقى بالسالب.',
+  'credit more than the total': 'الآجل أكبر من إجمالي الفاتورة.',
+  'fully on the account': 'فاتورة الآجل لازم تبقى كلها على حساب العميل.',
   'not signed in': 'لازم تسجّل دخول الأول.',
   'unknown branch': 'الفرع ده مش موجود في الصيدلية.',
   'row-level security': 'الحساب ده ملوش صلاحية للخطوة دي.',
@@ -28,7 +58,7 @@ export function createSupabaseStore(client, pharmacyId) {
     kind: 'supabase',
     async listEmployees() {
       return must(await client.from('employees')
-        .select('id, name, shift_start, shift_end, work_days, grace_minutes, active, created_at')
+        .select('id, name, shift_start, shift_end, work_days, grace_minutes, active, can_approve_returns, created_at')
         .eq('pharmacy_id', pharmacyId).order('created_at'))
         .map((e) => ({ ...e, shift_start: e.shift_start.slice(0, 5), shift_end: e.shift_end.slice(0, 5) }));
     },

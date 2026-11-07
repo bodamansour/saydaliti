@@ -28,8 +28,13 @@ test('AI route: the system prompt is the server\'s, and only tool definitions go
     { fetchImpl: async (url, init) => { sent = JSON.parse(init.body); return { ok: true, json: async () => ({ content: [{ type: 'tool_use', id: 't1', name: 'get_sales_summary', input: { period: 'today' } }], stop_reason: 'tool_use' }) }; } });
   assert.match(sent.system, /ما تخمنش ولا تألف أرقام/);
   assert.deepEqual(Object.keys(sent.tools[0]).sort(), ['description', 'input_schema', 'name']);
+  assert.notEqual(sent.tools[0].description, 'x', 'the description is the app\'s own, not the page\'s');
   assert.equal(out.stop_reason, 'tool_use');
   assert.equal(env.rows.length, 1, 'counted toward the limit');
+  // A page asking for a tool the role doesn't have, or one that doesn't exist, gets neither.
+  await aiChat(env, ctx('partner'), req({ pharmacy: 'p1', messages: [{ role: 'user', content: 'x' }], tools: ['get_unusual_activity', 'drop_tables', 'get_health_score'] }),
+    { fetchImpl: async (url, init) => { sent = JSON.parse(init.body); return { ok: true, json: async () => ({ content: [] }) }; } });
+  assert.deepEqual(sent.tools.map((t) => t.name), ['get_health_score']);
 });
 
 const TODAY = new Date(2026, 9, 30);

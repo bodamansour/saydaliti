@@ -6,6 +6,7 @@
 // prompt (rules: only numbers from tools, no medical advice) is fixed here, not sent by the page.
 import { ApiError } from './db.js';
 import { planFor } from './rpc.js';
+import { toolSpecs } from '../../src/assistant.js';
 
 const SYSTEM = `أنت «اسأل صيدليتي»، مساعد لصاحب صيدلية في مصر. بترد بالعامية المصرية (أو بالإنجليزي لو السؤال إنجليزي)، باختصار.
 قواعد لازم تمشي عليها:
@@ -35,8 +36,11 @@ export async function aiChat(env, ctx, req, { fetchImpl = fetch } = {}) {
   const n = (await all(env, 'SELECT COUNT(*) AS n FROM auth_attempts WHERE k = ? AND at > ?', k, since))[0]?.n || 0;
   if (n >= LIMIT_PER_HOUR) throw new ApiError('too many requests', '429', 429);
   await run(env, 'INSERT INTO auth_attempts (k, at) VALUES (?, ?)', k, new Date().toISOString());
-  // Only plain tool definitions go to the model (name, description, input schema).
-  const tools = b.tools.map((t) => ({ name: String(t.name).slice(0, 64), description: String(t.description || '').slice(0, 500), input_schema: t.input_schema && typeof t.input_schema === 'object' ? t.input_schema : { type: 'object', properties: {} } }));
+  // The tools come from the app's own list (src/assistant.js) for this user's role, never from the page:
+  // the page only says which of them it can run (by name). So a changed page can't give the model a tool
+  // the role doesn't have, or a description that tells it to do something else.
+  const asked = new Set(b.tools.map((t) => (typeof t === 'string' ? t : t?.name)).filter((x) => typeof x === 'string'));
+  const tools = toolSpecs(role).filter((t) => asked.has(t.name));
   const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },

@@ -55,6 +55,13 @@ export const PRODUCTION = Object.freeze({
   url: 'saydaliti.mosaedapp.workers.dev',
 });
 
+// Credentials for real outside services; mirrored from worker/src/egress.js (a test keeps the two lists equal).
+export const OUTSIDE_SERVICE_VARS = Object.freeze([
+  'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'WHATSAPP_TEMPLATE', 'WHATSAPP_DOSE_TEMPLATE', 'WHATSAPP_REFILL_TEMPLATE',
+  'ANTHROPIC_API_KEY', 'AI_MODEL',
+  'RESEND_API_KEY', 'EMAIL_FROM', 'EMAIL_OUTBOX',
+]);
+
 class GuardError extends Error {}
 const fail = (msg) => { throw new GuardError(msg); };
 
@@ -98,9 +105,18 @@ export function checkScheduledHandler(src) {
   const body = src.slice(start);
   const backup = body.search(/if\s*\(\s*event\.cron\s*===\s*env\.BACKUP_CRON\s*\)\s*\{[^{}]*backupAll\([^{}]*\breturn\s*;\s*\}/);
   const firstJob = body.search(/runReminders|runMorning/);
-  if (backup < 0) return ['the scheduled handler does not send BACKUP_CRON to the backups and return (this code would run the patient reminders on the staging cron)'];
-  if (firstJob >= 0 && firstJob < backup) return ['the scheduled handler can start another job before the BACKUP_CRON check'];
-  return [];
+  const problems = [];
+  // Both handlers must strip outside-service credentials first (worker/src/egress.js), and the jobs' fetch must
+  // go through guardedFetch, so even a mis-set secret can't make staging message a patient.
+  const isolated = body.search(/^\s*env\s*=\s*isolateEnv\(env\);/m);
+  if (isolated < 0 || (firstJob >= 0 && isolated > firstJob)) problems.push('the scheduled handler must start with env = isolateEnv(env)');
+  const fetchStart = src.search(/async\s+fetch\s*\(\s*req\s*,\s*env(?:\s*,\s*ctx)?\s*\)\s*\{/);
+  if (fetchStart < 0 || !/^\s*env\s*=\s*isolateEnv\(env\);/m.test(src.slice(fetchStart).split('\n').slice(1, 3).join('\n'))) problems.push('the fetch handler must start with env = isolateEnv(env)');
+  if (!/import\s*\{[^}]*\bisolateEnv\b[^}]*\bguardedFetch\b[^}]*\}\s*from\s*'\.\/egress\.js'/.test(src)) problems.push('index.js must import isolateEnv and guardedFetch from ./egress.js');
+  if (/\breturn fetch\(u, init\)/.test(src) || !/guardedFetch\(env\)\(u, init\)/.test(src)) problems.push('the jobs\' outbound fetch must go through guardedFetch(env)');
+  if (backup < 0) problems.push('the scheduled handler does not send BACKUP_CRON to the backups and return (this code would run the patient reminders on the staging cron)');
+  else if (firstJob >= 0 && firstJob < backup) problems.push('the scheduled handler can start another job before the BACKUP_CRON check');
+  return problems;
 }
 
 // ---------- wrangler.toml ----------
@@ -169,6 +185,14 @@ export function checkConfig(text) {
   no(vars.BACKUP_CRON !== STAGING.cron, `staging BACKUP_CRON must be "${STAGING.cron}" (got ${vars.BACKUP_CRON})`);
   no(vars.MORNING_CRON === STAGING.cron, 'staging MORNING_CRON must not equal the staging cron');
 
+  // The staging marker that turns off every outside service in the Worker (worker/src/egress.js), and never on
+  // production.
+  no(vars.DEPLOY_ENV !== 'staging', `staging DEPLOY_ENV must be "staging" (got ${vars.DEPLOY_ENV})`);
+  const prodVars = tablesOf(cfg, 'vars')[0] || {};
+  no('DEPLOY_ENV' in prodVars, 'production [vars] must not set DEPLOY_ENV');
+  // No outside-service credential may be written into the staging config as a plain var.
+  for (const k of OUTSIDE_SERVICE_VARS) no(k in vars, `staging must not set ${k}`);
+
   // No production identifier anywhere in the staging part of the file.
   const stagingText = text.slice(text.search(/^\[env\.staging\]/m));
   for (const [what, re] of productionPatterns()) no(re.test(stagingText), `staging section names the production ${what}`);
@@ -203,6 +227,7 @@ const WRITES = [
   ['d1', 'migrations', 'apply', 'DB', '--remote'],
   ['secret', 'put', 'BACKUP_KEY'],
   ['secret', 'put', 'PIN_PEPPER'],
+  ['secret', 'put', 'AUDIT_SEAL_KEY'],
 ];
 const WRITE_VERBS = [['deploy'], ['d1', 'migrations', 'apply'], ['secret', 'put'], ['versions'], ['rollback'], ['delete'], ['triggers'], ['r2', 'object', 'put'], ['d1', 'create'], ['d1', 'delete'], ['r2', 'bucket', 'create'], ['r2', 'bucket', 'delete'], ['secret', 'delete'], ['secret', 'bulk']];
 const startsWith = (args, cmd) => cmd.every((c, i) => args[i] === c);
@@ -251,7 +276,15 @@ export function guardedArgv(args, { markerOk = false, worker = WORKER } = {}) {
   assertSingleConfig(worker);
   return ['wrangler', ...checkWranglerArgs(args, { markerOk }), '--config', join(resolve(worker), 'wrangler.toml')];
 }
-const wrangler = (args, opts) => execFileSync('npx', guardedArgv(args, { markerOk: opts?.markerOk }), { cwd: WORKER, ...opts?.exec });
+// The Wrangler installed by `npm ci` in worker/ (exact version from package-lock.json), run with this Node. Never
+// `npx wrangler`: npx downloads the latest Wrangler from the registry when none is installed, and on Windows
+// `npx` is a .cmd file that execFileSync cannot start without a shell.
+export function wranglerBin(worker = WORKER) {
+  const bin = join(resolve(worker), 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+  if (!existsSync(bin)) fail('the Worker tools are not installed (run npm ci in worker/); refusing to fetch Wrangler with npx');
+  return bin;
+}
+const wrangler = (args, opts) => execFileSync(process.execPath, [wranglerBin(), ...guardedArgv(args, { markerOk: opts?.markerOk }).slice(1)], { cwd: WORKER, ...opts?.exec });
 
 export function markerValid(sha = process.env.GITHUB_SHA || 'local') {
   if (!existsSync(MARKER)) return false;
