@@ -130,11 +130,12 @@ async function renderStaff() {
       <p class="note">اعمل كود دعوة وابعته. الشريك أو جهاز الصيدلية يعمل حساب بإيميله، ويكتب الكود. الكود بيشتغل مرة واحدة لمدة 7 أيام.<br>الشريك بيشوف التقرير بس، وجهاز الصيدلية بيسجّل الحضور بس.</p>
       <div class="row"><button class="btn" data-invite="partner">كود لشريك</button><button class="btn" data-invite="device">كود لجهاز الصيدلية</button></div>
       <p id="inviteOut" class="note"></p></div>` : ''}
-    ${emps.length ? `<div class="tablebox"><table><thead><tr><th>الموظف</th><th>الشيفت</th><th>أيام الشغل</th><th>كود جديد</th><th></th></tr></thead><tbody>
+    ${emps.length ? `<div class="tablebox"><table><thead><tr><th>الموظف</th><th>الشيفت</th><th>أيام الشغل</th><th>كود جديد</th>${store.kind === 'supabase' ? '<th>يوافق على مرتجع من غير فاتورة</th>' : ''}<th></th></tr></thead><tbody>
       ${emps.map((e) => `<tr class="${e.active ? '' : 'off'}"><td class="name"><b>${esc(e.name)}</b></td>
         <td class="n">${esc(e.shift_start)}–${esc(e.shift_end)}</td>
         <td>${DAYS.filter(([v]) => e.work_days.includes(v)).map(([, n]) => n).join('، ')}</td>
         <td><span class="inline"><input id="pin-${e.id}" inputmode="numeric" placeholder="1234" aria-label="كود جديد لـ ${esc(e.name)}"><button class="btn" data-pin="${e.id}">غيّر</button></span></td>
+        ${store.kind === 'supabase' ? `<td><label class="checkline"><input type="checkbox" data-approve="${e.id}" ${e.can_approve_returns ? 'checked' : ''} aria-label="${esc(e.name)} يوافق على المرتجع من غير فاتورة"> مدير</label></td>` : ''}
         <td><button class="btn" data-active="${e.id}" data-v="${e.active ? '0' : '1'}">${e.active ? 'وقّف' : 'رجّع'}</button></td></tr>`).join('')}
     </tbody></table></div><p class="note" id="staffMsg"></p>` : ''}`;
 }
@@ -152,8 +153,14 @@ $('staff').addEventListener('submit', async (e) => {
 $('staff').addEventListener('click', async (e) => {
   const inv = e.target.closest('[data-invite]');
   if (inv) {
-    try { const code = await store.createInvite(inv.dataset.invite); $('inviteOut').innerHTML = `الكود: <b class="n" style="font-size:1.3rem">${esc(code)}</b> (${inv.dataset.invite === 'device' ? 'لجهاز الصيدلية' : 'لشريك'})`; }
+    try { const code = await store.createInvite(inv.dataset.invite); $('inviteOut').innerHTML = `الكود: <b class="n u-fs13">${esc(code)}</b> (${inv.dataset.invite === 'device' ? 'لجهاز الصيدلية' : 'لشريك'})`; }
     catch (err) { $('inviteOut').textContent = err.message; }
+    return;
+  }
+  const ap = e.target.closest('[data-approve]');
+  if (ap) {
+    try { await store.updateEmployee(ap.dataset.approve, { can_approve_returns: ap.checked }); $('staffMsg').textContent = ap.checked ? 'الموظف ده يقدر يوافق على المرتجع من غير فاتورة برقمه السري.' : 'اتشالت الموافقة على المرتجع من الموظف ده.'; }
+    catch (err) { ap.checked = !ap.checked; $('staffMsg').textContent = err.message; }
     return;
   }
   const p = e.target.closest('[data-pin]');

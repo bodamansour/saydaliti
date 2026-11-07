@@ -115,6 +115,20 @@ export function createClient() {
           persist(); return { data: null, error: null };
         }
         if (name === 'admin_errors') return { data: [], error: null };
+        // Cashier staff with PINs (the test sets DB.staff), and a manager's approval of a return with no
+        // receipt, with the same rules as the server (worker/src/rpc.js approve_no_receipt_return).
+        if (name === 'cashier_staff') return { data: (DB.staff || []).filter((e) => e.active !== false).length, error: null };
+        if (name === 'cashier_pin') { const e = (DB.staff || []).find((x) => x.pin === String(args.p_pin)); return { data: e ? [{ employee_id: e.id, employee_name: e.name }] : [], error: null }; }
+        if (name === 'approve_no_receipt_return') {
+          const approver = (DB.staff || []).find((x) => x.pin === String(args.p_pin));
+          if (!approver) return { data: null, error: { message: 'wrong pin' } };
+          if (!approver.can_approve_returns) return { data: null, error: { message: 'this employee may not approve returns' } };
+          if (approver.id === args.p_cashier) return { data: null, error: { message: 'the approver must be another employee' } };
+          if (!String(args.p_reason || '').trim()) return { data: null, error: { message: 'a return without a receipt needs a reason' } };
+          const a = { id: `ap${(DB.return_approvals ||= []).length + 1}`, return_id: args.p_return_id, total: args.p_total, reason: args.p_reason, cashier_employee_id: args.p_cashier, approver_name: approver.name };
+          DB.return_approvals.push(a); persist();
+          return { data: { approval_id: a.id, approver_name: approver.name }, error: null };
+        }
         if (name === 'save_settings') { DB.members[0].pharmacies.settings = args.p_settings; persist(); return { data: null, error: null }; }
         return { data: null, error: null };
       });

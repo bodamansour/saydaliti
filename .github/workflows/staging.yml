@@ -75,13 +75,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
           STAGING_BACKUP_KEY: ${{ secrets.STAGING_BACKUP_KEY }}
+          STAGING_AUDIT_SEAL_KEY: ${{ secrets.STAGING_AUDIT_SEAL_KEY }}
         run: |
           missing=""
           [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing secret:CLOUDFLARE_STAGING_API_TOKEN"
           [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing variable:CLOUDFLARE_STAGING_ACCOUNT_ID"
           [ -n "$STAGING_BACKUP_KEY" ] || missing="$missing secret:STAGING_BACKUP_KEY"
+          [ -n "$STAGING_AUDIT_SEAL_KEY" ] || missing="$missing secret:STAGING_AUDIT_SEAL_KEY"
           if [ -n "$missing" ]; then echo "::error::Missing:$missing (see docs/deployment/STAGING.md)"; exit 1; fi
           if [ ${#STAGING_BACKUP_KEY} -lt 32 ]; then echo "::error::STAGING_BACKUP_KEY must be at least 32 characters"; exit 1; fi
+          if [ ${#STAGING_AUDIT_SEAL_KEY} -lt 32 ]; then echo "::error::STAGING_AUDIT_SEAL_KEY must be at least 32 characters"; exit 1; fi
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
@@ -122,14 +125,16 @@ jobs:
           [ -n "$url" ] || { echo "::error::no staging URL in the deploy output"; exit 1; }
           echo "STAGING_URL=$url" >> "$GITHUB_ENV"
           echo "::notice::staging URL $url"
-      - name: Staging secrets on the Worker (BACKUP_KEY from the GitHub secret; PIN_PEPPER random, staging only)
+      - name: Staging secrets on the Worker (protected GitHub staging keys; PIN_PEPPER random)
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
           STAGING_BACKUP_KEY: ${{ secrets.STAGING_BACKUP_KEY }}
+          STAGING_AUDIT_SEAL_KEY: ${{ secrets.STAGING_AUDIT_SEAL_KEY }}
         run: |
           set -o pipefail
           printf '%s' "$STAGING_BACKUP_KEY" | $GUARD run -- secret put BACKUP_KEY >/dev/null
+          printf '%s' "$STAGING_AUDIT_SEAL_KEY" | $GUARD run -- secret put AUDIT_SEAL_KEY >/dev/null
           $GUARD run -- secret list --format json > names.json
           if ! node -e "process.exit(JSON.parse(require('fs').readFileSync('names.json','utf8')).some(s=>s.name==='PIN_PEPPER')?0:1)"; then
             openssl rand -hex 32 | tr -d '\n' | $GUARD run -- secret put PIN_PEPPER >/dev/null
@@ -156,7 +161,7 @@ jobs:
       - name: Test suites against the staging Worker (synthetic accounts and data)
         env:
           WORKER_URL: ${{ env.STAGING_URL }}
-        run: node --test worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs 2>&1 | tee staging-tests.log; exit ${PIPESTATUS[0]}
+        run: node --test --test-concurrency=1 worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs 2>&1 | tee staging-tests.log; exit ${PIPESTATUS[0]}
       # The backup check, in three steps. The script never holds the Cloudflare token; only the guard downloads,
       # and only the one backup the first step made, to a fixed file (worker/.staging-backup/backup.sdbk).
       - name: Backup on Cloudflare — make a backup on the staging Worker (no credentials)

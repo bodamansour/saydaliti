@@ -1,0 +1,27 @@
+/* The public pages (about.html): moved out of the page so its security policy needs no inline styles. */
+.pub-hero { background: var(--ink); color: var(--ink-fg); }
+.pub-hero .in { max-width: 1000px; margin: 0 auto; padding: 56px 20px 60px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+.pub-hero h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); line-height: 1.15; display: flex; align-items: center; gap: 14px; }
+.pub-hero h1 img { border-radius: 14px; }
+.pub-hero p { color: var(--ink-muted); font-size: 1.12rem; max-width: 46ch; margin: 16px 0 24px; }
+.pub-hero .btn:not(.primary) { background: transparent; color: var(--ink-fg); border-color: var(--ink-line); }
+.pub-hero .btn { min-height: 46px; padding-inline: 20px; font-size: 1rem; }
+.pub-price { background: var(--ink-2); border: 1px solid var(--ink-line); border-radius: var(--r-l); padding: 24px; display: grid; gap: 10px; }
+.pub-price h2 { font-size: 1rem; color: var(--ink-muted); font-weight: 600; font-family: var(--body); }
+.pub-price .v { font-family: var(--display); font-size: 2.6rem; color: #6fe3b0; line-height: 1.1; }
+.pub-price p, .pub-price .note { color: var(--ink-muted); margin: 0; font-size: .92rem; }
+.pub-price b { color: var(--ink-fg); }
+.pub-body { max-width: 1000px; margin: 0 auto; padding: 48px 20px 32px; display: grid; gap: 40px; }
+.pub-body > h2 { font-size: 1.5rem; }
+.feat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; border-top: 1px solid var(--line); }
+.feat div { padding: 20px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 14px; }
+.feat .ic { grid-row: span 2; width: 26px; height: 26px; color: var(--accent); margin-top: 2px; }
+.feat h3 { font-size: 1.05rem; margin-bottom: 4px; }
+.feat p { color: var(--muted); margin: 0; }
+.dl { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); padding: 24px; }
+.dl h2 { font-size: 1.2rem; margin-bottom: 4px; }
+footer.links { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: center; padding: 8px 20px 40px; }
+@media (max-width: 760px) { .pub-hero .in { grid-template-columns: minmax(0, 1fr); padding: 36px 18px 40px; gap: 28px; } .feat { grid-template-columns: minmax(0, 1fr); } }
+
+/* privacy.html and terms.html */
+.doc { max-width: 760px; margin: 0 auto; line-height: 1.9; } .doc h2 { margin-top: 28px; }

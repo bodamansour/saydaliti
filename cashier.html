@@ -40,6 +40,7 @@
         <input id="q" type="search" autocomplete="off" placeholder="امسح الباركود أو اكتب اسم الصنف… (Enter)" aria-label="بحث عن صنف">
         <div id="results" class="results" role="listbox" hidden></div>
       </div>
+      <div class="data-alert" id="dataAlert" role="alert" hidden></div>
       <p class="note" id="posMsg" role="status"></p>
       <div class="tablebox cart"><table>
         <thead><tr><th>الصنف</th><th>السعر</th><th>الكمية</th><th>خصم <button class="btn unit" type="button" id="lineUnit" aria-label="خصم الصنف بالجنيه أو نسبة" title="دوس عشان تبدّل بين جنيه ونسبة">ج</button></th><th>الإجمالي</th><th></th></tr></thead>
@@ -51,10 +52,12 @@
       <div class="mode row"><button class="btn sel" id="modeSale" aria-pressed="true">بيع</button><button class="btn" id="modeReturn" aria-pressed="false">مرتجع</button>
         <button class="btn" id="holdBtn" type="button" title="علّق الفاتورة دي وابدأ واحدة جديدة (F4)">علّق (F4)</button><button class="btn" id="heldBtn" type="button" hidden>المعلّقة <span class="n" id="heldCount">0</span></button></div>
       <div class="stack" id="retBox" hidden>
-        <div class="row"><input id="retNo" autocomplete="off" placeholder="رقم فاتورة البيع" aria-label="رقم فاتورة البيع" style="flex:1"><button class="btn" type="button" id="retFind">هات الفاتورة</button></div>
+        <div class="row"><input class="u-grow" id="retNo" autocomplete="off" placeholder="رقم فاتورة البيع" aria-label="رقم فاتورة البيع"><button class="btn" type="button" id="retFind">هات الفاتورة</button></div>
         <p class="note" id="retInfo" role="status"></p>
         <label class="checkline"><input type="checkbox" id="retNoReceipt"> العميل معاهوش الفاتورة</label>
         <label id="retReasonWrap" hidden>السبب (لازم يتكتب)<input id="retReason" maxlength="200" placeholder="مثلاً: الفاتورة ضاعت، أو بيعة قبل البرنامج"></label>
+        <div id="voidWrap" class="stack" hidden><label class="checkline"><input type="checkbox" id="retVoid"> إلغاء الفاتورة كلها (بموافقة مدير)</label>
+          <label id="voidWhyWrap" hidden>سبب الإلغاء (لازم يتكتب)<input id="voidWhy" maxlength="200" placeholder="مثلاً: الفاتورة اتعملت غلط"></label></div>
       </div>
       <div class="ledger pos-totals">
         <div><span>المجموع</span><span class="n" id="tSub">0.00</span></div>
@@ -66,7 +69,7 @@
         <div id="nowRow" hidden><span>يدفع دلوقتي</span><span class="n" id="tNow">0.00</span></div>
       </div>
       <div class="stack" id="custBox">
-        <div class="row" id="custChosen" hidden style="justify-content:space-between"><span>العميل: <b id="custName"></b> <span class="muted" id="custInfo"></span></span><button class="btn" type="button" id="custClear">شيل العميل</button></div>
+        <div class="row u-between" id="custChosen" hidden><span>العميل: <b id="custName"></b> <span class="muted" id="custInfo"></span></span><button class="btn" type="button" id="custClear">شيل العميل</button></div>
         <div class="pos-search" id="custSearch"><input id="custQ" type="search" autocomplete="off" placeholder="عميل آجل أو تأمين (اختياري)…" aria-label="العميل"><div id="custResults" class="results" hidden></div></div>
         <label id="claimWrap" hidden>رقم الموافقة / الروشتة (اختياري)<input id="claimNo" maxlength="60" autocomplete="off"></label>
       </div>
@@ -80,14 +83,14 @@
       <button class="btn wide" id="clearCart">فاتورة جديدة (Esc)</button>
       <button class="btn wide" type="button" id="drawerOut">فلوس خرجت من الدرج (مسحوبات)</button>
       <details class="help"><summary>إعدادات الطباعة على الجهاز ده</summary>
-        <div class="stack" style="margin-top:8px">
+        <div class="stack u-mt8">
           <label>عرض ورق الطابعة<select id="paper"><option value="80">80 مم</option><option value="58">58 مم</option></select></label>
           <label class="checkline"><input id="autoPrint" type="checkbox" checked> اطبع الفاتورة بعد الدفع على طول</label>
           <label class="checkline" id="silentWrap" hidden><input id="silentPrint" type="checkbox"> اطبع على الطابعة الافتراضية من غير ما يسأل</label>
           <label>عنوان الصيدلية (على الفاتورة)<input id="rcAddr" maxlength="120" placeholder="مثلاً: 12 شارع الجمهورية، المنصورة"></label>
           <label>تليفون / واتساب الصيدلية<input id="rcPhone" maxlength="20" inputmode="tel" placeholder="01xxxxxxxxx"></label>
           <label>لوجو الصيدلية (صورة)<input id="rcLogo" type="file" accept="image/*"></label>
-          <div class="row" id="rcLogoRow" hidden><img id="rcLogoImg" alt="اللوجو" style="max-height:48px"><button class="btn" type="button" id="rcLogoDel">شيل اللوجو</button></div>
+          <div class="row" id="rcLogoRow" hidden><img class="u-mh48" id="rcLogoImg" alt="اللوجو"><button class="btn" type="button" id="rcLogoDel">شيل اللوجو</button></div>
           <label class="checkline"><input id="rcQr" type="checkbox"> كود QR على الفاتورة يفتح واتساب الصيدلية</label>
           <label>سطر في آخر الفاتورة<input id="footer" maxlength="120" placeholder="مثلاً: رقم الصيدلية 01xxxxxxxxx"></label>
           <label>اسم الجهاز ده (بيظهر في رقم الفاتورة)<input id="deviceTag" maxlength="4" placeholder="K1"></label>
@@ -101,9 +104,10 @@
   </section>
 
   <section class="pos-day card">
-    <div class="row" style="justify-content:space-between"><h3 id="dayTitle">فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
+    <div class="row u-between"><h3 id="dayTitle">فواتير النهارده</h3><div class="row"><span class="chip" id="stuckChip" hidden></span><button class="btn" id="printDay">اطبع إقفال اليوم</button></div></div>
     <div class="ledger" id="daySum"></div>
     <input id="daySearch" type="search" autocomplete="off" placeholder="دوّر في كل الفواتير: رقم الفاتورة أو اسم صنف أو عميل…" aria-label="دوّر في الفواتير">
+    <div class="data-alert" id="dayRefused" role="alert" hidden></div>
     <div class="tablebox"><table><thead><tr><th>رقم</th><th>الوقت</th><th>النوع</th><th>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody id="dayList"></tbody></table></div>
   </section>
 </div>
@@ -150,6 +154,15 @@
     <input id="pinIn" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري">
     <label id="openCashWrap" hidden>الفلوس اللي في الدرج دلوقتي (بداية الوردية)<input id="openCash" class="n big-in" type="number" min="0" step="1" inputmode="decimal" value="0"></label>
     <div class="row"><button class="btn primary" type="submit" id="pinOk">ادخل</button><span class="note" id="pinMsg" role="status"></span></div>
+  </form>
+</dialog>
+
+<dialog id="apprDlg" class="card">
+  <form id="apprForm" class="stack" novalidate>
+    <h3 id="apprTitle">موافقة المدير على المرتجع</h3>
+    <p class="note" id="apprNote"></p>
+    <input id="apprPin" class="n big-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="الرقم السري للمدير">
+    <div class="row"><button class="btn primary" type="submit">وافق</button><button class="btn" type="button" id="apprCancel">إلغاء</button><span class="note" id="apprMsg" role="status"></span></div>
   </form>
 </dialog>
 
