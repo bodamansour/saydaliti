@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "https://saydaliti.mosaedapp.workers.dev/",
+      "permanent": false
+    },
+    {
+      "source": "/:path*",
+      "destination": "https://saydaliti.mosaedapp.workers.dev/:path*",
+      "permanent": false
+    }
+  ]
+}
