@@ -4,25 +4,24 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي — إدارة الاشتراكات</title>
-<meta name="theme-color" content="#f6f8f6">
+<meta name="theme-color" content="#0b3b2e">
 <meta name="robots" content="noindex">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./src/style.css">
+<script src="./src/theme.js"></script>
 <script src="./src/i18n-en.js"></script>
 <script src="./src/i18n.js"></script>
 </head>
 <body>
 <main id="gate" class="gate">
-  <div class="brand"><img src="./icons/icon.svg" alt="" width="56" height="56"><h1>إدارة الاشتراكات</h1><p>صيدليتي</p></div>
+  <div class="brand"><span class="mark lg" aria-hidden="true"></span><h1 class="wordmark">إدارة الاشتراكات</h1><p>صيدليتي</p></div>
   <section id="auth" class="card authcard"><p class="note">لحظة…</p></section>
 </main>
 
 <div id="app" class="wrap" hidden>
   <header class="top">
     <div><h1>الصيدليات المشتركة</h1><p class="muted" id="who"></p></div>
-    <div class="src"><a class="btn" href="./index.html">لوحة صيدليتي</a></div>
+    <div class="src"><button class="btn themebtn" type="button" data-theme-toggle aria-label="الألوان"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg></button><a class="btn" href="./index.html">لوحة صيدليتي</a></div>
   </header>
 
   <section class="tiles" id="tiles" aria-label="ملخص"></section>
