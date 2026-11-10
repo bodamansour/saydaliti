@@ -56,30 +56,60 @@ async function tooMany(env, k, max, minutes) {
   const r = await env.DB.prepare('SELECT count(*) AS n FROM auth_attempts WHERE k = ? AND at > ?').bind(k, since).first();
   return (r?.n ?? 0) >= max;
 }
-const PASSWORD_ACCOUNT_MAX = 10;
-const PASSWORD_SOURCE_MAX = 100;
-const PASSWORD_WINDOW_MINUTES = 15;
-async function reserveAttempt(env, accountPrefix, sourcePrefix, accountMax, sourceMax, message) {
-  // Prefixes end in ':'; ';' is the next ASCII character for an indexed exclusive bound.
+// Attempt limits (sign-in, the password asked again, two-step codes). Every limit is a counter of rows in
+// auth_attempts under one key prefix, over a sliding 15-minute window, so no lock lasts longer.
+// - One statement reserves a row in every counter at once, and only if every counter is under its limit:
+//   requests sent at the same moment can't pass together, and a refused try counts nowhere.
+// - A try from a source that is over its own limit for this account is refused before it reaches the
+//   account's counter, so one source can't use up the account's limit and lock the owner out.
+// - A right answer takes its rows back out (acceptAttempt): signing in often, or many colleagues behind one
+//   router, never adds up. Only wrong tries stay counted.
+// - A source is the client address (CF-Connecting-IP); for IPv6 its /64 network, since one connection gets
+//   a whole /64 and changing the last part of the address is still the same source.
+const ATTEMPT_WINDOW_MINUTES = 15;
+export const PASSWORD_LIMITS = { accountSource: 10, account: 50, source: 100 };
+export const MFA_LIMITS = { accountSource: 5, account: 20 };
+export const sourceOf = (ip) => {
+  const a = String(ip || 'unknown').trim().toLowerCase();
+  if (!a.includes(':')) return a;
+  const [head, tail = ''] = a.split('::');
+  const h = head ? head.split(':') : [], t = tail ? tail.split(':') : [];
+  const full = a.includes('::') ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h;
+  return `${full.slice(0, 4).map((x) => (x || '0').replace(/^0+(?=.)/, '')).join(':')}::/64`;
+};
+// The wait before a wrong answer is returned, from the account's wrong tries in the window.
+export const attemptDelay = (n) => (n > 1 ? Math.min(8000, 250 * 2 ** Math.min(n - 2, 5)) : 0);
+// counters: [{ prefix, max }]; the first is the account's (it sets the wait). Prefixes end in ':'.
+async function reserveAttempt(env, counters, message) {
+  // ';' is the next ASCII character after ':', an exclusive bound for an indexed range on the prefix.
   const upper = (prefix) => `${prefix.slice(0, -1)};`;
-  const since = new Date(Date.now() - PASSWORD_WINDOW_MINUTES * 60000).toISOString();
+  const since = new Date(Date.now() - ATTEMPT_WINDOW_MINUTES * 60000).toISOString();
   const at = nowIso(), id = randomHex(16);
+  const keys = counters.map((c) => `${c.prefix}${id}`);
   const r = await env.DB.prepare(`INSERT INTO auth_attempts (k, at)
-    SELECT candidate.k, ? FROM (SELECT ? AS k UNION ALL SELECT ? AS k) AS candidate
-    WHERE (SELECT count(*) FROM auth_attempts WHERE k >= ? AND k < ? AND at > ?) < ?
-      AND (SELECT count(*) FROM auth_attempts WHERE k >= ? AND k < ? AND at > ?) < ?`)
-    .bind(at, `${accountPrefix}${id}`, `${sourcePrefix}${id}`, accountPrefix, upper(accountPrefix), since, accountMax,
-      sourcePrefix, upper(sourcePrefix), since, sourceMax).run();
-  if ((r?.meta?.changes ?? 0) !== 2) throw new ApiError(message, 'over_request_rate_limit', 429);
+    SELECT candidate.k, ? FROM (${keys.map(() => 'SELECT ? AS k').join(' UNION ALL ')}) AS candidate
+    WHERE ${counters.map(() => '(SELECT count(*) FROM auth_attempts WHERE k >= ? AND k < ? AND at > ?) < ?').join(' AND ')}`)
+    .bind(at, ...keys, ...counters.flatMap((c) => [c.prefix, upper(c.prefix), since, c.max])).run();
+  if ((r?.meta?.changes ?? 0) !== counters.length) throw new ApiError(message, 'over_request_rate_limit', 429);
   const count = await env.DB.prepare('SELECT count(*) AS n FROM auth_attempts WHERE k >= ? AND k < ? AND at > ?')
-    .bind(accountPrefix, upper(accountPrefix), since).first();
+    .bind(counters[0].prefix, upper(counters[0].prefix), since).first();
   await env.DB.prepare('DELETE FROM auth_attempts WHERE at < ?').bind(new Date(Date.now() - 86400000).toISOString()).run();
-  return { accountKey: `${accountPrefix}${id}`, sourceKey: `${sourcePrefix}${id}`, delayMs: count.n > 1 ? Math.min(8000, 250 * 2 ** Math.min(count.n - 2, 5)) : 0 };
+  return { keys, delayMs: attemptDelay(count?.n ?? 0) };
 }
-const reservePasswordAttempt = async (env, email, ip) => reserveAttempt(env, `pw:a:${await sha256(email)}:`, `pw:s:${await sha256(String(ip || 'unknown'))}:`, PASSWORD_ACCOUNT_MAX, PASSWORD_SOURCE_MAX, 'Too many sign-in attempts. Request rate limit reached');
-const reserveMfaAttempt = async (env, userId, ip) => reserveAttempt(env, `mfa:a:${userId}:`, `mfa:s:${userId}:${await sha256(String(ip || 'unknown'))}:`, 20, 5, 'Too many two-step attempts. Request rate limit reached');
+const reservePasswordAttempt = async (env, email, ip) => {
+  const account = await sha256(String(email || '').trim().toLowerCase()), source = await sha256(sourceOf(ip));
+  return reserveAttempt(env, [
+    { prefix: `pw:a:${account}:`, max: PASSWORD_LIMITS.account },
+    { prefix: `pw:as:${account}:${source}:`, max: PASSWORD_LIMITS.accountSource },
+    { prefix: `pw:s:${source}:`, max: PASSWORD_LIMITS.source },
+  ], 'Too many sign-in attempts. Request rate limit reached');
+};
+const reserveMfaAttempt = async (env, userId, ip) => reserveAttempt(env, [
+  { prefix: `mfa:a:${userId}:`, max: MFA_LIMITS.account },
+  { prefix: `mfa:s:${userId}:${await sha256(sourceOf(ip))}:`, max: MFA_LIMITS.accountSource },
+], 'Too many two-step attempts. Request rate limit reached');
 const waitForAttempt = (attempt) => attempt.delayMs ? new Promise((resolve) => setTimeout(resolve, attempt.delayMs)) : Promise.resolve();
-const acceptAttempt = (env, attempt) => env.DB.prepare('DELETE FROM auth_attempts WHERE k IN (?, ?)').bind(attempt.accountKey, attempt.sourceKey).run();
+const acceptAttempt = (env, attempt) => env.DB.prepare(`DELETE FROM auth_attempts WHERE k IN (${attempt.keys.map(() => '?').join(', ')})`).bind(...attempt.keys).run();
 const note = (env, k) => env.DB.batch([
   env.DB.prepare('INSERT INTO auth_attempts (k, at) VALUES (?, ?)').bind(k, nowIso()),
   env.DB.prepare('DELETE FROM auth_attempts WHERE at < ?').bind(new Date(Date.now() - 86400000).toISOString()),

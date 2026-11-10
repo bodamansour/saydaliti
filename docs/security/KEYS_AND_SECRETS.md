@@ -37,8 +37,26 @@ Every employee PIN hash depends on `PIN_PEPPER`. To change it:
 ## Sealing the change log: budget and measured CPU
 
 - Sealing is no longer part of the backup job. It runs on its own in the hourly cron branch (`sealAll`), after reminders, with a budget of `SEAL_BUDGET` rows per run (default **150**, clamped 10–50000). What is left is sealed in the next hour.
-- Each prospective seal is first stored under an immutable R2 key in `audit-anchor-history/`, then inserted in D1, then used to update the mutable current anchor. If the history write fails, D1 is unchanged; if the current-anchor write fails, the next run can restore it from that matching history copy. If no trusted copy matches D1, sealing stops.
-- The audit check is read-only. Missing, unreadable, mismatched, or unsealed data is reported as unverifiable or changed, never healthy. Only a pharmacy owner can start a new seal epoch, by recording a reason and confirming `REBASELINE_AUDIT_ANCHOR`. The old D1 seals and any readable R2 anchor are preserved, and the action is written to `audit_log`.
+- Each prospective seal is first stored under an immutable R2 key in `audit-anchor-history/`, then inserted in D1, then used to update the mutable current anchor. If the history write fails, D1 is unchanged.
+- **The only repair the hourly job makes by itself (owner decision, 2026-11-06):** the current anchor is exactly one seal behind (the seal went into D1, then the anchor write failed), that seal's immutable copy is in R2, and the whole epoch checks out. Then the anchor is brought up to date.
+- **Anything else stops sealing** (`AUDIT_SEAL_STOPPED` in the log) until the owner acts:
+  - the current anchor is missing;
+  - it can't be read;
+  - it names a seal other than the one right before the latest.
+- **The owner's action** (`audit_rebaseline`, a reason of 10–500 characters, typing `REBASELINE_AUDIT_ANCHOR`) first restores the anchor from the matching immutable copy (`restored_from_trusted_backup`). Only if no copy matches does it start a new seal epoch. Old D1 seals and any readable R2 anchor are preserved, and the action is written to `audit_log`.
+- **Never over evidence.** A new epoch seals the log again from its first row, so it would vouch for whatever is there now. It is refused (`audit_rebaseline_refused`, `AUDIT_REBASELINE_REFUSED` in the log) when:
+  - a sealed row or seal changed;
+  - the anchor disagrees with D1 (the end cut off);
+  - seals were removed while the anchor exists;
+  - R2 holds copies that D1 doesn't.
+
+  Sealing then stays stopped and everything stays as it is, to be looked at. Getting past that is a manual, documented investigation outside the app, not a button.
+- The audit check is read-only. Missing, unreadable, mismatched, or unsealed data is reported as unverifiable or changed, never healthy.
+- Tests: `test/audit-seal.test.js`. A control run of the same tests against the previous code fails 6 of 18, including:
+  - restoring by itself;
+  - re-basing over a changed row;
+  - re-basing over a cut-off end;
+  - re-basing over orphaned copies.
 - Verification and sealing inventory the full protected R2 history twice, with pagination; newer or conflicting evidence blocks normal operation. An orphaned prospective history copy can require owner review and rebaseline. Inventory cost grows with retained history.
 - It logs:
   - `AUDIT_SEAL_BACKLOG` when rows are left over;
@@ -46,6 +64,24 @@ Every employee PIN hash depends on `PIN_PEPPER`. To change it:
   - `AUDIT_SEAL_NOT_CONFIGURED` when there is no key.
 - Local Node timings do not establish the Cloudflare CPU or subrequest cost of sealing and the full R2 history inventory. Measure both on staging with realistic retained history before release; `SEAL_BUDGET` stays at 150 pending those measurements.
 - The check from the app («اتأكد إن السجل محدش لعب فيه») reads at most `VERIFY_MAX_ROWS` rows per request (default **200**), then continues with a signed, owner-bound cursor. It reports success only after all sealed rows and R2 evidence are checked. The cursor expires after 24 hours. D1 does not provide a pinned snapshot across requests, so this result covers the verification interval rather than one instant. A changed seal or R2 anchor during the interval aborts verification. The row limit and R2 history inventory cost still need Cloudflare CPU measurements before any limit is raised.
+
+## Password and two-step limits
+
+| Limit | Password | Two-step code |
+|---|---|---|
+| Per account and source | 10 / 15 min | 5 / 15 min |
+| Per account, all sources | 50 / 15 min | 20 / 15 min |
+| Per source, all accounts | 100 / 15 min | — |
+| Wait before a wrong answer | from the 2nd wrong try of the account: 250 ms doubling, at most 8 s | the same |
+
+- **One statement reserves a row in every counter at once,** and only if all are under their limits. So tries sent at the same moment can't pass together, and a refused try counts nowhere.
+- **A source over its own limit for an account is refused before it reaches the account's counter.** One address can't use up the account's limit and lock the owner out: after 60 wrong passwords from one address, the owner still signs in at once from hers.
+- **A right answer takes its rows back out.** Signing in often, or many colleagues behind one router, never adds up; only wrong tries stay counted.
+- **A source** is the address from `CF-Connecting-IP`. For IPv6 it's the /64 network, so changing the last part of the address is the same source.
+- **The email** is trimmed and lower-cased first. An email with no account gets the same answer, the same limits and the same password work.
+- **No lock lasts:** the window slides.
+- **What remains:** someone with the password and many sources (5 or more for passwords, 4 or more for two-step codes) can make the owner wait up to 15 minutes. That's a delay, not a lock.
+- **Tests:** `test/password-rate-limit.test.js` (9). Against the previous code, 5 of the 9 fail: the owner locked out from one source, IPv6, the account limit, and changing the password.
 
 ## What a restore does not bring back (L7, owner decision)
 
