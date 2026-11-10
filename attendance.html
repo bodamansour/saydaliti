@@ -4,13 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي — الحضور</title>
-<meta name="theme-color" content="#f6f8f6">
+<meta name="theme-color" content="#0b3b2e">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./src/style.css">
+<script src="./src/theme.js"></script>
 <script src="./src/i18n-en.js"></script>
 <script src="./src/i18n.js"></script>
 </head>
@@ -21,7 +20,7 @@
       <h1>الحضور والانصراف</h1>
       <a class="navlink" href="./index.html">→ رجوع للوحة الصيدلية</a>
     </div>
-    <div class="src"><span class="chip" id="modeChip">بيحمّل…</span><button class="btn" id="logout" hidden>خروج</button></div>
+    <div class="src"><span class="chip" id="modeChip">بيحمّل…</span><button class="btn themebtn" type="button" data-theme-toggle aria-label="الألوان"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg></button><button class="btn" id="logout" hidden>خروج</button></div>
   </header>
   <p class="note" id="modeNote" hidden>لحد ما قاعدة البيانات تتعمل، التسجيل بيتحفظ على الجهاز ده بس. الموظفين اللي عليهم «(مثال)» للتجربة: كود سارة 1111 وكود محمد 2222.</p>
 

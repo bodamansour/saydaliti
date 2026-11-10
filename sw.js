@@ -2,10 +2,10 @@
 // App files: network first (so updates arrive right away), falling back to the saved copy.
 // Libraries and fonts from CDNs: saved copy first. Database and /api calls are never cached here —
 // the app keeps its own copy of the data and queues changes until the connection is back.
-const VERSION = 'saydaliti-v44';
+const VERSION = 'saydaliti-v45';
 const SHELL = [
   './', './index.html', './cashier.html', './attendance.html', './manifest.webmanifest',
-  './src/style.css', './src/public.css', './src/print/report.css', './src/print/receipt.css', './src/print/labels.css', './src/print/export.css', './src/app.js', './src/core.js', './src/branches-expenses.js', './src/features.js', './src/ordering.js', './src/pos.js', './src/inventory.js', './src/accounts.js', './src/genius.js', './src/local-db.js', './src/sale-rules.js', './src/treasury.js', './src/paged.js', './src/stock-reconcile.js', './src/cashier.js', './src/session.js',
+  './src/style.css', './src/public.css', './src/theme.js', './src/fonts/readex-pro-arabic-wght-normal.woff2', './src/fonts/readex-pro-latin-wght-normal.woff2', './src/fonts/noto-kufi-arabic-arabic-wght-normal.woff2', './src/fonts/noto-kufi-arabic-latin-wght-normal.woff2', './src/print/report.css', './src/print/receipt.css', './src/print/labels.css', './src/print/export.css', './src/app.js', './src/core.js', './src/branches-expenses.js', './src/features.js', './src/ordering.js', './src/pos.js', './src/inventory.js', './src/accounts.js', './src/genius.js', './src/local-db.js', './src/sale-rules.js', './src/treasury.js', './src/paged.js', './src/stock-reconcile.js', './src/cashier.js', './src/session.js',
   './src/supabase-store.js', './src/offline.js', './src/report.js', './src/mapping.js', './src/shifts.js', './src/subscription.js', './src/errors.js', './src/genius-sync.js', './src/genius-live-ui.js', './src/sales-report.js', './src/cf-client.js', './src/labels.js', './src/qrcode.js', './src/insights.js', './src/assistant.js', './src/plans.js', './src/i18n.js', './src/i18n-en.js',
   './src/attendance.js', './src/attendance-app.js', './src/attendance-store.js',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',

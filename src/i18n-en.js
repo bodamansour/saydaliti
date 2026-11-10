@@ -1,5 +1,13 @@
 // English for the interface (see src/i18n.js). Keys are the Arabic text with numbers as {n} and «names» as {q}.
 window.SAYDALITI_EN = {
+"الصيدلية والفروع": "Pharmacy and branches",
+"البيانات والنسخ الاحتياطي": "Data and backup",
+"أمان الحساب": "Account security",
+"الربط مع برنامج الصيدلية": "Connecting the pharmacy software",
+"الألوان": "Colours",
+"الألوان: زي الجهاز": "Colours: match device",
+"الألوان: فاتح": "Colours: light",
+"الألوان: غامق": "Colours: dark",
 "({n} · {n} ج)": "({n} · {n} EGP)",
 "(بضاعة راجعة: بتخرج من الرصيد وتتخصم من حسابه)": "(returned goods: leave stock and are deducted from their account)",
 "(دواء / تجميل / مستلزمات)": "(medicine / cosmetics / supplies)",
