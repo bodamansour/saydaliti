@@ -14,7 +14,7 @@ import { captureDownload } from './download.js';
 const openTools = async (p) => { if (await p.locator('#toolsView').isHidden()) await p.click('#toolsBtn'); };
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE = join(ROOT, 'test/fixtures/export.json');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 
 let server, base, browser, ctx, page;
 const errors = [];
@@ -25,9 +25,9 @@ before(async () => {
     if (path === 'api/config') { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ configured: true, local: true })); return; }
     const file = join(ROOT, path === '' ? 'index.html' : path);
     if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
-    // The same security policy the Windows program gives its pages (desktop/main.js), plus the SheetJS and font
+    // The same security policy the Windows program gives its pages (desktop/main.js), plus the SheetJS
     // address the repository's pages still name (the program points them at its bundled copy).
-    const csp = extname(file) === '.html' ? { 'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" } : {};
+    const csp = extname(file) === '.html' ? { 'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" } : {};
     try { const body = await readFile(file); res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', ...csp }).end(body); } catch { res.writeHead(404).end(); }
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));

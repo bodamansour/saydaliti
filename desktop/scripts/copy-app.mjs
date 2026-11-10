@@ -17,21 +17,11 @@ await cp(join(NM, 'xlsx/dist/xlsx.full.min.js'), join(OUT, 'vendor/xlsx.full.min
 await cp(join(HERE, 'pages', 'start.html'), join(OUT, 'start.html')); // first start: online or on this computer
 for (const f of ['start.css', 'start.js']) await cp(join(HERE, 'pages', f), join(OUT, f));
 
-// Fonts: only the Arabic and Latin files the pages use.
-const fonts = [['alexandria', ['600', '700']], ['ibm-plex-sans-arabic', ['400', '500', '600', '700']]];
-let css = '';
-for (const [name, weights] of fonts) {
-  const pkg = join(NM, '@fontsource', name);
-  await cp(join(pkg, 'files'), join(OUT, 'vendor/fonts', name, 'files'), { recursive: true, filter: (src) => !src.endsWith('.woff') });
-  for (const w of weights) css += (await readFile(join(pkg, `${w}.css`), 'utf8')).replaceAll('./files/', `./${name}/files/`) + '\n';
-}
-await writeFile(join(OUT, 'vendor/fonts/fonts.css'), css);
+// Fonts: bundled with the app itself (src/fonts, loaded by src/style.css), so nothing to fetch here.
 
-// Point the pages at the bundled copies.
-const FONTS_LINK = /<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com">\s*<link href="https:\/\/fonts\.googleapis\.com[^"]*" rel="stylesheet">/;
+// Point the pages at the bundled copy of the Excel reader.
 for (const f of ['index.html', 'cashier.html', 'attendance.html', 'about.html', 'privacy.html', 'terms.html']) {
   let html = await readFile(join(OUT, f), 'utf8');
-  html = html.replace(FONTS_LINK, '<link rel="stylesheet" href="./vendor/fonts/fonts.css">');
   html = html.replace(/https:\/\/cdn\.sheetjs\.com\/xlsx-[\d.]+\/package\/dist\/xlsx\.full\.min\.js/, './vendor/xlsx.full.min.js');
   if (/https:\/\/(fonts\.googleapis|cdnjs|cdn\.sheetjs\.com)/.test(html)) throw new Error(`${f} still loads something from the internet`);
   await writeFile(join(OUT, f), html);

@@ -4,16 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>صيدليتي</title>
-<meta name="theme-color" content="#f6f8f6">
+<meta name="theme-color" content="#0b3b2e">
 <meta name="description" content="لوحة صاحب الصيدلية: الطلبيات، الصلاحية، الراكد، المصروفات، والمكسب الصافي لكل فرع.">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="صيدليتي">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./src/style.css">
+<script src="./src/theme.js"></script>
 <script src="./src/i18n-en.js"></script>
 <script src="./src/i18n.js"></script>
 </head>
@@ -34,12 +33,13 @@
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15.5V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></symbol>
 </svg>
 
 <!-- Sign-in comes first; the dashboard stays hidden until the account is linked to a pharmacy. -->
 <main id="gate" class="gate">
   <div class="gate-side">
-    <div class="brand"><img src="./icons/icon.svg" alt="" width="52" height="52"><h1>صيدليتي</h1><p>لوحة صاحب الصيدلية</p></div>
+    <div class="brand"><span class="mark lg" aria-hidden="true"></span><h1 class="wordmark">صيدليتي</h1><p>لوحة صاحب الصيدلية</p></div>
     <ul class="gate-points">
       <li>اطلب إيه النهارده، على حسب السحب الحقيقي</li>
       <li>اللي قرب ينتهي واللي راكد، بالفلوس</li>
@@ -51,7 +51,7 @@
 
 <div class="shell" id="app" hidden>
   <aside class="side" aria-label="القايمة">
-    <div class="side-brand"><img src="./icons/icon.svg" alt="" width="34" height="34"><div><b id="phTitle">صيدليتي</b><span id="whoLine"></span></div></div>
+    <div class="side-brand"><span class="mark" aria-hidden="true"></span><div><b id="phTitle">صيدليتي</b><span id="whoLine"></span></div></div>
     <nav class="sections" id="sections" aria-label="الأقسام"></nav>
     <nav class="side-links" aria-label="شاشات تانية">
       <a class="side-link" href="./cashier.html" id="toCashier" hidden><svg class="ic"><use href="#i-cashier"/></svg><span>الكاشير</span></a>
@@ -61,6 +61,7 @@
     <div class="side-foot">
       <span class="chip" id="netChip" role="status"></span>
       <button class="btn ghost" id="installBtn" hidden>نزّل الأبلكيشن</button>
+      <button class="btn ghost themebtn" type="button" data-theme-toggle><svg class="ic" aria-hidden="true"><use href="#i-theme"/></svg><span data-theme-name>الألوان</span></button>
       <button class="btn ghost" id="logout" title="خروج"><svg class="ic" aria-hidden="true"><use href="#i-out"/></svg>خروج</button>
     </div>
   </aside>
@@ -93,6 +94,8 @@
     <div id="toolsView" class="view tools" hidden>
       <p class="lead">كل حاجة بتتظبط مرة واحدة: الفروع، النسخ الاحتياطي، التصدير، الإعدادات، وربط برنامج الصيدلية.</p>
       <div class="acc-list">
+      <section class="grp" aria-label="الصيدلية والفروع">
+      <h2>الصيدلية والفروع</h2>
       <details class="help" id="branchBox">
         <summary>الفروع والشركاء</summary>
         <div id="branchList"></div>
@@ -126,73 +129,6 @@
           <div id="memberBranchList"></div>
         </details>
       </details>
-
-      <details class="help" id="localBox" hidden>
-        <summary>النسخ الاحتياطي (البيانات على الجهاز ده)</summary>
-        <p>النسخة دي شغالة من غير نت، وكل البيانات محفوظة على الكمبيوتر ده. <b>لو الجهاز باظ من غير نسخة احتياطية، البيانات هتضيع.</b></p>
-        <p class="note" id="backupWhere"></p>
-        <div class="row"><button class="btn primary" type="button" id="backupBtn">اعمل نسخة احتياطية دلوقتي</button>
-          <label class="btn" for="restoreFile">رجّع من نسخة احتياطية<input id="restoreFile" type="file" accept=".json" hidden></label>
-          <span class="note" id="backupMsg" role="status"></span></div>
-      </details>
-
-      <details class="help" id="stockBox" hidden>
-        <summary>الرصيد على السيرفر</summary>
-        <p>السيرفر بيسجّل كل حركة (بيع، مرتجع، مشتريات، جرد، تحويل) لحظة ما توصله. «ابدأ» بياخد الأرقام اللي ظاهرة في البرنامج دلوقتي للفرع ده كرصيد بداية، وأي حركة بعدها بتتحسب لوحدها. بعد ما ترفع ملف جديد من برنامج الصيدلية، ابدأ تاني.</p>
-        <p class="note" id="stockState" role="status"></p>
-        <div class="row"><button class="btn primary" type="button" id="stockOpen">ابدأ رصيد السيرفر من الأرقام الحالية</button><button class="btn" type="button" id="stockCheck">قارن رصيد السيرفر بالبرنامج</button></div>
-        <label class="checkline" id="stockBlockWrap"><input type="checkbox" id="stockBlock"> امنع البيع لو الرصيد على السيرفر هيقل عن صفر (الكاشير لازم يبقى متصل)</label>
-        <div id="stockDiff"></div>
-      </details>
-
-      <details class="help" id="cloudBackupBox" hidden>
-        <summary>نسخة احتياطية من كل بياناتك</summary>
-        <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>
-        <div class="row"><button class="btn primary" type="button" id="cloudBackupBtn">نزّل نسخة كاملة دلوقتي</button><span class="note" id="cloudBackupMsg" role="status"></span></div>
-        <div id="serverBackups" hidden>
-          <hr>
-          <p><b>النسخ المشفّرة على السيرفر:</b> السيرفر بيعمل نسخة مشفّرة كل يوم ويحتفظ بآخر 14. <span id="serverBackupState" class="note" role="status"></span></p>
-          <div class="row"><button class="btn" type="button" id="serverBackupBtn">اعمل نسخة على السيرفر دلوقتي</button></div>
-        </div>
-        <div id="cloudImport" hidden>
-          <hr>
-          <p><b>نقل من النسخة القديمة:</b> لو الصيدلية دي جديدة وفاضية، رجّع فيها النسخة الكاملة اللي نزلتها من البرنامج القديم: الأصناف والرصيد والفواتير والعملاء والموظفين كلهم هيتنقلوا. الأرقام السرية للموظفين لازم تتكتب تاني من صفحة الحضور.</p>
-          <label class="btn" for="cloudImportFile">رجّع نسخة كاملة هنا<input id="cloudImportFile" type="file" accept=".json" hidden></label>
-        </div>
-      </details>
-
-      <details class="help" id="securityBox" hidden>
-        <summary>أمان الحساب (كلمة السر والتحقق بخطوتين)</summary>
-        <form id="pwForm" class="stack">
-          <b>غيّر كلمة السر</b>
-          <div class="grid2"><label>كلمة السر الحالية<input id="pwOld" type="password" autocomplete="current-password" required></label>
-            <label>كلمة السر الجديدة<input id="pwNew" type="password" autocomplete="new-password" minlength="8" required></label></div>
-          <div class="row"><button class="btn" type="submit">غيّرها</button><span class="note" id="pwMsg" role="status"></span></div>
-        </form>
-        <hr>
-        <div class="stack" id="mfaBox">
-          <b>التحقق بخطوتين</b>
-          <p class="note">بعد كلمة السر، الدخول بيطلب كود بيتغير كل 30 ثانية من تطبيق على موبايلك (Google Authenticator أو Microsoft Authenticator). لو حد عرف كلمة السر، مش هيقدر يدخل من غير الموبايل.</p>
-          <p class="note" id="mfaState" role="status"></p>
-          <div id="mfaSteps"></div>
-        </div>
-      </details>
-
-      <details class="help" id="exportBox">
-        <summary>تصدير البيانات (Excel، CSV، PDF…)</summary>
-        <p>بيصدّر اللي ظاهر في اللوحة دلوقتي: الفرع المختار، أو كل الفروع.</p>
-        <div class="row"><button class="btn primary" type="button" data-export="xlsx">Excel (كل حاجة في ملف واحد)</button>
-          <button class="btn" type="button" data-export="json">ملف صيدليتي (JSON يترفع تاني)</button></div>
-        <div class="row u-mt8"><label class="owner">جدول<select id="exportWhich">
-          <option>الأصناف</option><option>الصلاحيات</option><option>المبيعات</option><option>المشتريات</option><option>فواتير الكاشير</option><option>الموردين</option><option>العملاء</option><option>المصروفات</option><option>جرد وتعديلات</option></select></label>
-          <button class="btn" type="button" data-export="csv">CSV</button><button class="btn" type="button" data-export="print">اطبع / PDF</button></div>
-        <p class="note" id="exportMsg" role="status"></p>
-        <hr>
-        <p><b>تصحيح بيانات المتحدة:</b> صلّح هنا الرصيد والصلاحية (جرد أو تعديل الصنف) والأسعار والأسماء، وبعدين نزّل الملف ده. وصلة المتحدة على جهاز الصيدلية بتحطه في المتحدة كـ<b>جرد</b> تراجعه وتعتمده من شاشة الجرد. بيتبعت بس الأصناف اللي اتعدلت هنا بعد آخر باك اب رفعته، فمبيعات المتحدة من وقتها مش بتتمسح.</p>
-        <div class="row"><button class="btn" type="button" id="geniusFix">ملف تصحيح للمتحدة</button><span class="note" id="geniusFixMsg" role="status"></span></div>
-        <p class="note">ملف الباك اب بتاع المتحدة (<code>.Gen</code>) ميتعملش من برا برنامج المتحدة: ده نسخة كاملة من قاعدة بياناته بالباسورد بتاعها، والمتحدة بس اللي يقدر يعمله ويرجّعه. لو المتحدة فيه شاشة «استيراد أصناف من Excel»، ملف Excel هنا فيه الكود والاسم والأسعار والرصيد والصلاحية، وقولّي الأعمدة اللي بيطلبها وأظبطها عليها.</p>
-      </details>
-
       <details class="help" id="settingsBox">
         <summary>الإعدادات (ضرايب، تقدير المصاريف، طلبيات)</summary>
         <div class="grid2 u-mt10">
@@ -221,7 +157,76 @@
         <p class="note u-mt8" id="taxNote"></p>
         <p class="note" id="settingsMsg" role="status"></p>
       </details>
-
+      </section>
+      <section class="grp" aria-label="البيانات والنسخ الاحتياطي">
+      <h2>البيانات والنسخ الاحتياطي</h2>
+      <details class="help" id="localBox" hidden>
+        <summary>النسخ الاحتياطي (البيانات على الجهاز ده)</summary>
+        <p>النسخة دي شغالة من غير نت، وكل البيانات محفوظة على الكمبيوتر ده. <b>لو الجهاز باظ من غير نسخة احتياطية، البيانات هتضيع.</b></p>
+        <p class="note" id="backupWhere"></p>
+        <div class="row"><button class="btn primary" type="button" id="backupBtn">اعمل نسخة احتياطية دلوقتي</button>
+          <label class="btn" for="restoreFile">رجّع من نسخة احتياطية<input id="restoreFile" type="file" accept=".json" hidden></label>
+          <span class="note" id="backupMsg" role="status"></span></div>
+      </details>
+      <details class="help" id="cloudBackupBox" hidden>
+        <summary>نسخة احتياطية من كل بياناتك</summary>
+        <p>البيانات محفوظة أونلاين، بس الأحسن يبقى معاك نسخة كاملة على جهازك أو فلاشة: الأصناف والرصيد وفواتير الكاشير والمشتريات والعملاء والمصروفات والموظفين. الملف ده كمان بيترجع في برنامج الكمبيوتر (من غير نت) لو حبيت تنقل عليه.</p>
+        <div class="row"><button class="btn primary" type="button" id="cloudBackupBtn">نزّل نسخة كاملة دلوقتي</button><span class="note" id="cloudBackupMsg" role="status"></span></div>
+        <div id="serverBackups" hidden>
+          <hr>
+          <p><b>النسخ المشفّرة على السيرفر:</b> السيرفر بيعمل نسخة مشفّرة كل يوم ويحتفظ بآخر 14. <span id="serverBackupState" class="note" role="status"></span></p>
+          <div class="row"><button class="btn" type="button" id="serverBackupBtn">اعمل نسخة على السيرفر دلوقتي</button></div>
+        </div>
+        <div id="cloudImport" hidden>
+          <hr>
+          <p><b>نقل من النسخة القديمة:</b> لو الصيدلية دي جديدة وفاضية، رجّع فيها النسخة الكاملة اللي نزلتها من البرنامج القديم: الأصناف والرصيد والفواتير والعملاء والموظفين كلهم هيتنقلوا. الأرقام السرية للموظفين لازم تتكتب تاني من صفحة الحضور.</p>
+          <label class="btn" for="cloudImportFile">رجّع نسخة كاملة هنا<input id="cloudImportFile" type="file" accept=".json" hidden></label>
+        </div>
+      </details>
+      <details class="help" id="stockBox" hidden>
+        <summary>الرصيد على السيرفر</summary>
+        <p>السيرفر بيسجّل كل حركة (بيع، مرتجع، مشتريات، جرد، تحويل) لحظة ما توصله. «ابدأ» بياخد الأرقام اللي ظاهرة في البرنامج دلوقتي للفرع ده كرصيد بداية، وأي حركة بعدها بتتحسب لوحدها. بعد ما ترفع ملف جديد من برنامج الصيدلية، ابدأ تاني.</p>
+        <p class="note" id="stockState" role="status"></p>
+        <div class="row"><button class="btn primary" type="button" id="stockOpen">ابدأ رصيد السيرفر من الأرقام الحالية</button><button class="btn" type="button" id="stockCheck">قارن رصيد السيرفر بالبرنامج</button></div>
+        <label class="checkline" id="stockBlockWrap"><input type="checkbox" id="stockBlock"> امنع البيع لو الرصيد على السيرفر هيقل عن صفر (الكاشير لازم يبقى متصل)</label>
+        <div id="stockDiff"></div>
+      </details>
+      <details class="help" id="exportBox">
+        <summary>تصدير البيانات (Excel، CSV، PDF…)</summary>
+        <p>بيصدّر اللي ظاهر في اللوحة دلوقتي: الفرع المختار، أو كل الفروع.</p>
+        <div class="row"><button class="btn primary" type="button" data-export="xlsx">Excel (كل حاجة في ملف واحد)</button>
+          <button class="btn" type="button" data-export="json">ملف صيدليتي (JSON يترفع تاني)</button></div>
+        <div class="row u-mt8"><label class="owner">جدول<select id="exportWhich">
+          <option>الأصناف</option><option>الصلاحيات</option><option>المبيعات</option><option>المشتريات</option><option>فواتير الكاشير</option><option>الموردين</option><option>العملاء</option><option>المصروفات</option><option>جرد وتعديلات</option></select></label>
+          <button class="btn" type="button" data-export="csv">CSV</button><button class="btn" type="button" data-export="print">اطبع / PDF</button></div>
+        <p class="note" id="exportMsg" role="status"></p>
+        <hr>
+        <p><b>تصحيح بيانات المتحدة:</b> صلّح هنا الرصيد والصلاحية (جرد أو تعديل الصنف) والأسعار والأسماء، وبعدين نزّل الملف ده. وصلة المتحدة على جهاز الصيدلية بتحطه في المتحدة كـ<b>جرد</b> تراجعه وتعتمده من شاشة الجرد. بيتبعت بس الأصناف اللي اتعدلت هنا بعد آخر باك اب رفعته، فمبيعات المتحدة من وقتها مش بتتمسح.</p>
+        <div class="row"><button class="btn" type="button" id="geniusFix">ملف تصحيح للمتحدة</button><span class="note" id="geniusFixMsg" role="status"></span></div>
+        <p class="note">ملف الباك اب بتاع المتحدة (<code>.Gen</code>) ميتعملش من برا برنامج المتحدة: ده نسخة كاملة من قاعدة بياناته بالباسورد بتاعها، والمتحدة بس اللي يقدر يعمله ويرجّعه. لو المتحدة فيه شاشة «استيراد أصناف من Excel»، ملف Excel هنا فيه الكود والاسم والأسعار والرصيد والصلاحية، وقولّي الأعمدة اللي بيطلبها وأظبطها عليها.</p>
+      </details>
+      </section>
+      <section class="grp" aria-label="أمان الحساب">
+      <h2>أمان الحساب</h2>
+      <details class="help" id="securityBox" hidden>
+        <summary>أمان الحساب (كلمة السر والتحقق بخطوتين)</summary>
+        <form id="pwForm" class="stack">
+          <b>غيّر كلمة السر</b>
+          <div class="grid2"><label>كلمة السر الحالية<input id="pwOld" type="password" autocomplete="current-password" required></label>
+            <label>كلمة السر الجديدة<input id="pwNew" type="password" autocomplete="new-password" minlength="8" required></label></div>
+          <div class="row"><button class="btn" type="submit">غيّرها</button><span class="note" id="pwMsg" role="status"></span></div>
+        </form>
+        <hr>
+        <div class="stack" id="mfaBox">
+          <b>التحقق بخطوتين</b>
+          <p class="note">بعد كلمة السر، الدخول بيطلب كود بيتغير كل 30 ثانية من تطبيق على موبايلك (Google Authenticator أو Microsoft Authenticator). لو حد عرف كلمة السر، مش هيقدر يدخل من غير الموبايل.</p>
+          <p class="note" id="mfaState" role="status"></p>
+          <div id="mfaSteps"></div>
+        </div>
+      </details>
+      </section>
+      <section class="grp" aria-label="الربط مع برنامج الصيدلية">
+      <h2>الربط مع برنامج الصيدلية</h2>
       <details class="help" id="connectorBox" hidden>
         <summary>الوصلة على جهاز الكاشير (رفع البيانات كل يوم لوحدها)</summary>
         <p>الوصلة بتقرا المخزون والمبيعات من برنامج الصيدلية كل يوم الصبح، وبترفعها هنا لوحدها. كل فرع ليه كود خاص بيه.</p>
@@ -233,7 +238,6 @@
           <p class="note">غيّر <code>database</code> لاسم قاعدة بيانات برنامج الصيدلية، ولو البرنامج بيدخل SQL Server باسم وكلمة سر، اكتبهم في <code>sqlUser</code> و<code>sqlPassword</code>. الملف ده يفضل على جهاز الكاشير بس، ومتبعتهوش لحد.</p>
         </div>
       </details>
-
       <details class="help" id="geniusLiveBox" hidden>
         <summary>مزامنة مع المتحدة على الكمبيوتر ده</summary>
         <p>البرنامج بيقرا من المتحدة كل كام دقيقة ويرفع هنا الأصناف والرصيد والصلاحية والمبيعات والمشتريات. بيقرا بس، ومش بيعدّل أي حاجة في المتحدة. شغّلها من صيدليتي على الجهاز اللي عليه المتحدة، وهي بتفضل شغالة جنب الساعة حتى لو قفلت الشباك، وبتبدأ لوحدها مع الويندوز.</p>
@@ -252,7 +256,6 @@
         </div>
         <div class="row" id="glRunning" hidden><button class="btn" type="button" id="glNow">اقرا من المتحدة دلوقتي</button><button class="btn" type="button" id="glOff">وقّف المزامنة</button></div>
       </details>
-
       <details class="help">
         <summary>شكل الملفات المطلوبة من برنامج الصيدلية</summary>
         <p><b>أسهل طريقة:</b> ارفع ملف الباك اب بتاع برنامج المتحدة (Genius) زي ما هو (<code>.Gen</code>)، والبرنامج بيقرا منه كل الأصناف والرصيد والصلاحية والمبيعات والمشتريات لوحده، من غير SQL Server ومن غير باسورد الباك اب. الملف بيتقري على الجهاز، ومش بيترفع كله.</p>
@@ -269,7 +272,7 @@
           <p class="note">احفظه باسم <code>mapping.json</code> جنب سكريبتات الوصلة، وشغّل <code>export.ps1</code>.</p>
         </div>
       </details>
-
+      </section>
       </div>
     </div>
 
