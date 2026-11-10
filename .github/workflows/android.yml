@@ -1,14 +1,16 @@
-# Builds the Android app (mobile/) and publishes the APK on the "android-latest" release,
-# so it can be downloaded straight to a phone from:
+# Builds the Android app (mobile/) and publishes the APK on the "android-latest" release, so it can be
+# downloaded straight to a phone from:
 #   https://github.com/bodamansour/saydaliti/releases/tag/android-latest
+# Before that it checks the app's numbers are the website's: the website's calculations (the src/*.js files
+# listed below) are worked out again in Dart in mobile/lib/logic, and mobile/test/parity_test.dart compares them.
 name: Android app
 
 on:
   push:
     branches: [main]
-    paths: ['mobile/**', '.github/workflows/android.yml']
+    paths: ['mobile/**', '.github/workflows/android.yml', 'src/core.js', 'src/inventory.js', 'src/insights.js', 'src/treasury.js', 'src/ordering.js', 'src/branches-expenses.js']
   pull_request:
-    paths: ['mobile/**', '.github/workflows/android.yml']
+    paths: ['mobile/**', '.github/workflows/android.yml', 'src/core.js', 'src/inventory.js', 'src/insights.js', 'src/treasury.js', 'src/ordering.js', 'src/branches-expenses.js']
   workflow_dispatch:
 
 permissions:
@@ -34,7 +36,9 @@ jobs:
 
       # The Android project files are generated here instead of being kept in the repo.
       - name: Create the Android project
-        run: flutter create --platforms=android --org com.saydaliti --project-name saydaliti_app .
+        run: |
+          flutter create --platforms=android --org com.saydaliti --project-name saydaliti_app .
+          rm -f test/widget_test.dart # the template's sample test, not this app's
 
       - name: App name, internet access, versions
         run: |
@@ -48,14 +52,24 @@ jobs:
       - name: Get packages
         run: |
           flutter pub get
-          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(webview_flutter|webview_flutter_android|file_selector|url_launcher):$/) print "::notice::" p " " $2 }' pubspec.lock
+          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|url_launcher):$/) print "::notice::" p " " $2 }' pubspec.lock
+      - name: Check the code
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      # The same pharmacy worked out by the website's code and by the app's: every number must match.
+      # In Cairo time, like the pharmacies (a time zone with daylight saving catches date mistakes).
+      - name: The app's numbers are the website's
+        env:
+          TZ: Africa/Cairo
+        run: |
+          node test/parity/make_expected.mjs
+          flutter test
       - name: App icon
         run: dart run flutter_launcher_icons
       - name: Build APK
         run: |
           flutter --version | head -1 | sed 's/^/::notice::/'
           set +e
-          flutter build apk --release --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }} --dart-define=SITE_URL=https://saydaliti.mosaedapp.workers.dev 2>&1 | tee build.log
+          flutter build apk --release --build-number=${{ github.run_number }} --build-name=2.0.${{ github.run_number }} --dart-define=SITE_URL=https://saydaliti.mosaedapp.workers.dev 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             # Surface the reason as annotations (readable on the run page and through the API).
@@ -102,6 +116,6 @@ jobs:
           body: |
             نزّل `saydaliti.apk` على الموبايل وافتحه عشان يتسطب.
             لو الموبايل سأل، اسمح بتسطيب التطبيقات من المتصفح أو مدير الملفات.
-            الإصدار: 1.0.${{ github.run_number }}
+            الإصدار: 2.0.${{ github.run_number }}
           files: saydaliti.apk
           make_latest: true
