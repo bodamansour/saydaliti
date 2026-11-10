@@ -61,7 +61,7 @@ test('cutting the end of the log off together with its seal shows (the newest se
   assert.equal((await verifyAudit(env({ FILES: undefined }), P)).reason, 'anchor_unavailable');
 });
 
-test('a truncated D1 tail cannot recover from an older protected history copy', async () => {
+test('a truncated D1 tail cannot recover from an older protected history copy, nor be re-based over', async () => {
   for (const replaceAnchor of [false, true]) {
     const { DB, env, FILES, add } = setup(10), e = env();
     await sealAudit(e, P);
@@ -73,9 +73,9 @@ test('a truncated D1 tail cannot recover from an older protected history copy', 
     else FILES.map.delete(`audit-anchor/${P}.json`);
     assert.equal((await verifyAudit(e, P)).reason, 'anchor_mismatch');
     await assert.rejects(sealAudit(e, P), (err) => err.code === 'audit_anchor_evidence_conflict');
-    const result = await rebaselineAudit(e, P, { userId: 'owner', reason: 'Owner reviewed all available evidence.', confirm: 'REBASELINE_AUDIT_ANCHOR' });
-    assert.equal(result.epoch, 1);
-    assert.equal((await verifyAudit(e, P)).ok, true);
+    await assert.rejects(rebaselineAudit(e, P, { userId: 'owner', reason: 'Owner reviewed all available evidence.', confirm: 'REBASELINE_AUDIT_ANCHOR' }), (err) => err.code === 'audit_rebaseline_refused');
+    assert.equal(DB.raw.prepare('SELECT count(*) AS n FROM audit_seals').get().n, 1, 'no new epoch over the cut');
+    assert.equal((await verifyAudit(e, P)).reason, 'anchor_mismatch', 'the evidence still shows');
   }
 });
 
@@ -88,7 +88,8 @@ test('history listings paginate and fail closed if unavailable or inconsistent',
   assert.equal((await verifyAudit(e, P)).reason, 'anchor_unavailable');
   await assert.rejects(sealAudit(e, P), (err) => err.code === 'audit_anchor_unavailable');
   FILES.failList = false;
-  await sealAudit(e, P);
+  await assert.rejects(sealAudit(e, P), (err) => err.code === 'audit_anchor_recovery_required', 'the hourly job does not restore it');
+  assert.equal((await rebaselineAudit(e, P, { userId: 'owner', reason: 'restore after an R2 outage', confirm: 'REBASELINE_AUDIT_ANCHOR' })).action, 'restored_from_trusted_backup');
   assert.equal((await verifyAudit(e, P)).ok, true);
   const list = FILES.list;
   FILES.list = async () => ({ objects: [], truncated: true, cursor: 'stuck' });
@@ -96,15 +97,14 @@ test('history listings paginate and fail closed if unavailable or inconsistent',
   FILES.list = list;
 });
 
-test('owner rebaseline starts beyond an orphan history epoch', async () => {
-  const { env, FILES } = setup(3), e = env();
+test('a copy in R2 that D1 does not have is evidence: sealing stops and the owner can not re-base over it', async () => {
+  const { DB, env, FILES } = setup(3), e = env();
   await sealAudit(e, P);
   FILES.map.set(`audit-anchor-history/${P}/9-99-${'a'.repeat(64)}.json`, { body: '{}', size: 2, etag: 'orphan' });
   assert.equal((await verifyAudit(e, P)).reason, 'anchor_mismatch');
   await assert.rejects(sealAudit(e, P), (err) => err.code === 'audit_anchor_evidence_conflict');
-  const result = await rebaselineAudit(e, P, { userId: 'owner', reason: 'Owner reviewed orphaned history.', confirm: 'REBASELINE_AUDIT_ANCHOR' });
-  assert.equal(result.epoch, 10);
-  assert.equal((await verifyAudit(e, P)).ok, true);
+  await assert.rejects(rebaselineAudit(e, P, { userId: 'owner', reason: 'Owner reviewed orphaned history.', confirm: 'REBASELINE_AUDIT_ANCHOR' }), (err) => err.code === 'audit_rebaseline_refused');
+  assert.equal(DB.raw.prepare('SELECT count(*) AS n FROM audit_seals WHERE pharmacy_id = ?').get(P).n, 1, 'no new epoch');
 });
 
 test('competing seals based on the same parent cannot both enter D1', async () => {
@@ -125,13 +125,16 @@ test('competing seals based on the same parent cannot both enter D1', async () =
   assert.equal(DB.raw.prepare('SELECT count(*) AS n FROM audit_seals WHERE pharmacy_id = ?').get(P).n, 1);
 });
 
-test('a missing current anchor is restored only from the matching immutable R2 copy', async () => {
+test('a missing current anchor is never restored by the hourly job; the owner restores it from the matching immutable copy', async () => {
   const { DB, env, FILES } = setup(10), e = env();
   await sealAudit(e, P);
   FILES.map.delete(`audit-anchor/${P}.json`);
   const missing = await verifyAudit(e, P);
   assert.equal(missing.ok, null); assert.equal(missing.reason, 'anchor_missing');
-  await sealAudit(e, P);
+  for (let i = 0; i < 3; i++) await assert.rejects(sealAudit(e, P), (err) => err.code === 'audit_anchor_recovery_required', 'every run stops, none restores');
+  assert.equal(FILES.map.has(`audit-anchor/${P}.json`), false);
+  const r = await rebaselineAudit(e, P, { userId: 'owner', reason: 'R2 object deleted by mistake', confirm: 'REBASELINE_AUDIT_ANCHOR' });
+  assert.equal(r.action, 'restored_from_trusted_backup');
   assert.equal((await verifyAudit(e, P)).ok, true);
   assert.ok(DB.raw.prepare("SELECT 1 FROM audit_log WHERE pharmacy_id = ? AND table_name = 'audit_anchor' AND op = 'restore'").get(P));
 });
@@ -171,14 +174,35 @@ test('without a matching trusted copy, sealing stops until the owner records a n
   assert.ok(DB.raw.prepare("SELECT 1 FROM audit_log WHERE pharmacy_id = ? AND table_name = 'audit_anchor' AND op = 'rebaseline' AND new_row LIKE '%Owner reviewed%' ").get(P));
 });
 
-test('an unreadable current anchor is preserved before a trusted copy replaces it', async () => {
+test('an unreadable current anchor stops sealing; the owner\'s restore keeps it as evidence first', async () => {
   const { env, FILES } = setup(5), e = env();
   await sealAudit(e, P);
   FILES.map.set(`audit-anchor/${P}.json`, { body: '{broken', size: 7, etag: 'corrupt' });
   assert.equal((await verifyAudit(e, P)).reason, 'anchor_unreadable');
-  await sealAudit(e, P);
+  await assert.rejects(sealAudit(e, P), (err) => err.code === 'audit_anchor_recovery_required');
+  assert.equal((await rebaselineAudit(e, P, { userId: 'owner', reason: 'R2 object was corrupted', confirm: 'REBASELINE_AUDIT_ANCHOR' })).action, 'restored_from_trusted_backup');
   assert.equal((await verifyAudit(e, P)).ok, true);
   assert.ok([...FILES.map.keys()].some((key) => key.startsWith(`audit-anchor-evidence/${P}/`)));
+});
+
+test('no re-baseline over tampering: a changed sealed row, an anchor ahead of D1, or seals removed under an anchor', async () => {
+  const cases = {
+    'a sealed row changed (and the anchor removed to hide it)': ({ DB, FILES }) => { unlock(DB); DB.exec(`UPDATE audit_log SET new_row = '{"name":"edited"}' WHERE id = 5`); FILES.map.delete(`audit-anchor/${P}.json`); },
+    'the end cut off with its seal (anchor still points past it)': ({ DB, add, e }) => { unlock(DB); DB.exec('DELETE FROM audit_log WHERE id > 10'); DB.exec('DELETE FROM audit_seals WHERE upto_id > 10'); },
+    'every seal removed while the anchor exists': ({ DB }) => { unlock(DB); DB.exec('DELETE FROM audit_seals'); },
+  };
+  for (const [what, tamper] of Object.entries(cases)) {
+    const s = setup(10), e = s.env();
+    await sealAudit(e, P);
+    s.add(5); await sealAudit(e, P);
+    tamper({ ...s, e });
+    const before = s.DB.raw.prepare('SELECT count(*) AS n FROM audit_seals').get().n;
+    const anchorBefore = JSON.stringify(s.FILES.map.get(`audit-anchor/${P}.json`) ?? null);
+    await assert.rejects(rebaselineAudit(e, P, { userId: 'owner', reason: 'trying to re-base over it', confirm: 'REBASELINE_AUDIT_ANCHOR' }), (err) => err.code === 'audit_rebaseline_refused', what);
+    assert.equal(s.DB.raw.prepare('SELECT count(*) AS n FROM audit_seals').get().n, before, `${what}: no new epoch`);
+    assert.equal(JSON.stringify(s.FILES.map.get(`audit-anchor/${P}.json`) ?? null), anchorBefore, `${what}: the anchor is left as it is`);
+    await assert.rejects(sealAudit(e, P), undefined, `${what}: sealing stays stopped`);
+  }
 });
 
 test('key rotation: seals made with the old key still check; without it they are reported, not passed', async () => {
