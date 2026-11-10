@@ -232,7 +232,7 @@ Analysis analyze(PharmacyData data, Settings s, DateTime today) {
     taxRate ?? 0,
     s.taxMode == 'simplified' && taxRate == null,
     sorted(rows.where((r) => r.order > 0), (a, b) => a.daysCover - b.daysCover),
-    sorted(rows.where((r) => r.atRisk > 0), (a, b) => (a.expDays ?? double.nan) - (b.expDays ?? double.nan)),
+    sorted(rows.where((r) => r.atRisk > 0), (a, b) => (a.expDays?.toDouble() ?? double.nan) - (b.expDays?.toDouble() ?? double.nan)),
     sorted(rows.where((r) => r.dead), (a, b) => b.value - a.value),
     sorted(rows.where((r) => r.sold > 0), (a, b) => b.revenue - a.revenue),
   );
@@ -275,7 +275,7 @@ List<ExpiryBand> expiryBands(List<StockRow> expiring, double window) {
 /// src/core.js toDate.
 DateTime? toDate(Object? v) {
   if (v is DateTime) return v;
-  if (v is num) return DateTime.fromMillisecondsSinceEpoch(jsRound((v - 25569) * dayMs).toInt());
+  if (v is num) return DateTime.fromMillisecondsSinceEpoch(jsRound((v - 25569).toDouble() * dayMs).toInt());
   final s = (v ?? '').toString().trim();
   if (s.isEmpty) return null;
   final m = RegExp(r'^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$').firstMatch(s);

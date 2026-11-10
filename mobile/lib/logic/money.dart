@@ -194,7 +194,7 @@ Treasury treasury({
       final r = parseMs(recorded);
       return d.compareTo(untilDay) < 0 || r == null || r <= until;
     }
-    if (d.compareTo(fromDay!) < 0) return false;
+    if (d.compareTo(fromDay) < 0) return false;
     return inRange(recorded);
   }
 
