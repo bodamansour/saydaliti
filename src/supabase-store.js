@@ -43,6 +43,10 @@ const MESSAGES = {
   'unknown branch': 'الفرع ده مش موجود في الصيدلية.',
   'row-level security': 'الحساب ده ملوش صلاحية للخطوة دي.',
   'snapshot too large': 'الملف كبير أوي. ارفع فترة أقصر من المبيعات.',
+  'shows signs of tampering': 'مش هينفع: السجل فيه علامات تلاعب (سطر اتغير، أو آخره اتمسح، أو نسخة R2 مش مطابقة). الأدلة متسابة زي ما هي والختم واقف لحد ما تتراجع. كلّم صاحب البرنامج.',
+  'audit anchor recovery required': 'ختم السجل واقف لحد ما المالك يرجّع نسخة R2.',
+  'already in sync': 'الختم سليم ومتزامن؛ مفيش حاجة تترجّع.',
+  'complete the audit verification': 'افحص السجل كله الأول (زرار «اتأكد»)، وبعدها جرّب تاني.',
 };
 export function arabicError(err) {
   const m = String(err?.message ?? err ?? '');

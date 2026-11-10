@@ -50,7 +50,14 @@ jobs:
         env:
           WORKER_URL: http://localhost:8787
           SECRET_VALUES: ci-pepper,ci-backup-key-not-a-real-secret-0123456789,ci-totp-key-not-a-real-secret-0123456789,ci-seal-key-not-a-real-secret-0123456789
-        run: node --test worker/test/security.test.mjs worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs worker/test/finish.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs
+          SECURITY_TEST_REQUIRED: '1'
+          WRANGLER_LOG: wrangler.log # written by the step that starts the Worker (worker/../wrangler.log)
+        # The secret-leak test must run, not skip: the step fails if anything in it was skipped or failed.
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap worker/test/security.test.mjs 2>&1 | tee security.log
+          if grep -q '# SKIP' security.log || ! grep -qx '# skipped 0' security.log || ! grep -qx '# fail 0' security.log; then echo '::error::the secret-leak test did not all run and pass'; exit 1; fi
+          node --test worker/test/api.test.mjs worker/test/stock.test.mjs worker/test/backup.test.mjs worker/test/finish.test.mjs e2e/cloudflare.e2e.mjs e2e/offline-sync.e2e.mjs
       # M1 inside the Workers runtime (workerd, through Miniflare). It needs the worker/ tools installed by the
       # `npm ci` two steps above, so it runs here; in `npm test` (before that install) it is skipped. Here it must
       # run: the step fails if any of its 3 tests fails, is skipped or does not run.

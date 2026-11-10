@@ -100,6 +100,7 @@ function requireCurrentHistory(entries, seal) {
     throw new ApiError('audit anchor history conflicts with D1', 'audit_anchor_evidence_conflict', 503);
   }
 }
+const parentSeal = (env, p, s) => env.DB.prepare('SELECT epoch, upto_id, rows, hash, key_id, created_at FROM audit_seals WHERE pharmacy_id = ? AND epoch = ? AND upto_id < ? ORDER BY upto_id DESC LIMIT 1').bind(p, s.epoch, s.upto_id).first();
 const latestSeal = (env, p) => env.DB.prepare('SELECT epoch, upto_id, rows, hash, key_id, created_at FROM audit_seals WHERE pharmacy_id = ? ORDER BY epoch DESC, upto_id DESC LIMIT 1').bind(p).first();
 const logCountAfter = async (env, p, id) => (await env.DB.prepare('SELECT count(*) AS n FROM audit_log WHERE pharmacy_id = ? AND id > ?').bind(p, id).first())?.n ?? 0;
 
@@ -301,9 +302,17 @@ export async function sealAudit(env, pharmacyId, { maxRows = 2000 } = {}) {
   let anchor = await readAnchor(env, pharmacyId);
   if (latest) {
     if (anchor.status !== 'present' || !sameSeal(anchor.value, latest)) {
-      const checked = await verifyEpoch(env, pharmacyId);
-      if (checked.ok !== true || !(await restoreTrusted(env, pharmacyId, latest, anchor))) {
-        throw new ApiError(`audit anchor recovery required: ${anchor.status === 'missing' ? 'anchor_missing' : 'anchor_mismatch'}`, 'audit_anchor_recovery_required', 503);
+      // Only one case is repaired here without the owner: the anchor is exactly one seal behind (the seal
+      // went into D1, then writing the anchor failed), and that seal's immutable copy is in R2 and the seal
+      // checks out. Anything else (anchor missing, unreadable, or not the seal right before) stops sealing
+      // until the owner restores it (rebaselineAudit restores from the trusted copy first).
+      const parent = await parentSeal(env, pharmacyId, latest);
+      const lagging = anchor.status === 'present' && parent && sameSeal(anchor.value, parent);
+      const checked = lagging ? await verifyEpoch(env, pharmacyId) : null;
+      if (!lagging || checked?.ok !== true || !(await restoreTrusted(env, pharmacyId, latest, anchor))) {
+        const why = anchor.status === 'missing' ? 'anchor_missing' : anchor.status === 'present' ? 'anchor_mismatch' : 'anchor_unreadable';
+        console.error('AUDIT_SEAL_STOPPED', pharmacyId, why);
+        throw new ApiError(`audit anchor recovery required: ${why}`, 'audit_anchor_recovery_required', 503);
       }
       anchor = await readAnchor(env, pharmacyId);
     }
@@ -356,6 +365,18 @@ export async function rebaselineAudit(env, pharmacyId, { userId, reason, confirm
   }
   if (latest && historyCurrent && checked.ok === null) throw new ApiError('audit verification could not be completed', 'audit_verify_required', 409);
   if (latest && historyCurrent && anchor.status === 'present' && sameSeal(anchor.value, latest) && checked.ok === true) throw new ApiError('audit anchor is already in sync; no rebaseline is needed', 'audit_anchor_in_sync', 409);
+  // Never over evidence. A new epoch seals the log again from its first row, so it would vouch for whatever
+  // is there now: it is allowed only when the one thing wrong is a missing or unreadable anchor. A changed
+  // row or seal, an anchor that disagrees with D1 (the end cut off), seals removed while the anchor exists,
+  // or copies in R2 that D1 doesn't have: sealing stays stopped and everything stays as it is, to be looked at.
+  const evidence = !historyCurrent ? 'history_conflict'
+    : latest && checked.ok === false ? checked.reason || 'changed'
+    : anchor.status === 'present' && (!latest || !sameSeal(anchor.value, latest)) ? (latest ? 'anchor_mismatch' : 'seals_missing')
+    : null;
+  if (evidence) {
+    console.error('AUDIT_REBASELINE_REFUSED', pharmacyId, evidence);
+    throw new ApiError(`the audit log shows signs of tampering (${evidence}); it is kept as evidence and sealing stays stopped`, 'audit_rebaseline_refused', 409);
+  }
   if (latest) {
     if (historyCurrent && checked.ok === true) {
       let restored = false;
