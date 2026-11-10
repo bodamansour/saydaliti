@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| Current phase | **Staging preflight / configuration review (2026-11-03): fail-closed staging guard and protected two-job staging workflow added; nothing deployed, no resources created. Waiting for the owner's approval and the staging GitHub environment set-up.** |
-| Branch | `ccr-94719aa6-7k3i5e` (not merged) · **Draft PR #51** (https://github.com/bodamansour/saydaliti/pull/51), opened for CI only — do not merge yet |
-| Base commit | `7d23b83` (= `main` at 2026-10-31) |
-| Production | **Not modified.** No deploy, no remote migration, no live database or Cloudflare account access, and no request to the production site. GitHub Actions run history was read (metadata only). |
-| Release decision | **NOT READY** (Phase 2 items: server-side stock, cloud backup with a restore drill) |
+| Current phase | **Released (2026-11-08), follow-ups in progress (2026-11-10).** #51, #54 (with #55, #56) and #57 are in `main`; production was released by hand twice (2026-11-07 `2600fb0`, 2026-11-08 `0c47697`) with migrations up to 0017. Staging validation passed on 2026-11-07 (run on `61a4148`). |
+| Branch | `fix/auth-audit-hardening` (PR open for review, not merged): password lockout from one source, no re-base over audit evidence, no automatic anchor restore, CI secret-leak test made mandatory. |
+| Base commit | `0c47697` (= `main` at 2026-11-10) |
+| Production | Released from `main` `0c47697`. `TOTP_KEY` and `AUDIT_SEAL_KEY` are set; `RESEND_API_KEY` is **not** set (forgotten-password emails are off). The fixes on this branch are **not** released. |
+| Release decision | Release this branch after review: it fixes a sign-in lockout and an audit-log recovery gap that are live now. Open: Cloudflare CPU measurement on staging (`docs/security/KEYS_AND_SECRETS.md`), `RESEND_API_KEY`, PRs #50 (SheetJS from a local archive vs. the CDN in `main`: owner decision) and #53/#55/#56 (fully in `main`; to be closed). |
 
 ## Completed
 

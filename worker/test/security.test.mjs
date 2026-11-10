@@ -3,14 +3,25 @@
 // back every Worker secret. Run against a local Worker with test secrets only (never production):
 //   WORKER_URL=http://localhost:8787 SECRET_VALUES=ci-pepper node --test worker/test/security.test.mjs
 // SECRET_VALUES: the test secret values the Worker was started with (comma-separated); none may appear in
-// any answer. WRANGLER_LOG (optional): the Worker's log file, which may not contain them either.
+// any answer. WRANGLER_LOG: the Worker's log file, which may not contain them either.
+// SECURITY_TEST_REQUIRED=1 (set by the CI step that starts the Worker) means nothing here may be skipped: a
+// missing WORKER_URL, SECRET_VALUES or WRANGLER_LOG, or a log that is not the running Worker's, fails the run.
+// (Without it, e.g. in the plain `npm test` step that runs before any Worker is started, it skips as before.)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 
 const BASE = process.env.WORKER_URL;
-const skip = !BASE && 'WORKER_URL not set (start the local Worker first)';
-const SECRETS = String(process.env.SECRET_VALUES || 'ci-pepper').split(',').map((s) => s.trim()).filter(Boolean);
+const REQUIRED = process.env.SECURITY_TEST_REQUIRED === '1';
+const skip = !REQUIRED && !BASE && 'WORKER_URL not set (start the local Worker first)';
+const SECRETS = String(process.env.SECRET_VALUES || '').split(',').map((s) => s.trim()).filter(Boolean);
+const LOG = process.env.WRANGLER_LOG;
+
+test('set up: the Worker address, the test secret values and the Worker log are given', { skip }, () => {
+  assert.ok(BASE, 'WORKER_URL is set');
+  assert.ok(SECRETS.length > 0, 'SECRET_VALUES lists the test secret values the Worker was started with');
+  if (REQUIRED) assert.ok(LOG, 'WRANGLER_LOG is set when the test is required');
+});
 const NAMES = ['constructor', '__proto__', 'tostring', 'toString', 'hasOwnProperty', 'hasownproperty', 'valueof', 'valueOf', 'isprototypeof', 'propertyisenumerable', 'tolocalestring', '__definegetter__', '__lookupgetter__', 'prototype'];
 // Names of env settings: an answer that lists them is env itself.
 const ENV_KEYS = ['PIN_PEPPER', 'BACKUP_KEY', 'SITE_URL', 'MORNING_CRON', 'PBKDF2_ITER', 'ANTHROPIC_API_KEY'];
@@ -80,8 +91,11 @@ test('the real functions still answer', { skip }, async () => {
   assert.match(u.text, /Could not find the function/);
 });
 
-test('the Worker log holds no secret value', { skip: skip || (!process.env.WRANGLER_LOG && 'WRANGLER_LOG not set') }, async () => {
-  assert.ok(existsSync(process.env.WRANGLER_LOG));
-  const log = readFileSync(process.env.WRANGLER_LOG, 'utf8');
+test('the Worker log holds no secret value', { skip: skip || (!REQUIRED && !LOG && 'WRANGLER_LOG not set') }, async () => {
+  assert.ok(LOG && existsSync(LOG), `the Worker log exists: ${LOG}`);
+  // The requests above must be in it, so this is the log of the Worker that answered them (not an old or empty file).
+  let log = '';
+  for (let i = 0; i < 50 && !/\/api\/rpc\/constructor/.test(log); i++) { log = readFileSync(LOG, 'utf8'); if (!/\/api\/rpc\/constructor/.test(log)) await new Promise((r) => setTimeout(r, 100)); }
+  assert.match(log, /\/api\/rpc\/constructor/, 'the log is the running Worker\'s: it lists the requests of this test');
   for (const s of SECRETS) assert.ok(!log.includes(s), 'a secret value is in the Worker log');
 });
