@@ -5,16 +5,19 @@ import 'theme.dart';
 
 /// The pharmacy cross on a green square, like the website's mark.
 class Mark extends StatelessWidget {
-  const Mark({super.key, this.size = 40});
+  const Mark({super.key, this.size = 40, this.onHero = false});
   final double size;
+
+  /// On the gradient the mark turns over: a white square with a blue cross.
+  final bool onHero;
   @override
   Widget build(BuildContext context) {
     final t = context.tones;
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(color: t.accent, borderRadius: BorderRadius.circular(size * .24)),
-      child: CustomPaint(painter: _Cross(t.onAccent)),
+      decoration: BoxDecoration(color: onHero ? Colors.white : null, gradient: onHero ? null : t.hero, borderRadius: BorderRadius.circular(size * .28)),
+      child: CustomPaint(painter: _Cross(onHero ? const Color(0xFF1746D1) : Colors.white)),
     );
   }
 }
@@ -34,6 +37,40 @@ class _Cross extends CustomPainter {
 
   @override
   bool shouldRepaint(_Cross o) => o.color != color;
+}
+
+/// The gradient card: for the one number that matters most on a screen.
+class HeroCard extends StatelessWidget {
+  const HeroCard({super.key, required this.child, this.onTap});
+  final Widget child;
+  final VoidCallback? onTap;
+  static const fg = Colors.white;
+  static const muted = Color(0xD6FFFFFF);
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: BoxDecoration(gradient: context.tones.hero),
+          child: InkWell(onTap: onTap, child: Padding(padding: const EdgeInsets.fromLTRB(18, 16, 18, 18), child: child)),
+        ),
+      );
+}
+
+/// A number that counts up to its value when it first shows or changes.
+class CountUp extends StatelessWidget {
+  const CountUp(this.value, {super.key, required this.format, this.style});
+  final double value;
+  final String Function(double) format;
+  final TextStyle? style;
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(end: value),
+        duration: MediaQuery.of(context).disableAnimations ? Duration.zero : const Duration(milliseconds: 600),
+        curve: Curves.easeOutCubic,
+        builder: (_, v, __) => Text(format(v), style: style),
+      );
 }
 
 enum Tone { plain, good, warn, crit, info }

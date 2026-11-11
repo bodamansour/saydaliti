@@ -16,6 +16,7 @@ dependencies:
   intl: any
   collection: any
   shared_preferences: any
+  path_provider: any
   url_launcher: any
 
 dev_dependencies:
@@ -26,24 +27,20 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   fonts:
-    - family: Readex Pro
+    - family: Cairo
       fonts:
-        - asset: assets/fonts/ReadexPro_400Regular.ttf
-        - asset: assets/fonts/ReadexPro_500Medium.ttf
+        - asset: assets/fonts/Cairo_400Regular.ttf
+        - asset: assets/fonts/Cairo_500Medium.ttf
           weight: 500
-        - asset: assets/fonts/ReadexPro_600SemiBold.ttf
+        - asset: assets/fonts/Cairo_600SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/ReadexPro_600SemiBold.ttf
-          weight: 700
-    - family: Noto Kufi Arabic
-      fonts:
-        - asset: assets/fonts/NotoKufiArabic_700Bold.ttf
+        - asset: assets/fonts/Cairo_700Bold.ttf
           weight: 700
 
 flutter_launcher_icons:
   android: true
   ios: false
   image_path: assets/icon-512.png
-  adaptive_icon_background: '#0b3b2e'
+  adaptive_icon_background: '#1746d1'
   adaptive_icon_foreground: assets/icon-foreground.png
   min_sdk_android: 21

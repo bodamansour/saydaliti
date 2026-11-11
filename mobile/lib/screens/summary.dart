@@ -31,27 +31,23 @@ class SummaryTab extends StatelessWidget {
         const Notice('لسه مفيش بيانات مخزون. ارفع ملف برنامج الصيدلية من الموقع (أو من الوصلة على جهاز الكاشير)، وهتظهر هنا.', tone: Tone.info),
       if (v.branchesWithoutUpload.isNotEmpty) Notice('لسه مفيش رفع لـ: ${v.branchesWithoutUpload.join('، ')}', tone: Tone.warn),
       // Today, big.
-      Card(
-        color: t.rail,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('مبيعات النهارده', style: TextStyle(color: t.railMuted, fontSize: 14)),
-            const SizedBox(height: 4),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: AlignmentDirectional.centerStart,
-              child: Text(money(o.today.now.sales), style: TextStyle(color: t.railFg, fontSize: 38, fontWeight: FontWeight.w600, height: 1.2)),
-            ),
-            const SizedBox(height: 8),
-            Wrap(spacing: 16, runSpacing: 4, children: [
-              _OnRail('مكسب', money(o.today.now.gross)),
-              _OnRail('امبارح', money(o.today.before)),
-              if (o.receiptsMonth > 0 && o.receiptAvg != null) _OnRail('متوسط الفاتورة', money(o.receiptAvg)),
-            ]),
+      HeroCard(
+        onTap: () => onOpen(3, money: 1),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('مبيعات النهارده', style: TextStyle(color: HeroCard.muted, fontSize: 14)),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: CountUp(o.today.now.sales, format: money, style: const TextStyle(color: HeroCard.fg, fontSize: 38, fontWeight: FontWeight.w700, height: 1.2)),
+          ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 16, runSpacing: 4, children: [
+            _OnRail('مكسب', money(o.today.now.gross)),
+            _OnRail('امبارح', money(o.today.before)),
+            if (o.receiptsMonth > 0 && o.receiptAvg != null) _OnRail('متوسط الفاتورة', money(o.receiptAvg)),
           ]),
-        ),
+        ]),
       ),
       const SizedBox(height: 10),
       TileRow([
@@ -148,10 +144,9 @@ class _OnRail extends StatelessWidget {
   final String label, value;
   @override
   Widget build(BuildContext context) {
-    final t = context.tones;
     return Text.rich(TextSpan(children: [
-      TextSpan(text: '$label ', style: TextStyle(color: t.railMuted, fontSize: 13.5)),
-      TextSpan(text: value, style: TextStyle(color: t.railFg, fontSize: 14, fontWeight: FontWeight.w600)),
+      TextSpan(text: '$label ', style: const TextStyle(color: HeroCard.muted, fontSize: 13.5)),
+      TextSpan(text: value, style: const TextStyle(color: HeroCard.fg, fontSize: 14, fontWeight: FontWeight.w600)),
     ]));
   }
 }

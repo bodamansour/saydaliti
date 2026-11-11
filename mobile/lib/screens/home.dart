@@ -1,6 +1,7 @@
 // The app after sign-in: the pharmacy's name on the green bar, the branch picker, and four parts at the
 // bottom: the summary, the stock, the orders and the money.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
@@ -24,13 +25,36 @@ class HomeScreenState extends State<HomeScreen> {
   int tab = 0;
   StockFilter stockFilter = StockFilter.all;
   int moneyPart = 0;
+  final _pages = PageController();
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
 
   /// Opens a part of the app from a summary card.
-  void go(int index, {StockFilter? filter, int? money}) => setState(() {
-        tab = index;
-        if (filter != null) stockFilter = filter;
-        if (money != null) moneyPart = money;
-      });
+  void go(int index, {StockFilter? filter, int? money}) {
+    setState(() {
+      if (filter != null) stockFilter = filter;
+      if (money != null) moneyPart = money;
+    });
+    _show(index);
+  }
+
+  /// Slides to a part (the same move as swiping sideways between them).
+  void _show(int index) {
+    if (!_pages.hasClients) {
+      setState(() => tab = index);
+      return;
+    }
+    final still = MediaQuery.of(context).disableAnimations;
+    if (still) {
+      _pages.jumpToPage(index);
+    } else {
+      _pages.animateToPage(index, duration: const Duration(milliseconds: 260), curve: Curves.easeOutCubic);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +88,7 @@ class HomeScreenState extends State<HomeScreen> {
       body: _body(context, s),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
+        onDestinationSelected: _show,
         destinations: [
           const NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'الملخص'),
           const NavigationDestination(icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory_2), label: 'المخزون'),
@@ -92,13 +116,26 @@ class HomeScreenState extends State<HomeScreen> {
       }
       return const _Loading();
     }
-    final page = switch (tab) {
-      0 => SummaryTab(onOpen: go),
-      1 => StockTab(key: ValueKey('stock-${stockFilter.name}'), initial: stockFilter),
-      2 => const OrdersTab(),
-      _ => MoneyTab(key: ValueKey('money-$moneyPart'), initial: moneyPart),
-    };
+    // Swipe sideways to move between the four parts; a tap on the bar below slides the same way.
+    final page = PageView(
+      controller: _pages,
+      onPageChanged: (i) {
+        HapticFeedback.selectionClick();
+        setState(() => tab = i);
+      },
+      children: [
+        SummaryTab(onOpen: go),
+        StockTab(key: ValueKey('stock-${stockFilter.name}'), initial: stockFilter),
+        const OrdersTab(),
+        MoneyTab(key: ValueKey('money-$moneyPart'), initial: moneyPart),
+      ],
+    );
     return Column(children: [
+      if (s.fromSaved && s.error == null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Text('دي آخر أرقام محفوظة على الموبايل. بنجيب الجديد…', style: TextStyle(color: context.tones.faint, fontSize: 12.5)),
+        ),
       if (s.error != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -118,6 +155,8 @@ class _Loading extends StatelessWidget {
           const CircularProgressIndicator(),
           const SizedBox(height: 16),
           Text('بنجيب بيانات الصيدلية…', style: TextStyle(color: context.tones.muted)),
+          const SizedBox(height: 4),
+          Text('أول مرة بس. بعد كده بيفتح على طول.', style: TextStyle(color: context.tones.faint, fontSize: 13)),
         ]),
       );
 }

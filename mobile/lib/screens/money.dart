@@ -43,12 +43,18 @@ class _MoneyTabState extends State<MoneyTab> {
         ),
       ),
       Expanded(
-        child: switch (part) {
-          0 => const _TreasuryPart(),
-          1 => const _SalesPart(),
-          2 => const _ExpensesPart(),
-          _ => const _SuppliersPart(),
-        },
+        child: AnimatedSwitcher(
+          duration: MediaQuery.of(context).disableAnimations ? Duration.zero : const Duration(milliseconds: 200),
+          child: KeyedSubtree(
+            key: ValueKey(part),
+            child: switch (part) {
+              0 => const _TreasuryPart(),
+              1 => const _SalesPart(),
+              2 => const _ExpensesPart(),
+              _ => const _SuppliersPart(),
+            },
+          ),
+        ),
       ),
     ]);
   }
@@ -85,20 +91,16 @@ class _TreasuryPart extends StatelessWidget {
     final since = tr.since != null ? DateTime.tryParse(tr.since!) : null;
     final moves = [...v.cashMoves]..sort((a, b) => '${b['moved_at']}'.compareTo('${a['moved_at']}'));
     return RefreshPage(onRefresh: s.refresh, children: [
-      Card(
-        color: t.rail,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('الكاش اللي المفروض يبقى في الصيدلية', style: TextStyle(color: t.railMuted)),
-            const SizedBox(height: 4),
-            FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(money(tr.balance), style: TextStyle(color: tr.balance < 0 ? const Color(0xFFFFB4AB) : t.railFg, fontSize: 36, fontWeight: FontWeight.w600))),
-            Text(since == null ? 'من أول ما بدأت تسجّل (لسه معدّتش الخزينة)' : 'من آخر عدّ: ${when(since)}', style: TextStyle(color: t.railMuted, fontSize: 13)),
-          ]),
-        ),
+      HeroCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('الكاش اللي المفروض يبقى في الصيدلية', style: TextStyle(color: HeroCard.muted)),
+          const SizedBox(height: 4),
+          FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: CountUp(tr.balance, format: money, style: TextStyle(color: tr.balance < 0 ? const Color(0xFFFFD6D1) : HeroCard.fg, fontSize: 36, fontWeight: FontWeight.w700))),
+          Text(since == null ? 'من أول ما بدأت تسجّل (لسه معدّتش الخزينة)' : 'من آخر عدّ: ${when(since)}', style: const TextStyle(color: HeroCard.muted, fontSize: 13)),
+        ]),
       ),
       if (s.member!.owner) ...[
         const SizedBox(height: 10),

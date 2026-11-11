@@ -2,6 +2,7 @@
 // decision: what runs out soon, what may expire before it sells, and what does not sell. An item opens
 // its batches, how fast it sells, and how long it lasts.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../logic/core.dart';
@@ -184,6 +185,10 @@ class _ItemCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => showItem(context, r),
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          showItem(context, r);
+        },
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
           child: Row(children: [

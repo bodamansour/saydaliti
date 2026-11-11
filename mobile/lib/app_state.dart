@@ -16,6 +16,10 @@ class AppState extends ChangeNotifier {
 
   Phase phase = Phase.starting;
   String email = '';
+  String userId = '';
+
+  /// The numbers on screen are from the copy kept on the phone; the fresh ones are still loading.
+  bool fromSaved = false;
   Membership? get member => repo.member;
   PharmacyView? view;
   bool loading = false;
@@ -37,12 +41,14 @@ class AppState extends ChangeNotifier {
       return;
     }
     email = s.email;
+    userId = s.userId;
     await _open();
   }
 
   Future<void> signIn(String email, String password, {String? code}) async {
     final s = await api.signIn(email, password, code: code);
     this.email = s.email;
+    userId = s.userId;
     await _open();
   }
 
@@ -50,11 +56,26 @@ class AppState extends ChangeNotifier {
     phase = Phase.ready;
     view = null;
     notifyListeners();
+    // Open at once with what the phone kept from last time; the fresh data loads behind it.
+    if (await repo.restore(userId)) {
+      final m = repo.member!;
+      if (branch != 'all' && !m.branches.any((b) => branchKey(b.id) == branch)) branch = 'all';
+      if (m.branches.length == 1) branch = branchKey(m.branches.first.id);
+      try {
+        view = await repo.view(branch);
+        fromSaved = true;
+        notifyListeners();
+      } catch (_) {
+        // A copy from an older version that no longer fits: the fresh data fills the screen.
+      }
+    }
     await refresh();
   }
 
   Future<void> signOut() async {
     await api.signOut();
+    await repo.forget(userId);
+    fromSaved = false;
     repo
       ..member = null
       ..raw = null;
@@ -82,6 +103,8 @@ class AppState extends ChangeNotifier {
       await repo.load();
       view = await repo.view(branch);
       loadedAt = DateTime.now();
+      fromSaved = false;
+      repo.keep(userId); // in the background
     } on ApiError catch (e) {
       if (e.signedOut) {
         await api.forget();

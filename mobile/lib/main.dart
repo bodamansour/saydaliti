@@ -39,8 +39,8 @@ class SaydalitiApp extends StatelessWidget {
           builder: (context, child) {
             final dark = Theme.of(context).brightness == Brightness.dark;
             SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-              statusBarColor: context.tones.rail,
-              statusBarIconBrightness: Brightness.light,
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
               systemNavigationBarColor: context.tones.surface,
               systemNavigationBarIconBrightness: dark ? Brightness.light : Brightness.dark,
             ));
@@ -61,7 +61,7 @@ class SaydalitiApp extends StatelessWidget {
 class _Splash extends StatelessWidget {
   const _Splash();
   @override
-  Widget build(BuildContext context) => Scaffold(backgroundColor: context.tones.rail, body: const Center(child: Mark(size: 64)));
+  Widget build(BuildContext context) => Scaffold(body: DecoratedBox(decoration: BoxDecoration(gradient: context.tones.hero), child: const Center(child: Mark(size: 64, onHero: true))));
 }
 
 class _NoPharmacy extends StatelessWidget {

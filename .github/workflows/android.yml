@@ -52,7 +52,7 @@ jobs:
       - name: Get packages
         run: |
           flutter pub get
-          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|url_launcher):$/) print "::notice::" p " " $2 }' pubspec.lock
+          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|path_provider|url_launcher):$/) print "::notice::" p " " $2 }' pubspec.lock
       - name: Check the code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       # The same pharmacy worked out by the website's code and by the app's: every number must match.

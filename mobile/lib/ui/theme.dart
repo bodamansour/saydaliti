@@ -1,5 +1,5 @@
-// The look of the website's new design (src/style.css): the deep green of a pharmacy sign, one accent
-// green, amber and red only for warnings; Noto Kufi Arabic for titles, Readex Pro for text and numbers.
+// The look of the website (src/style.css): white surfaces, one royal blue, a blue-to-cyan gradient for the
+// one thing that matters most, amber and red only for warnings; Cairo for titles, text and numbers.
 import 'package:flutter/material.dart';
 
 class Tones extends ThemeExtension<Tones> {
@@ -28,50 +28,59 @@ class Tones extends ThemeExtension<Tones> {
   });
 
   static const light = Tones(
-    paper: Color(0xFFF2F5F1),
+    paper: Color(0xFFF7F8FA),
     surface: Color(0xFFFFFFFF),
-    sunk: Color(0xFFE8EEE8),
-    line: Color(0xFFD8E0D9),
-    fg: Color(0xFF10241C),
-    muted: Color(0xFF4C5F55),
-    faint: Color(0xFF6C7E74),
-    rail: Color(0xFF0B3B2E),
-    railFg: Color(0xFFECF5F0),
-    railMuted: Color(0xFFA8C4B7),
-    accent: Color(0xFF0D7A56),
-    accentStrong: Color(0xFF0A6346),
-    accentSoft: Color(0xFFDFF0E7),
+    sunk: Color(0xFFEEF1F6),
+    line: Color(0xFFE6E8EE),
+    fg: Color(0xFF0B1220),
+    muted: Color(0xFF566074),
+    faint: Color(0xFF717B8F),
+    rail: Color(0xFFFFFFFF),
+    railFg: Color(0xFF0B1220),
+    railMuted: Color(0xFF566074),
+    accent: Color(0xFF1746D1),
+    accentStrong: Color(0xFF1239AD),
+    accentSoft: Color(0xFFE9EEFF),
     onAccent: Color(0xFFFFFFFF),
-    crit: Color(0xFFB3261E),
-    critSoft: Color(0xFFFBE8E6),
-    warn: Color(0xFFA35C05),
-    warnSoft: Color(0xFFFBEFD8),
-    info: Color(0xFF3E6A88),
-    infoSoft: Color(0xFFE3EDF3),
+    crit: Color(0xFFC81E1E),
+    critSoft: Color(0xFFFEE2E2),
+    warn: Color(0xFFA94E08),
+    warnSoft: Color(0xFFFEF3C7),
+    info: Color(0xFF0E7490),
+    infoSoft: Color(0xFFCFFAFE),
   );
 
   static const dark = Tones(
-    paper: Color(0xFF0C1511),
-    surface: Color(0xFF13201A),
-    sunk: Color(0xFF192820),
-    line: Color(0xFF23362C),
-    fg: Color(0xFFE5EEE9),
-    muted: Color(0xFFA0B4A9),
-    faint: Color(0xFF7A8E83),
-    rail: Color(0xFF07110D),
-    railFg: Color(0xFFE5EEE9),
-    railMuted: Color(0xFF8AA597),
-    accent: Color(0xFF3CC48A),
-    accentStrong: Color(0xFF6BD8A8),
-    accentSoft: Color(0xFF11352A),
-    onAccent: Color(0xFF03140C),
+    paper: Color(0xFF0A0F1D),
+    surface: Color(0xFF111A2E),
+    sunk: Color(0xFF17223A),
+    line: Color(0xFF222E49),
+    fg: Color(0xFFE6EBF5),
+    muted: Color(0xFF9EAAC2),
+    faint: Color(0xFF76839D),
+    rail: Color(0xFF0E1526),
+    railFg: Color(0xFFE6EBF5),
+    railMuted: Color(0xFF9EAAC2),
+    accent: Color(0xFF6F95FF),
+    accentStrong: Color(0xFF9BB5FF),
+    accentSoft: Color(0xFF18285A),
+    onAccent: Color(0xFF05102E),
     crit: Color(0xFFFF8A80),
-    critSoft: Color(0xFF3A1A18),
-    warn: Color(0xFFF2B65C),
-    warnSoft: Color(0xFF35270F),
-    info: Color(0xFF8DB8D8),
-    infoSoft: Color(0xFF172A35),
+    critSoft: Color(0xFF3D1717),
+    warn: Color(0xFFF5B558),
+    warnSoft: Color(0xFF3A2A0C),
+    info: Color(0xFF67D8EC),
+    infoSoft: Color(0xFF0C2F38),
   );
+
+  bool get isDark => paper.computeLuminance() < .2;
+
+  /// Blue to cyan: for the one number that matters most on a screen, and the sign-in page.
+  LinearGradient get hero => LinearGradient(
+        begin: AlignmentDirectional.topStart,
+        end: AlignmentDirectional.bottomEnd,
+        colors: isDark ? const [Color(0xFF2452E0), Color(0xFF0891B2)] : const [Color(0xFF1746D1), Color(0xFF06B6D4)],
+      );
 
   @override
   Tones copyWith() => this;
@@ -84,8 +93,8 @@ extension TonesOf on BuildContext {
   Tones get tones => Theme.of(this).extension<Tones>()!;
 }
 
-const textFont = 'Readex Pro';
-const signFont = 'Noto Kufi Arabic';
+const textFont = 'Cairo';
+const signFont = 'Cairo';
 
 ThemeData buildTheme(Brightness b) {
   final t = b == Brightness.dark ? Tones.dark : Tones.light;
@@ -122,12 +131,17 @@ ThemeData buildTheme(Brightness b) {
       elevation: 0,
       centerTitle: false,
       titleTextStyle: TextStyle(fontFamily: signFont, fontWeight: FontWeight.w700, fontSize: 18, color: t.railFg),
+      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: 0,
+      shape: Border(bottom: BorderSide(color: t.line)),
     ),
     cardTheme: CardThemeData(
       color: t.surface,
-      elevation: 0,
+      elevation: b == Brightness.dark ? 0 : 1,
+      shadowColor: const Color(0x260B1220),
+      surfaceTintColor: Colors.transparent,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: t.line)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: t.line)),
     ),
     dividerTheme: DividerThemeData(color: t.line, space: 1, thickness: 1),
     filledButtonTheme: FilledButtonThemeData(

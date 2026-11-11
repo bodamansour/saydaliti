@@ -1,7 +1,11 @@
 // Loads the pharmacy's data from the server, the same tables the website's dashboard reads, and works out
 // the stock, what to order, what expires and the money, away from the screen (a separate isolate), so
 // tens of thousands of items never freeze the app.
+import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
+
+import 'package:path_provider/path_provider.dart';
 
 import '../logic/core.dart';
 import '../logic/inventory.dart';
@@ -25,6 +29,22 @@ class Membership {
   final String? mainBranchId;
   const Membership(this.role, this.pharmacyId, this.pharmacyName, this.settings, this.branches, this.mainBranchId);
   bool get owner => role == 'owner';
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'pharmacyId': pharmacyId,
+        'pharmacyName': pharmacyName,
+        'settings': settings,
+        'branches': [for (final b in branches) {'id': b.id, 'name': b.name}],
+        'mainBranchId': mainBranchId,
+      };
+  static Membership fromJson(Map<String, dynamic> j) => Membership(
+        j['role'] as String,
+        j['pharmacyId'] as String,
+        j['pharmacyName'] as String,
+        Map<String, dynamic>.from(j['settings'] as Map),
+        [for (final b in j['branches'] as List) Branch(b['id'] as String?, b['name'] as String)],
+        j['mainBranchId'] as String?,
+      );
   List<Map<String, dynamic>> get suppliers => [for (final s in (settings['suppliers'] as List? ?? const [])) if (s is Map) Map<String, dynamic>.from(s)];
   Map<String, dynamic> get supplierFor => Map<String, dynamic>.from(settings['supplierFor'] as Map? ?? const {});
 }
@@ -37,6 +57,33 @@ class Raw {
   final List<Map<String, dynamic>> catalog, purchases, sales, moves, supplierPayments, expenses, cashMoves, customerPayments;
   final bool cashReady;
   Raw(this.snapshots, this.catalog, this.purchases, this.sales, this.moves, this.supplierPayments, this.expenses, this.cashMoves, this.customerPayments, this.cashReady);
+  Map<String, dynamic> toJson() => {
+        'snapshots': snapshots,
+        'catalog': catalog,
+        'purchases': purchases,
+        'sales': sales,
+        'moves': moves,
+        'supplierPayments': supplierPayments,
+        'expenses': expenses,
+        'cashMoves': cashMoves,
+        'customerPayments': customerPayments,
+        'cashReady': cashReady,
+      };
+  static Raw fromJson(Map<String, dynamic> j) {
+    List<Map<String, dynamic>> rows(String k) => [for (final r in j[k] as List) Map<String, dynamic>.from(r as Map)];
+    return Raw(
+      {for (final e in (j['snapshots'] as Map).entries) e.key as String: e.value == null ? null : Map<String, dynamic>.from(e.value as Map)},
+      rows('catalog'),
+      rows('purchases'),
+      rows('sales'),
+      rows('moves'),
+      rows('supplierPayments'),
+      rows('expenses'),
+      rows('cashMoves'),
+      rows('customerPayments'),
+      j['cashReady'] == true,
+    );
+  }
 }
 
 /// Everything the screens show for one branch choice ('all' or a branch id).
@@ -133,6 +180,58 @@ class Repo {
     ]);
     List<Map<String, dynamic>> at(int i) => all[i] as List<Map<String, dynamic>>;
     return raw = Raw(snaps, at(0), at(1), at(2), at(3), at(4), at(5), at(6), at(7), m.role == 'owner' || m.role == 'partner');
+  }
+
+  // ---------- The last data, kept on the phone: the app opens with it at once, then loads the fresh data ----------
+  static Future<File> _file(String userId) async {
+    final dir = await getApplicationSupportDirectory();
+    return File('${dir.path}/last-${userId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.json');
+  }
+
+  /// Keeps what was just loaded. Written beside the old copy and swapped in, so a copy is never half-written.
+  Future<void> keep(String userId) async {
+    final m = member, r = raw;
+    if (m == null || r == null) return;
+    try {
+      final f = await _file(userId);
+      final text = await Isolate.run(() => jsonEncode({'v': 1, 'member': m.toJson(), 'raw': r.toJson()}));
+      final tmp = File('${f.path}.new');
+      await tmp.writeAsString(text, flush: true);
+      await tmp.rename(f.path);
+    } catch (_) {
+      // No room or no permission: the app still works, it just opens without a saved copy next time.
+    }
+  }
+
+  /// Reads the copy kept last time. False when there is none (or it cannot be read).
+  Future<bool> restore(String userId) async {
+    try {
+      final f = await _file(userId);
+      if (!await f.exists()) return false;
+      final text = await f.readAsString();
+      final got = await Isolate.run(() {
+        final j = jsonDecode(text) as Map<String, dynamic>;
+        if (j['v'] != 1) return null;
+        return (Membership.fromJson(j['member'] as Map<String, dynamic>), Raw.fromJson(j['raw'] as Map<String, dynamic>));
+      });
+      if (got == null) return false;
+      member = got.$1;
+      raw = got.$2;
+      for (final e in got.$2.snapshots.entries) {
+        final s = e.value;
+        if (s != null && s['data'] is Map) _snapCache[e.key] = (at: '${s['created_at']}', data: Map<String, dynamic>.from(s['data'] as Map));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> forget(String userId) async {
+    try {
+      final f = await _file(userId);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   /// Works out what the screens show, in a separate isolate.

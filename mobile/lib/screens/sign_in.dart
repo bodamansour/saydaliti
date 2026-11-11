@@ -77,18 +77,19 @@ class _SignInScreenState extends State<SignInScreen> {
   Widget build(BuildContext context) {
     final t = context.tones;
     return Scaffold(
-      backgroundColor: t.rail,
-      body: SafeArea(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: t.hero),
+        child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                const Align(alignment: AlignmentDirectional.centerStart, child: Mark(size: 52)),
+                const Align(alignment: AlignmentDirectional.centerStart, child: Mark(size: 52, onHero: true)),
                 const SizedBox(height: 14),
-                Text('صيدليتي', style: TextStyle(fontFamily: signFont, fontWeight: FontWeight.w700, fontSize: 40, color: t.railFg, height: 1.3)),
-                Text('صيدليتك في جيبك: المخزون والطلبيات والفلوس.', style: TextStyle(color: t.railMuted, fontSize: 16)),
+                Text('صيدليتي', style: TextStyle(fontFamily: signFont, fontWeight: FontWeight.w700, fontSize: 40, color: Colors.white, height: 1.3)),
+                Text('صيدليتك في جيبك: المخزون والطلبيات والفلوس.', style: const TextStyle(color: Color(0xD6FFFFFF), fontSize: 16)),
                 const SizedBox(height: 26),
                 Card(
                   child: Padding(
@@ -153,10 +154,11 @@ class _SignInScreenState extends State<SignInScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('معندكش حساب؟ اعمله من الموقع، وبعدين ادخل بيه هنا.', style: TextStyle(color: t.railMuted, fontSize: 13.5), textAlign: TextAlign.center),
+                Text('معندكش حساب؟ اعمله من الموقع، وبعدين ادخل بيه هنا.', style: const TextStyle(color: Color(0xD6FFFFFF), fontSize: 13.5), textAlign: TextAlign.center),
               ]),
             ),
           ),
+        ),
         ),
       ),
     );
