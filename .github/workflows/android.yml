@@ -47,6 +47,10 @@ jobs:
           grep -q 'android.permission.INTERNET' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
           G=$(ls android/app/build.gradle* | head -1)
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' "$G"
+          # The release lint pass crashes inside the lint tool itself on a plugin's Java file
+          # (url_launcher_android, NoSuchMethodError in JavaDocParser). It checks nothing of ours, so it is off.
+          B=$(ls android/build.gradle* | head -1)
+          printf '\nsubprojects {\n    tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }\n}\n' >> "$B"
           echo "--- manifest"; head -20 "$M"
 
       - name: Get packages
