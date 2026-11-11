@@ -1,145 +1,86 @@
-// صيدليتي — Android app. It opens the same dashboard as the website inside the app, so every
-// feature (sign-in, branches, expenses, offline mode) works the same. The site's service worker keeps
-// it usable with no connection; this shell adds file upload, confirm dialogs, the back button,
-// and opens WhatsApp / outside links in their own apps.
-import 'package:file_selector/file_selector.dart';
+// صيدليتي for the pharmacy owner: the stock, what to order, and the money, from the phone. A native app
+// that talks to the same server as the website (worker/) and shows the same numbers (lib/logic is
+// src/*.js in Dart; test/parity_test.dart checks they agree).
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
-const siteUrl = String.fromEnvironment('SITE_URL', defaultValue: 'https://saydaliti.mosaedapp.workers.dev');
-const brand = Color(0xFF0B6B57);
+import 'app_state.dart';
+import 'screens/home.dart';
+import 'screens/sign_in.dart';
+import 'ui/theme.dart';
+import 'ui/widgets.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: brand, statusBarIconBrightness: Brightness.light));
-  runApp(const SaydalitiApp());
+  final state = AppState()..start();
+  runApp(SaydalitiApp(state: state));
 }
 
 class SaydalitiApp extends StatelessWidget {
-  const SaydalitiApp({super.key});
+  const SaydalitiApp({super.key, required this.state});
+  final AppState state;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'صيدليتي',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: brand, useMaterial3: true),
-      builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
-      home: const Dashboard(),
-    );
-  }
-}
-
-class Dashboard extends StatefulWidget {
-  const Dashboard({super.key});
-
-  @override
-  State<Dashboard> createState() => _DashboardState();
-}
-
-class _DashboardState extends State<Dashboard> {
-  late final WebViewController _web;
-  final _home = Uri.parse(siteUrl);
-  int _progress = 0;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _web = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFFF4F6F4))
-      ..setNavigationDelegate(NavigationDelegate(
-        onProgress: (p) => setState(() => _progress = p),
-        onPageFinished: (_) => setState(() => _failed = false),
-        onWebResourceError: (e) {
-          // The site works offline once it has been opened with a connection; only the very
-          // first launch without internet ends up here.
-          if (e.isForMainFrame ?? false) setState(() => _failed = true);
-        },
-        onNavigationRequest: (req) async {
-          final u = Uri.tryParse(req.url);
-          if (u == null || u.host == _home.host || u.scheme == 'about' || u.scheme == 'blob' || u.scheme == 'data') {
-            return NavigationDecision.navigate;
-          }
-          // WhatsApp, phone calls, e-mail and other sites open in their own apps.
-          await launchUrl(u, mode: LaunchMode.externalApplication);
-          return NavigationDecision.prevent;
-        },
-      ))
-      ..setOnJavaScriptConfirmDialog((request) async => _confirm(request.message))
-      ..setOnJavaScriptAlertDialog((request) async => _alert(request.message))
-      ..loadRequest(_home);
-
-    final platform = _web.platform;
-    if (platform is AndroidWebViewController) {
-      // Uploading Excel / data.json files from the phone.
-      platform.setOnShowFileSelector(_pickFiles);
-      platform.setMediaPlaybackRequiresUserGesture(true);
-    }
-  }
-
-  Future<List<String>> _pickFiles(FileSelectorParams params) async {
-    final files = params.mode == FileSelectorMode.openMultiple
-        ? await openFiles()
-        : [if (await openFile() case final f?) f];
-    return files.map((f) => Uri.file(f.path).toString()).toList();
-  }
-
-  Future<bool> _confirm(String message) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        content: Text(message),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('لأ')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('أيوه')),
-        ],
+    return AppScope(
+      state: state,
+      child: ListenableBuilder(
+        listenable: state,
+        builder: (context, _) => MaterialApp(
+          title: 'صيدليتي',
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.light),
+          darkTheme: buildTheme(Brightness.dark),
+          themeMode: state.themeMode,
+          locale: const Locale('ar', 'EG'),
+          supportedLocales: const [Locale('ar', 'EG')],
+          localizationsDelegates: const [GlobalMaterialLocalizations.delegate, GlobalWidgetsLocalizations.delegate, GlobalCupertinoLocalizations.delegate],
+          builder: (context, child) {
+            final dark = Theme.of(context).brightness == Brightness.dark;
+            SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+              systemNavigationBarColor: context.tones.surface,
+              systemNavigationBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+            ));
+            return child!;
+          },
+          home: switch (state.phase) {
+            Phase.starting => const _Splash(),
+            Phase.signedOut => const SignInScreen(),
+            Phase.noPharmacy => const _NoPharmacy(),
+            Phase.ready => const HomeScreen(),
+          },
+        ),
       ),
     );
-    return ok ?? false;
   }
+}
 
-  Future<void> _alert(String message) => showDialog<void>(
-        context: context,
-        builder: (c) => AlertDialog(content: Text(message), actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text('تمام'))]),
-      );
+class _Splash extends StatelessWidget {
+  const _Splash();
+  @override
+  Widget build(BuildContext context) => Scaffold(body: DecoratedBox(decoration: BoxDecoration(gradient: context.tones.hero), child: const Center(child: Mark(size: 64, onHero: true))));
+}
 
+class _NoPharmacy extends StatelessWidget {
+  const _NoPharmacy();
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        if (await _web.canGoBack()) {
-          await _web.goBack();
-        } else {
-          await SystemNavigator.pop();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF4F6F4),
-        body: SafeArea(
-          child: Stack(children: [
-            WebViewWidget(controller: _web),
-            if (_progress < 100) LinearProgressIndicator(value: _progress / 100, color: brand, backgroundColor: Colors.transparent, minHeight: 3),
-            if (_failed)
-              Container(
-                color: const Color(0xFFF4F6F4),
-                alignment: Alignment.center,
-                padding: const EdgeInsets.all(24),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.wifi_off, size: 48, color: brand),
-                  const SizedBox(height: 12),
-                  const Text('أول مرة البرنامج محتاج نت عشان يفتح. بعد كده بيشتغل من غيره.', textAlign: TextAlign.center, style: TextStyle(fontSize: 16)),
-                  const SizedBox(height: 16),
-                  FilledButton(onPressed: () => _web.reload(), child: const Text('جرّب تاني')),
-                ]),
-              ),
-          ]),
+    final s = AppScope.of(context);
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: EmptyState(
+            icon: Icons.storefront_outlined,
+            title: 'الحساب ده لسه مش مربوط بصيدلية',
+            text: 'اعمل الصيدلية من الموقع الأول (أو ادخل بكود الدعوة من صاحبها)، وبعدين ارجع هنا.\n${s.email}',
+            action: Wrap(spacing: 8, children: [
+              FilledButton(onPressed: s.refresh, child: const Text('جرّب تاني')),
+              OutlinedButton(onPressed: s.signOut, child: const Text('خروج')),
+            ]),
+          ),
         ),
       ),
     );
