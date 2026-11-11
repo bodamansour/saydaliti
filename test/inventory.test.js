@@ -265,3 +265,17 @@ test('batch numbers from a delivery stay on their batch; tax and photo come from
   assert.equal(z.tax, 14);
   assert.ok(z.image);
 });
+
+test('drug list suggestions: every typed word, names that start with it first, none already in the pharmacy', async () => {
+  const { suggestDrugs } = await import('../src/inventory.js');
+  const { readFileSync } = await import('node:fs');
+  const rows = JSON.parse(readFileSync(new URL('../src/drug-list.json', import.meta.url), 'utf8'));
+  assert.ok(rows.length > 20000);
+  assert.ok(rows.every((r) => r.length === 4 && r[0] && r[3] > 0), 'every row has a name and a price');
+  const small = [['CO-PANADOL 10 TABS', 'X', 'M', 5], ['PANADOL ADVANCE 500 MG 24 F.C.TABS.', 'PARACETAMOL', 'GSK', 46], ['PANADOL EXTRA 24 TABS', 'P', 'GSK', 50]];
+  assert.deepEqual(suggestDrugs('pa', small), [], 'too short');
+  assert.deepEqual(suggestDrugs('panadol', small).map((d) => d.name), ['PANADOL ADVANCE 500 MG 24 F.C.TABS.', 'PANADOL EXTRA 24 TABS', 'CO-PANADOL 10 TABS']);
+  assert.deepEqual(suggestDrugs('panadol adv', small)[0], { i: 1, name: 'PANADOL ADVANCE 500 MG 24 F.C.TABS.', generic: 'PARACETAMOL', maker: 'GSK', price: 46 });
+  assert.equal(suggestDrugs('panadol', small, new Set(['panadol extra 24 tabs'])).length, 2);
+  assert.ok(suggestDrugs('augmentin 1 gm', rows).length >= 1);
+});
