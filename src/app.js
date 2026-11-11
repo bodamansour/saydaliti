@@ -1819,6 +1819,111 @@ function countRows() {
 }
 const countedN = () => Object.values(COUNTS).filter((v) => v !== '' && v !== null).length;
 
+// ----- Quick count: scan or type an item, enter boxes + expiry, next. For a first stocktake. -----
+let QC = { q: '', code: null, isNew: false, barcode: '', name: '', n: 0 };
+let QC_NOTE = '';
+const canScan = () => 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia;
+
+function quickCountForm() {
+  const it = QC.code ? viewItem(QC.code) : null;
+  const picked = it || QC.isNew;
+  return `<form id="qcForm" class="card stack" novalidate>
+    <h3>جرد سريع</h3>
+    <p class="note">امسح الباركود أو اكتب الاسم، اكتب الكمية والصلاحية، ودوس Enter. الكمية بتتضاف على الرصيد، فلو الصنف له أكتر من تاريخ صلاحية سجّل كل تاريخ لوحده. الصنف اللي مش متسجل بيتضاف من هنا.</p>
+    ${it ? `<div class="row u-between"><b>${esc(it.name)}</b><span class="muted">الرصيد دلوقتي <b class="n">${fmt(it.qty)}</b></span><button type="button" class="btn" id="qcChange">صنف تاني</button></div>`
+      : QC.isNew ? `<div class="row u-between"><b>صنف جديد${QC.barcode ? ` · باركود <span class="n">${esc(QC.barcode)}</span>` : ''}</b><button type="button" class="btn" id="qcChange">صنف تاني</button></div>
+        <label>اسم الصنف<input id="qcName" maxlength="200" autocomplete="off" value="${esc(QC.name)}"></label>`
+      : `<div class="row"><div class="pos-search u-grow0"><input id="qcQ" type="search" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه…" aria-label="الصنف" value="${esc(QC.q)}"><div id="qcResults" class="results" hidden></div></div>
+        ${canScan() ? '<button type="button" class="btn" id="qcScan">امسح بالكاميرا</button>' : ''}</div>`}
+    ${picked ? `<div class="grid2">
+      <label>عدد العلب<input id="qcQty" type="number" min="1" step="1" inputmode="numeric"></label>
+      <label>الصلاحية<input id="qcExp" type="month"></label>
+      <label>سعر البيع<input id="qcPrice" type="number" min="0" step="0.25" inputmode="decimal" value="${esc(it?.price ?? '')}"></label>
+      <label>سعر الشراء (اختياري)<input id="qcCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(it?.cost || '')}"></label>
+    </div>` : ''}
+    <div class="row">${picked ? '<button class="btn primary" type="submit">سجّل واللي بعده</button>' : ''}<span class="note" id="qcMsg" role="status">${esc(QC_NOTE)}</span></div>
+  </form>`;
+}
+function qcPick(code) { QC = { ...QC, q: '', code, isNew: false }; QC_NOTE = ''; render(); $('qcQty')?.focus(); }
+function qcNew(q) {
+  const digits = /^\d{6,}$/.test(q);
+  QC = { ...QC, q: '', code: null, isNew: true, barcode: digits ? q : '', name: digits ? '' : q }; QC_NOTE = '';
+  render(); $(digits ? 'qcName' : 'qcQty')?.focus();
+}
+function qcSearch(enter) {
+  const q = scanDigits($('qcQ').value).trim();
+  QC.q = q;
+  const box = $('qcResults');
+  if (!q) { box.hidden = true; return; }
+  const r = lookup(q, DATA.items, barcodeMap());
+  const list = r.item ? [r.item] : r.matches.slice(0, 8);
+  if (enter) {
+    if (r.item) return qcPick(r.item.code);
+    if (/^\d{6,}$/.test(q) || !list.length) return qcNew(q);
+    return qcPick(list[0].code);
+  }
+  box.hidden = false;
+  box.innerHTML = list.map((it, i) => `<button type="button" class="res ${i === 0 ? 'first' : ''}" data-qcpick="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">رصيد ${fmt(it.qty)}</span></button>`).join('')
+    + (r.item ? '' : `<button type="button" class="res" data-qcnew="1"><span>+ صنف جديد: ${esc(q)}</span></button>`);
+}
+async function saveQuickCount(e) {
+  e.preventDefault();
+  const m = (t) => { QC_NOTE = ''; $('qcMsg').textContent = t; };
+  const it = QC.code ? viewItem(QC.code) : null;
+  const qty = Math.round(+$('qcQty').value || 0);
+  if (qty <= 0) return m('اكتب عدد العلب.');
+  const exp = $('qcExp').value;
+  const hasPrice = $('qcPrice').value !== '', price = +$('qcPrice').value;
+  const cost = $('qcCost').value === '' ? null : +$('qcCost').value;
+  if (hasPrice && !(price >= 0)) return m('سعر البيع مش مظبوط.');
+  if (cost !== null && !(cost >= 0)) return m('سعر الشراء مش مظبوط.');
+  let code = it?.code, name = it?.name;
+  if (!it) {
+    name = $('qcName').value.trim();
+    if (!name) return m('اكتب اسم الصنف.');
+    if (!hasPrice) return m('اكتب سعر البيع.');
+    if (DATA.items.some((i) => i.name.trim() === name)) return m('فيه صنف بنفس الاسم. دوس «صنف تاني» ودوّر عليه.');
+    code = newItemCode(QC.barcode, new Set(DATA.items.map((i) => i.code)));
+    await localInsert('catalog_items', { code, name, category: CATEGORIES[0], price, ...(cost !== null ? { cost } : {}), barcode: QC.barcode || null });
+  } else if ((hasPrice && price !== it.price) || (cost !== null && cost !== it.cost)) {
+    const fields = { ...(hasPrice ? { price } : {}), ...(cost !== null ? { cost } : {}) };
+    const row = CATALOG.find((c) => c.code === code);
+    if (row) await localUpdate('catalog_items', row.id, { ...fields, updated_at: new Date().toISOString() });
+    else await localInsert('catalog_items', { code, name: it.name, category: it.category, price: it.price, ...fields });
+  }
+  await localInsert('stock_moves', { code, qty, kind: 'count', branch_id: BRANCH === 'all' ? mainBranchId() : BRANCH_ID(), expiry: exp ? `${exp}-01` : null,
+    cost: cost ?? it?.cost ?? null, happened_at: new Date().toISOString(), note: 'جرد سريع' });
+  QC = { q: '', code: null, isNew: false, barcode: '', name: '', n: QC.n + 1 };
+  QC_NOTE = `اتسجل ${qty} × «${name}». سجّلت ${QC.n} في الجلسة دي.${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
+  render();
+  $('qcQ')?.focus();
+}
+// The phone's camera as a barcode scanner (Chrome on Android). The first code seen fills the box.
+async function scanBarcode() {
+  let stream;
+  const dlg = document.createElement('dialog');
+  dlg.className = 'card scan';
+  dlg.innerHTML = '<h3>وجّه الكاميرا على الباركود</h3><video playsinline muted></video><div class="row"><button class="btn" type="button">إلغاء</button><span class="note" role="status"></span></div>';
+  const video = dlg.querySelector('video');
+  const done = () => { stream?.getTracks().forEach((t) => t.stop()); dlg.remove(); };
+  dlg.addEventListener('close', done);
+  dlg.querySelector('button').addEventListener('click', () => dlg.close());
+  document.body.append(dlg);
+  dlg.showModal();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    if (!dlg.open) return done();
+    video.srcObject = stream;
+    await video.play();
+    const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'] });
+    while (dlg.open) {
+      const [hit] = await det.detect(video).catch(() => []);
+      if (hit?.rawValue) { dlg.close(); if ($('qcQ')) { $('qcQ').value = hit.rawValue; qcSearch(true); } return; }
+      await new Promise((ok) => setTimeout(ok, 200));
+    }
+  } catch { dlg.querySelector('.note').textContent = 'الكاميرا مش متاحة. اسمح للموقع يستخدمها من إعدادات المتصفح.'; }
+}
+
 function renderAdjust() {
   if (!INV_READY) return needInv();
   if (needBranch()) return '<div class="card emptybox"><h3>اختار الفرع من فوق الأول</h3><p>الجرد والتالف بيتسجلوا على فرع معين.</p></div>';
@@ -1839,7 +1944,7 @@ function renderAdjust() {
       <td class="n"><span class="pill ${+m.qty < 0 ? 'crit' : 'ok'}">${+m.qty > 0 ? '+' : ''}${fmt(+m.qty)}</span></td><td>${esc(m.note || '')}</td>
       <td>${isOwner() ? `<button class="btn" type="button" data-delmove="${esc(m.id)}">امسح</button>` : ''}${pendingPill(m)}</td></tr>`)) : '';
   return `<p>الجرد بيظبط الرصيد على اللي موجود فعلاً، والتالف والمنتهي بيتشالوا من الرصيد ويتحسبوا خسارة في «الحسابات»، والمرتجع للمورد بيتخصم من حسابه، ومسحوبات البضاعة بتروح «المسحوبات».</p>
-    ${canBuy() ? adjustForm() : ''}${exp}${count}${history}`;
+    ${canBuy() ? quickCountForm() + adjustForm() : ''}${exp}${count}${history}`;
 }
 
 function adjustSearch(enter) {
@@ -1925,6 +2030,8 @@ $('panel').addEventListener('keydown', (e) => {
 $('panel').addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'adjQ') adjustSearch(false);
+  if (t.id === 'qcQ') qcSearch(false);
+  if (t.id === 'qcName') QC.name = t.value;
   if (t.id === 'adjQty') ADJ.qty = t.value;
   if (t.id === 'adjNote') ADJ.note = t.value;
   if (t.id === 'adjCost') ADJ.cost = t.value;
@@ -1942,9 +2049,10 @@ $('panel').addEventListener('change', (e) => { if (e.target.id === 'adjSup') ADJ
 $('panel').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (e.target.id === 'adjQ') { e.preventDefault(); adjustSearch(true); }
+  if (e.target.id === 'qcQ') { e.preventDefault(); qcSearch(true); }
   if (e.target.dataset?.count !== undefined) { e.preventDefault(); const all = [...document.querySelectorAll('[data-count]')]; all[all.indexOf(e.target) + 1]?.focus(); }
 });
-$('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); });
+$('panel').addEventListener('submit', (e) => { if (e.target.id === 'adjForm') saveAdjust(e); if (e.target.id === 'qcForm') saveQuickCount(e); });
 $('panel').addEventListener('click', async (e) => {
   if (e.target.id === 'logReload') { LOG_ROWS = null; render(); }
   const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
@@ -1984,6 +2092,10 @@ $('panel').addEventListener('click', async (e) => {
   if (t('adjkind')) { ADJ.kind = t('adjkind'); ADJ_NOTE = ''; render(); }
   if (t('adjpick')) pickAdjust(t('adjpick'));
   if (e.target.id === 'adjChange') { ADJ.code = null; render(); $('adjQ')?.focus(); }
+  if (t('qcpick')) qcPick(t('qcpick'));
+  if (t('qcnew')) qcNew(QC.q);
+  if (e.target.id === 'qcChange') { QC = { ...QC, code: null, isNew: false, barcode: '', name: '' }; QC_NOTE = ''; render(); $('qcQ')?.focus(); }
+  if (e.target.id === 'qcScan') scanBarcode();
   if (t('expout')) {
     const it = viewItem(t('expout')); const qty = +e.target.closest('[data-expqty]').dataset.expqty;
     if (it && confirm(`تشيل ${qty} علبة منتهية من «${it.name}» من الرصيد؟`)) await localInsert('stock_moves', { code: it.code, qty: -qty, kind: 'expired', branch_id: BRANCH === 'all' ? mainBranchId() : BRANCH_ID(), cost: it.cost || null, happened_at: new Date().toISOString(), note: 'منتهي على الرف' });

@@ -475,6 +475,37 @@ test('cashier: sells from the stock entered here, and adds a brand-new item on t
   await page.waitForSelector('#app:not([hidden])');
 });
 
+test('quick count: an unknown barcode becomes an item, a known one adds a batch', async () => {
+  await page.click('[data-sec=stock]');
+  await page.click('[data-tab=adjust]');
+  await page.fill('#qcQ', '6229999000017');
+  await page.press('#qcQ', 'Enter');
+  assert.match(await text('#qcForm'), /صنف جديد/);
+  await page.click('#qcForm button[type=submit]');
+  assert.match(await text('#qcMsg'), /عدد العلب/, 'nothing is saved without a quantity');
+  await page.fill('#qcQty', '4');
+  await page.fill('#qcExp', '2028-03');
+  await page.fill('#qcPrice', '55');
+  await page.fill('#qcName', 'صنف الجرد السريع');
+  await page.click('#qcForm button[type=submit]');
+  assert.ok(await until(async () => (await db('catalog_items')).some((c) => c.barcode === '6229999000017' && c.price === 55)));
+  assert.ok(await until(async () => (await db('stock_moves')).some((m) => m.code === '6229999000017' && m.qty === 4 && m.expiry === '2028-03-01')));
+  // The same barcode again: found, a second expiry, and a new price.
+  await page.fill('#qcQ', '6229999000017');
+  await page.press('#qcQ', 'Enter');
+  assert.match(await text('#qcForm'), /الرصيد دلوقتي 4/);
+  await page.fill('#qcQty', '2');
+  await page.fill('#qcExp', '2029-01');
+  await page.fill('#qcPrice', '60');
+  await page.press('#qcPrice', 'Enter');
+  assert.ok(await until(async () => (await db('stock_moves')).some((m) => m.code === '6229999000017' && m.qty === 2 && m.expiry === '2029-01-01')));
+  assert.ok(await until(async () => (await db('catalog_items')).some((c) => c.barcode === '6229999000017' && c.price === 60)));
+  assert.match(await text('#qcMsg'), /سجّلت 2/);
+  await page.fill('#qcQ', 'الجرد السريع');
+  assert.match(await text('#qcResults'), /رصيد 6/);
+  await page.fill('#qcQ', '');
+});
+
 test('stock count, damaged boxes, and a return to the supplier', async () => {
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=adjust]');
@@ -650,7 +681,7 @@ test('opens offline with saved data even after the sign-in expired', async () =>
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 8000 });
   assert.match(await text('#netChip'), /من غير نت/);
-  assert.ok(await until(async () => /5 صنف/.test(await text('#tiles'))), 'saved stock (3 uploaded + 2 added here) shows offline');
+  assert.ok(await until(async () => /6 صنف/.test(await text('#tiles'))), 'saved stock (3 uploaded + 3 added here) shows offline');
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=reorder]');
   assert.match(await text('.orders .card b'), /مخزن الأمل/, 'suppliers available offline');
