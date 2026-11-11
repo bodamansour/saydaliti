@@ -1,6 +1,49 @@
+<div align="center">
+
+<img src="icons/icon-192.png" width="96" alt="صيدليتي">
+
 # صيدليتي
 
+**برنامج إدارة الصيدلية لصاحبها: المخزون، الطلبيات، الكاشير، والفلوس. على الويب والويندوز والأندرويد.**
+
+[![Tests](https://github.com/bodamansour/saydaliti/actions/workflows/test.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/test.yml)
+[![Android app](https://github.com/bodamansour/saydaliti/actions/workflows/android.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/android.yml)
+[![Windows program](https://github.com/bodamansour/saydaliti/actions/workflows/desktop.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/desktop.yml)
+
+[الموقع](https://saydaliti.mosaedapp.workers.dev) · [أبلكيشن أندرويد (APK)](https://github.com/bodamansour/saydaliti/releases/tag/android-latest) · [برنامج الويندوز](https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest) · [المستندات](docs/)
+
+</div>
+
+## إيه هو صيدليتي
+
 لوحة لصاحب الصيدلية: إيه اللي يتطلب، إيه اللي قرب ينتهي أو راكد، عروض جاهزة للواتساب، حاسبة المكسب الصافي بعد الضرايب والمصاريف، وتقسيم البضاعة والمكسب على الشركاء.
+
+| المنصة | إيه اللي فيها | الكود |
+|---|---|---|
+| **الويب (PWA)** | اللوحة الكاملة، الكاشير، الحضور، الإدارة. بيتسطب من المتصفح وبيفتح من غير نت | `index.html`، `src/` |
+| **السيرفر** | Cloudflare Worker + D1 + R2: الحسابات، الصلاحيات، النسخ الاحتياطي، سجل مختوم | `worker/` |
+| **ويندوز** | نفس اللوحة والكاشير من غير نت ومن غير حساب (Electron) | `desktop/` |
+| **أندرويد** | أبلكيشن لصاحب الصيدلية: الملخص، المخزون، الطلبيات بواتساب، الخزينة والمصروفات (Flutter) | `mobile/` |
+| **الوصلة** | بتسحب بيانات برنامج الصيدلية (SQL Server / Genius) وترفعها | `connector/` |
+
+## التشغيل والاختبار
+
+```bash
+npm install
+npm run dev   # اللوحة على http://localhost:3000
+npm test      # الحسابات وقواعد السيرفر
+npm run e2e   # تجربة اللوحة في متصفح (أول مرة: npx playwright install chromium)
+```
+
+السيرفر محلياً: `cd worker && npm install && npm run dev`. تفاصيل النشر والأسرار في [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md).
+
+## المستندات
+
+- [البنية](docs/ARCHITECTURE.md) · [قاعدة البيانات](docs/DATABASE_SCHEMA.md) · [حالة المميزات](docs/FEATURES_STATUS.md) · [خطة المشروع](docs/PROJECT_ROADMAP.md)
+- [النشر](docs/DEPLOYMENT_GUIDE.md) · [الأمان والأسرار](docs/security/) · [سجل التغييرات](docs/CHANGELOG.md)
+- للتبليغ عن ثغرة أمنية: [`SECURITY.md`](SECURITY.md)
+
+## المميزات بالتفصيل
 
 - **الدخول الأول:** البرنامج بيفتح على صفحة تسجيل الدخول، ومحدش يشوف اللوحة غير بعد الدخول وربط الحساب بصيدلية. الحساب الجديد فيه خانة تأكيد كلمة المرور.
 - **البيانات بتتحفظ:** الملفات اللي صاحب الصيدلية بيرفعها بتتحفظ في قاعدة البيانات لكل فرع، والشركاء بيشوفوا نفس الأرقام.

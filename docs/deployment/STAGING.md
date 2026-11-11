@@ -57,7 +57,7 @@ The guard never reads the production token, and it never sends a request about a
 
 **What the guard cannot do.** A Cloudflare API token with Workers Scripts / D1 / R2 **Edit** applies to the whole account; Cloudflare doesn't scope those permissions to single resources. The staging token could therefore technically change production if it were used outside this workflow. The guard prevents that inside the workflow. Outside it, the protection is keeping the token only in the `staging` GitHub environment, giving it an expiry, and (strongest) a separate Cloudflare account for staging.
 
-## 3. Owner setup (one time; nothing here is done by Claude)
+## 3. Owner setup (one time; done by the owner, by hand)
 
 1. **Cloudflare API token** (done, per the owner): Custom token.
    - Permissions: Account · Workers Scripts · Edit; Account · D1 · Edit; Account · Workers R2 Storage · Edit; Account · Account Settings · Read; User · User Details · Read.
