@@ -77,7 +77,11 @@ void main() {
       expect(find.text('صيدلية التجربة'), findsOneWidget);
 
       await nav(t, 'المخزون');
-      for (final chip in ['هيخلص', 'قرب ينتهي', 'راكد', 'كل الأصناف']) {
+      // The filter chips sit in a row that scrolls sideways (right to left): bring each into view, then tap it.
+      final chips = find.byWidgetPredicate((w) => w is ListView && w.scrollDirection == Axis.horizontal).first;
+      for (final (chip, dx) in [('هيخلص', 60.0), ('قرب ينتهي', 60.0), ('راكد', 60.0), ('كل الأصناف', -60.0)]) {
+        await t.dragUntilVisible(find.textContaining(chip), chips, Offset(dx, 0));
+        await t.pumpAndSettle();
         await tapText(t, chip);
       }
       // An item's details sheet, then back.
