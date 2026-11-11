@@ -1,0 +1,4 @@
+# No external lint package: the analyzer's own checks (the project uses official packages only).
+analyzer:
+  language:
+    strict-casts: false

@@ -17,7 +17,7 @@
 | البيانات | Cloudflare D1 (SQLite)؛ صلاحيات الجداول في `worker/src/schema.js` وتطبيقها في `worker/src/db.js` | `worker/src/schema.js`, `worker/src/db.js`, `worker/migrations/` |
 | الملفات الكبيرة | Cloudflare R2، ومنها نسخ بيانات الفروع وصور الأصناف | `worker/src/rpc.js`, `worker/src/index.js` |
 | برنامج Windows | Electron 45.2.0؛ تشغيل سحابي أو وضع محلي على IndexedDB | `desktop/`, `src/local-db.js` |
-| Android | Flutter WebView يفتح نفس الواجهة | `mobile/`, `.github/workflows/android.yml` |
+| Android | Flutter native لصاحب الصيدلية، على نفس الـ API | `mobile/`, `.github/workflows/android.yml` |
 | المتحدة / Genius | استيراد ملف `.Gen` ومزامنة قراءة عبر PowerShell | `src/genius.js`, `connector/genius/`, `desktop/genius-live.ps1` |
 | الاختبارات | Node test runner وPlaywright، واختبار Worker محلي في CI | `test/`, `e2e/`, `worker/test/`, `.github/workflows/test.yml` |
 
@@ -37,7 +37,7 @@
 - إعداد نافذة تنبيه الصلاحية محدود بفترة واحدة.
 - لا يوجد تكامل تحصيل إلكتروني أو إحصائيات استخدام متقدمة في Super Admin.
 - بعض الملخصات المالية تحتاج رصيد خزينة مجمع، وبعض تفاصيل تكلفة الصنف تحتاج شاشة مستقلة.
-- Android حاليًا WebView، من غير Push notifications أصلية.
+- Android أبلكيشن native لصاحب الصيدلية (من غير كاشير)، من غير Push notifications.
 - المثبت الأساسي يدعم Windows 10/11 على x64. يوجد بناء توافق منفصل لـWindows 7/8 و32-bit يستخدم Electron 22، وهو إصدار منتهي الدعم.
 - الضريبة الإلكترونية والفاتورة الإلكترونية غير مكتملتين؛ الفاتورة الإلكترونية مؤجلة حسب توثيق المشروع.
 - انتقلت مكتبة Excel إلى SheetJS `0.20.3` من CDN الرسمي في الويب وWindows لإصلاح ثغرتي قراءة الملفات المعروفتين؛ اختبار round-trip يغطي بقاء القراءة والتصدير. تدقيق `npm audit` في الجذر و`desktop/` و`worker/` يعرض صفر ثغرات بعد تحديث Electron وWrangler؛ يظل Electron 22 في مثبت الأنظمة القديمة خارج الدعم.

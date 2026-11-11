@@ -4,3 +4,6 @@ android/
 ios/
 .flutter-plugins*
 pubspec.lock
+
+# Made by test/parity/make_expected.mjs from the website's code (CI runs it before the tests).
+test/parity/*.json

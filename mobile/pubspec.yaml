@@ -1,30 +1,46 @@
 name: saydaliti_app
-description: صيدليتي — Android app for the pharmacy dashboard.
+description: صيدليتي — the pharmacy owner's app (stock, orders, money), native Android.
 publish_to: none
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
-  sdk: '>=3.4.0 <4.0.0'
+  sdk: '>=3.5.0 <4.0.0'
 
-# Official Flutter-team plugins only, so builds keep working with new Flutter/Android releases.
+# Official Flutter- and Dart-team packages only, so builds keep working with new Flutter/Android releases.
 dependencies:
   flutter:
     sdk: flutter
-  webview_flutter: any
-  webview_flutter_android: any
-  file_selector: any
+  flutter_localizations:
+    sdk: flutter
+  http: any
+  intl: any
+  collection: any
+  shared_preferences: any
+  path_provider: any
   url_launcher: any
 
 dev_dependencies:
+  flutter_test:
+    sdk: flutter
   flutter_launcher_icons: any
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo_400Regular.ttf
+        - asset: assets/fonts/Cairo_500Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Cairo_600SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Cairo_700Bold.ttf
+          weight: 700
 
 flutter_launcher_icons:
   android: true
   ios: false
   image_path: assets/icon-512.png
-  adaptive_icon_background: '#0b6b57'
+  adaptive_icon_background: '#1746d1'
   adaptive_icon_foreground: assets/icon-foreground.png
   min_sdk_android: 21
