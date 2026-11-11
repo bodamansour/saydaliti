@@ -31,7 +31,7 @@ await win.click('#createForm button[type=submit]');
 await win.waitForSelector('#app:not([hidden])');
 assert.equal(await win.locator('#phTitle').innerText(), 'صيدلية أحمد منصور');
 assert.ok(await win.evaluate(() => typeof XLSX !== 'undefined'), 'Excel reader bundled');
-assert.ok(await win.evaluate(async () => { await document.fonts.ready; return document.fonts.check('16px "Readex Pro"', 'صيدلية') && document.fonts.check('700 16px "Noto Kufi Arabic"', 'صيدلية'); }), 'Arabic fonts bundled');
+assert.ok(await win.evaluate(async () => { await document.fonts.ready; return document.fonts.check('16px "Cairo"', 'صيدلية') && document.fonts.check('700 16px "Cairo"', 'Panadol 24'); }), 'Arabic fonts bundled');
 assert.ok(await win.evaluate(() => !!window.saydalitiDesktop?.saveBackup), 'desktop bridge');
 await win.click('#toolsBtn'); // backups live in «الإعدادات والأدوات»
 await win.click('#localBox summary');

@@ -2905,6 +2905,21 @@ function setView() {
   $('fileMsg').textContent = `${DATA.items.length} صنف · آخر تحديث: ${when}${latest.pending ? ' (مستني النت عشان يترفع)' : ''}${missing.length ? ` · لسه مفيش بيانات لـ: ${missing.join('، ')}` : ''}`;
 }
 
+// What this device kept from the last visit (the copies the loaders below save), read only, so the page
+// has its numbers at once. Nothing is written here; the loaders replace all of it with the fresh data.
+async function showSaved() {
+  for (const b of BRANCHES) {
+    const k = key(b.id);
+    const cached = await kvGet(snapKey(k)), prev = await kvGet(prevKey(k));
+    if (cached?.raw) SNAP.set(k, { at: cached.at, pending: !!cached.pending, data: fromExport(cached.raw), ...(prev?.raw ? { prev: { at: prev.at, data: fromExport(prev.raw) } } : {}) });
+  }
+  if (!SNAP.size) return;
+  const saved = async (table) => ((await kvGet(cacheKey(table), [])) || []).filter((r) => branchAllowed(r, table));
+  const [catalog, purchases, moves, sales] = await Promise.all(['catalog_items', 'purchases', 'stock_moves', 'pos_sales'].map(saved));
+  CATALOG = catalog; PURCHASES = purchases; MOVES = moves; POS_SALES = sales;
+  setView(); render();
+}
+
 async function loadSnapshots() {
   const online = isOnline();
   for (const b of BRANCHES) {
@@ -3117,7 +3132,13 @@ async function boot() {
   $('cloudImport').hidden = !SESS.client?.cloudflare;
   renderBranches();
   render();
-  await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription(), SESS.role !== 'device' ? loadTasks() : null]);
+  // Open at once with what this device kept from last time; the fresh data loads behind it (the thin
+  // bar at the top shows it is still coming) and replaces it when it arrives.
+  document.body.classList.add('loading');
+  if (!SESS.local && isOnline()) await showSaved().catch(() => {}); // nothing kept yet: the fresh data fills the page
+  try {
+    await Promise.all([loadSnapshots(), loadExpenses(), loadFeatures(), loadInventory(), loadCustomers(), loadSubscription(), SESS.role !== 'device' ? loadTasks() : null]);
+  } finally { document.body.classList.remove('loading'); }
   OUTBOX_COUNT = { pending: (await pending()).length, stuck: (await stuck()).length };
   if (AI_ON === null && SESS.client?.ai && isOnline()) SESS.client.ai('status').then((r) => { AI_ON = !!r.data?.enabled; }).catch(() => {});
   renderBranches(); setView(); render();
@@ -3182,13 +3203,43 @@ $('panel').addEventListener('click', (e) => {
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
 $('branchSel').addEventListener('change', (e) => { BRANCH = e.target.value; store.set('saydaliti-branch-v1', BRANCH); renderBranches(); setView(); render(); });
 $('toolsBtn').addEventListener('click', () => { showView(VIEW === 'tools' ? 'work' : 'tools'); if (VIEW === 'work') render(); scrollTo({ top: 0 }); });
-$('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) { TAB = b.dataset.tab; render(); } });
+// A new list slides in, so the eye sees that the page changed (style.css .enter; off with reduced motion).
+function enter(dir = 0) {
+  const p = $('panel');
+  p.classList.remove('enter');
+  p.style.setProperty('--from', `${dir * 18}px`);
+  void p.offsetWidth; // restart the animation
+  p.classList.add('enter');
+}
+function openTab(id, dir = 0) { if (id === TAB) return; TAB = id; render(); enter(dir); }
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) openTab(b.dataset.tab); });
+// On a touch screen: swipe sideways on the list to move to the next or the previous tab of the section.
+// Not from inside something that scrolls sideways itself (a wide table), or a field being typed in.
+let SWIPE = null;
+$('panel').addEventListener('touchstart', (e) => {
+  SWIPE = null;
+  if (e.touches.length !== 1 || e.target.closest('input, textarea, select, [contenteditable]')) return;
+  for (let el = e.target; el && el !== $('panel'); el = el.parentElement) if (el.scrollWidth > el.clientWidth + 4 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return;
+  SWIPE = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+}, { passive: true });
+$('panel').addEventListener('touchend', (e) => {
+  const s = SWIPE; SWIPE = null;
+  if (!s || VIEW !== 'work') return;
+  const dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y;
+  if (Math.abs(dx) < 70 || Math.abs(dy) > 50 || Date.now() - s.t > 600) return;
+  const tabs = [...$('tabs').querySelectorAll('.tab')].filter((b) => !b.hidden).map((b) => b.dataset.tab);
+  // The next tab sits on the left in Arabic and on the right in English; the list follows the finger.
+  const step = (dx > 0 ? 1 : -1) * (document.documentElement.dir === 'ltr' ? -1 : 1);
+  const next = tabs[tabs.indexOf(TAB) + step];
+  if (next) { openTab(next, dx > 0 ? -1 : 1); scrollTo({ top: 0 }); }
+}, { passive: true });
 $('sections').addEventListener('click', (e) => {
   const b = e.target.closest('.sec'); if (!b) return;
   const sec = SECTIONS.find(([id]) => id === b.dataset.sec);
   TAB = LAST_TAB[sec[0]] ?? sec[2][0][0];
   showView('work');
   render();
+  enter();
   scrollTo({ top: 0 });
 });
 $('logout').addEventListener('click', async () => {
