@@ -239,6 +239,21 @@ export function newItemCode(barcode, taken = new Set()) {
   return c;
 }
 
+// ---------- Name suggestions from the public drug list ----------
+// rows: [name, active ingredient, maker, listed price] (src/drug-list.json). Returns up to n rows
+// whose name has every typed word, names starting with the text first; `taken` are names already here.
+export function suggestDrugs(query, rows, taken = new Set(), n = 6) {
+  const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length || words.join('').length < 3) return [];
+  const first = [], rest = [];
+  for (let i = 0; i < rows.length && first.length < n; i++) {
+    const name = rows[i][0].toLowerCase();
+    if (!words.every((w) => name.includes(w)) || taken.has(rows[i][0].toLowerCase())) continue;
+    (name.startsWith(words[0]) ? first : rest).push(i);
+  }
+  return [...first, ...rest].slice(0, n).map((i) => ({ i, name: rows[i][0], generic: rows[i][1], maker: rows[i][2], price: rows[i][3] }));
+}
+
 // ---------- Stock count and write-offs ----------
 export const MOVE_KINDS = [
   ['count', 'جرد'],

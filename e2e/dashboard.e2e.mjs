@@ -504,6 +504,16 @@ test('quick count: an unknown barcode becomes an item, a known one adds a batch'
   await page.fill('#qcQ', 'الجرد السريع');
   assert.match(await text('#qcResults'), /رصيد 6/);
   await page.fill('#qcQ', '');
+  // A name from the public drug list: the name, maker and listed price come filled in.
+  await page.fill('#qcQ', 'panadol advance 500 mg 24');
+  await page.waitForSelector('[data-qcdrug]');
+  await page.click('[data-qcdrug]');
+  assert.equal(await page.inputValue('#qcName'), 'PANADOL ADVANCE 500 MG 24 F.C.TABS.');
+  assert.equal(await page.inputValue('#qcPrice'), '46');
+  assert.match(await text('#qcForm'), /راجع السعر من على العلبة/);
+  await page.fill('#qcQty', '3');
+  await page.click('#qcForm button[type=submit]');
+  assert.ok(await until(async () => (await db('catalog_items')).some((c) => c.name === 'PANADOL ADVANCE 500 MG 24 F.C.TABS.' && c.price === 46 && c.generic && c.maker)));
 });
 
 test('stock count, damaged boxes, and a return to the supplier', async () => {
@@ -681,7 +691,7 @@ test('opens offline with saved data even after the sign-in expired', async () =>
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 8000 });
   assert.match(await text('#netChip'), /من غير نت/);
-  assert.ok(await until(async () => /6 صنف/.test(await text('#tiles'))), 'saved stock (3 uploaded + 3 added here) shows offline');
+  assert.ok(await until(async () => /7 صنف/.test(await text('#tiles'))), 'saved stock (3 uploaded + 4 added here) shows offline');
   await page.click('[data-sec=stock]');
   await page.click('[data-tab=reorder]');
   assert.match(await text('.orders .card b'), /مخزن الأمل/, 'suppliers available offline');

@@ -24,7 +24,7 @@ import { overview, monthlySeries, categoryPerformance, trending, profitClasses, 
 import { daySummary, PAYMENTS, normalize, lookup, findBarcode, scanDigits, unitLabel, boxQty, unitsOf, pricesOf } from './pos.js';
 import { salesReport, matchSale, hourLabel } from './sales-report.js';
 import { CUSTOMER_KINDS, customerBalances, statement, claims, profitByPeriod } from './accounts.js';
-import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue, itemHistory, costHistory } from './inventory.js';
+import { stockEdits, liveData, purchaseTotal, supplierBalances, newItemCode, suggestDrugs, MOVE_KINDS, moveLabel, countDifferences, expiredOnShelf, stockValue, itemHistory, costHistory } from './inventory.js';
 
 const $ = (id) => document.getElementById(id);
 // A PC with 2 cores or fewer: the lighter drawing (html.lite in style.css).
@@ -1820,7 +1820,10 @@ function countRows() {
 const countedN = () => Object.values(COUNTS).filter((v) => v !== '' && v !== null).length;
 
 // ----- Quick count: scan or type an item, enter boxes + expiry, next. For a first stocktake. -----
-let QC = { q: '', code: null, isNew: false, barcode: '', name: '', n: 0 };
+let QC = { q: '', code: null, isNew: false, barcode: '', name: '', drug: null, n: 0 };
+// The public drug list (names, makers, listed prices), fetched the first time a name is typed.
+let DRUGS = null;
+const loadDrugs = () => (DRUGS ??= fetch('./src/drug-list.json').then((r) => (r.ok ? r.json() : [])).catch(() => { DRUGS = null; return []; }));
 let QC_NOTE = '';
 const canScan = () => 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia;
 
@@ -1838,16 +1841,17 @@ function quickCountForm() {
     ${picked ? `<div class="grid2">
       <label>عدد العلب<input id="qcQty" type="number" min="1" step="1" inputmode="numeric"></label>
       <label>الصلاحية<input id="qcExp" type="month"></label>
-      <label>سعر البيع<input id="qcPrice" type="number" min="0" step="0.25" inputmode="decimal" value="${esc(it?.price ?? '')}"></label>
+      <label>سعر البيع<input id="qcPrice" type="number" min="0" step="0.25" inputmode="decimal" value="${esc(it?.price ?? QC.drug?.price ?? '')}"></label>
       <label>سعر الشراء (اختياري)<input id="qcCost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(it?.cost || '')}"></label>
-    </div>` : ''}
+    </div>${QC.drug ? '<p class="note">الاسم والسعر من قائمة أدوية عامة. راجع السعر من على العلبة قبل ما تسجّل.</p>' : ''}` : ''}
     <div class="row">${picked ? '<button class="btn primary" type="submit">سجّل واللي بعده</button>' : ''}<span class="note" id="qcMsg" role="status">${esc(QC_NOTE)}</span></div>
   </form>`;
 }
-function qcPick(code) { QC = { ...QC, q: '', code, isNew: false }; QC_NOTE = ''; render(); $('qcQty')?.focus(); }
+function qcPick(code) { QC = { ...QC, q: '', code, isNew: false, drug: null }; QC_NOTE = ''; render(); $('qcQty')?.focus(); }
+function qcDrug(d) { QC = { ...QC, q: '', code: null, isNew: true, barcode: '', name: d.name, drug: d }; QC_NOTE = ''; render(); $('qcQty')?.focus(); }
 function qcNew(q) {
   const digits = /^\d{6,}$/.test(q);
-  QC = { ...QC, q: '', code: null, isNew: true, barcode: digits ? q : '', name: digits ? '' : q }; QC_NOTE = '';
+  QC = { ...QC, q: '', code: null, isNew: true, barcode: digits ? q : '', name: digits ? '' : q, drug: null }; QC_NOTE = '';
   render(); $(digits ? 'qcName' : 'qcQty')?.focus();
 }
 function qcSearch(enter) {
@@ -1865,6 +1869,13 @@ function qcSearch(enter) {
   box.hidden = false;
   box.innerHTML = list.map((it, i) => `<button type="button" class="res ${i === 0 ? 'first' : ''}" data-qcpick="${esc(it.code)}"><span>${esc(it.name)}</span><span class="muted n">رصيد ${fmt(it.qty)}</span></button>`).join('')
     + (r.item ? '' : `<button type="button" class="res" data-qcnew="1"><span>+ صنف جديد: ${esc(q)}</span></button>`);
+  if (r.item || /^\d+$/.test(q)) return;
+  loadDrugs().then((rows) => {
+    if ($('qcQ')?.value !== q && scanDigits($('qcQ')?.value ?? '').trim() !== q) return; // typed on since
+    const more = suggestDrugs(q, rows, new Set(DATA.items.map((i) => i.name.trim().toLowerCase())));
+    QC.found = more;
+    box.insertAdjacentHTML('beforeend', more.map((d, i) => `<button type="button" class="res" data-qcdrug="${i}"><span>${esc(d.name)}<span class="cat">${esc([d.maker, 'من قائمة الأدوية'].filter(Boolean).join(' · '))}</span></span><span class="muted n">${fmt(d.price)} ج</span></button>`).join(''));
+  });
 }
 async function saveQuickCount(e) {
   e.preventDefault();
@@ -1884,7 +1895,8 @@ async function saveQuickCount(e) {
     if (!hasPrice) return m('اكتب سعر البيع.');
     if (DATA.items.some((i) => i.name.trim() === name)) return m('فيه صنف بنفس الاسم. دوس «صنف تاني» ودوّر عليه.');
     code = newItemCode(QC.barcode, new Set(DATA.items.map((i) => i.code)));
-    await localInsert('catalog_items', { code, name, category: CATEGORIES[0], price, ...(cost !== null ? { cost } : {}), barcode: QC.barcode || null });
+    const d = QC.drug?.name === name ? QC.drug : null;
+    await localInsert('catalog_items', { code, name, category: CATEGORIES[0], price, ...(cost !== null ? { cost } : {}), barcode: QC.barcode || null, ...(d?.generic ? { generic: d.generic } : {}), ...(d?.maker ? { maker: d.maker } : {}) });
   } else if ((hasPrice && price !== it.price) || (cost !== null && cost !== it.cost)) {
     const fields = { ...(hasPrice ? { price } : {}), ...(cost !== null ? { cost } : {}) };
     const row = CATALOG.find((c) => c.code === code);
@@ -1893,7 +1905,7 @@ async function saveQuickCount(e) {
   }
   await localInsert('stock_moves', { code, qty, kind: 'count', branch_id: BRANCH === 'all' ? mainBranchId() : BRANCH_ID(), expiry: exp ? `${exp}-01` : null,
     cost: cost ?? it?.cost ?? null, happened_at: new Date().toISOString(), note: 'جرد سريع' });
-  QC = { q: '', code: null, isNew: false, barcode: '', name: '', n: QC.n + 1 };
+  QC = { q: '', code: null, isNew: false, barcode: '', name: '', drug: null, n: QC.n + 1 };
   QC_NOTE = `اتسجل ${qty} × «${name}». سجّلت ${QC.n} في الجلسة دي.${isOnline() ? '' : ' هيترفع أول ما النت يرجع.'}`;
   render();
   $('qcQ')?.focus();
@@ -2094,7 +2106,8 @@ $('panel').addEventListener('click', async (e) => {
   if (e.target.id === 'adjChange') { ADJ.code = null; render(); $('adjQ')?.focus(); }
   if (t('qcpick')) qcPick(t('qcpick'));
   if (t('qcnew')) qcNew(QC.q);
-  if (e.target.id === 'qcChange') { QC = { ...QC, code: null, isNew: false, barcode: '', name: '' }; QC_NOTE = ''; render(); $('qcQ')?.focus(); }
+  if (t('qcdrug') && QC.found?.[+t('qcdrug')]) qcDrug(QC.found[+t('qcdrug')]);
+  if (e.target.id === 'qcChange') { QC = { ...QC, code: null, isNew: false, barcode: '', name: '', drug: null }; QC_NOTE = ''; render(); $('qcQ')?.focus(); }
   if (e.target.id === 'qcScan') scanBarcode();
   if (t('expout')) {
     const it = viewItem(t('expout')); const qty = +e.target.closest('[data-expqty]').dataset.expqty;
