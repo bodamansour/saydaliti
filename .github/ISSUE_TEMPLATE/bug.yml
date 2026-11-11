@@ -1,0 +1,27 @@
+name: مشكلة
+description: حاجة مش شغالة زي المفروض
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: إيه اللي حصل
+      description: واللي كنت متوقعه يحصل.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: خطوات تعيد المشكلة
+      placeholder: |
+        1. افتح ...
+        2. دوس على ...
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: المنصة
+      options: [الموقع, برنامج الويندوز, أبلكيشن أندرويد, الوصلة, السيرفر]
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: الجهاز والمتصفح والنسخة

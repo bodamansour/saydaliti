@@ -1,0 +1,12 @@
+name: اقتراح
+description: ميزة جديدة أو تحسين
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: المشكلة اللي عايز تحلها
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: الحل اللي في بالك
