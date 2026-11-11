@@ -176,8 +176,8 @@ form.editing { border-color: var(--accent); box-shadow: var(--ring); }
 
 /* ---------- The pharmacy sign: brand mark and wordmark ---------- */
 .mark { width: 34px; height: 34px; flex: none; border-radius: 10px; background: var(--hero); display: grid; place-items: center; }
-.mark::before { content: ""; width: 58%; height: 58%; background: var(--on-accent);
-  clip-path: polygon(34% 0, 66% 0, 66% 34%, 100% 34%, 100% 66%, 66% 66%, 66% 100%, 34% 100%, 34% 66%, 0 66%, 0 34%, 34% 34%); }
+/* The logo: a capsule, tilted up, its far half tinted. */
+.mark::before { content: ""; width: 66%; height: 31%; border-radius: 999px; background: linear-gradient(90deg, #ffffff 50%, #bfe9f5 50%); transform: rotate(-40deg); }
 .mark.lg { width: 56px; height: 56px; border-radius: 14px; }
 .wordmark { font-family: var(--sign); font-weight: 700; letter-spacing: 0; }
 
@@ -294,7 +294,7 @@ header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-cont
 .pos-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 14px; background: var(--rail); color: var(--rail-fg); border-bottom: 1px solid var(--rail-line); padding: 10px max(18px, env(safe-area-inset-right, 0px)) 10px max(18px, env(safe-area-inset-left, 0px)); position: sticky; top: 0; z-index: 10; }
 .pos-top > div:first-child { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .pos-top > div:first-child::before { content: ""; width: 28px; height: 28px; flex: none; border-radius: 8px;
-  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9.5 5h5v4.5H19v5h-4.5V19h-5v-4.5H5v-5h4.5z' fill='%23fff'/%3E%3C/svg%3E") center/18px no-repeat; }
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg transform='rotate(-40 12 12)'%3E%3Crect x='3' y='8' width='18' height='8' rx='4' fill='%23fff'/%3E%3Cpath d='M12 8h5a4 4 0 010 8h-5z' fill='%23bfe9f5'/%3E%3C/g%3E%3C/svg%3E") center/20px no-repeat, var(--hero); }
 .pos-top b { font-family: var(--sign); font-weight: 700; font-size: 1.05rem; }
 .pos-top .muted { color: var(--rail-muted); font-size: .86rem; }
 .pos-top .row { gap: 8px; }
@@ -561,6 +561,7 @@ body.loading::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 
 html.lite *, html.lite *::before, html.lite *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; scroll-behavior: auto !important; }
 html.lite th { position: static; }
 
-/* On the gradient the mark turns over: a white square with a blue cross. */
+/* On the gradient the mark turns over: a white square with a blue capsule. */
 .gate-side .mark, .pub-hero .mark { background: #ffffff; }
-.gate-side .mark::before, .pub-hero .mark::before { background: #1746d1; }
+.gate-side .mark::before, .pub-hero .mark::before { background: linear-gradient(90deg, #1746d1 50%, #06b6d4 50%); }
+.gate-points li::before { clip-path: none; border-radius: 50%; width: 8px; height: 8px; }
