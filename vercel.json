@@ -3,12 +3,12 @@
   "redirects": [
     {
       "source": "/",
-      "destination": "https://saydaliti.mosaedapp.workers.dev/",
+      "destination": "https://saydaliti.saydalitiapp.workers.dev/",
       "permanent": false
     },
     {
       "source": "/:path*",
-      "destination": "https://saydaliti.mosaedapp.workers.dev/:path*",
+      "destination": "https://saydaliti.saydalitiapp.workers.dev/:path*",
       "permanent": false
     }
   ]

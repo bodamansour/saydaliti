@@ -52,7 +52,7 @@ export const PRODUCTION = Object.freeze({
   dbName: 'saydaliti',
   dbId: '3cf7edd2-1642-428b-bf1b-973f71d93529',
   bucket: 'saydaliti-files',
-  url: 'saydaliti.mosaedapp.workers.dev',
+  url: 'saydaliti.saydalitiapp.workers.dev',
 });
 
 // Credentials for real outside services; mirrored from worker/src/egress.js (a test keeps the two lists equal).

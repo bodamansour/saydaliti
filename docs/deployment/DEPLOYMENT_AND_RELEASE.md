@@ -6,7 +6,7 @@ Last updated: 2026-11-03 (Phase 1). This document supersedes the deployment part
 
 | Item | Finding | Evidence |
 |---|---|---|
-| Production Worker | `saydaliti`, served at `https://saydaliti.mosaedapp.workers.dev` | `worker/wrangler.toml` (`name`, `SITE_URL`) |
+| Production Worker | `saydaliti`, served at `https://saydaliti.saydalitiapp.workers.dev` | `worker/wrangler.toml` (`name`, `SITE_URL`) |
 | Production D1 | `saydaliti`, id `3cf7edd2-…3529` | `worker/wrangler.toml` |
 | Production R2 | `saydaliti-files` | `worker/wrangler.toml` |
 | Is production actively deployed? | **Yes.** All 26 runs of the old `cloudflare.yml` (through 2026-10-31, `7d23b83`) succeeded. In the latest run, the remote-migration step (2 s) and the publish step (9 s) actually ran rather than being skipped. Migrations 0009 and 0010 are therefore applied to the live D1. | GitHub Actions run 41218360186, job steps 6–7 |

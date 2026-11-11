@@ -11,8 +11,8 @@ import { runReminders } from '../src/reminders-job.js';
 import { runMorning } from '../src/morning-job.js';
 
 const CREDS = { WHATSAPP_TOKEN: 'real-looking', WHATSAPP_PHONE_ID: '123', ANTHROPIC_API_KEY: 'k', AI_MODEL: 'm', WHATSAPP_TEMPLATE: 't' };
-const STAGING_ENV = { DEPLOY_ENV: 'staging', SITE_URL: 'https://saydaliti-staging.mosaedapp.workers.dev', MORNING_CRON: '0 6 * * *', ...CREDS };
-const PROD_ENV = { SITE_URL: 'https://saydaliti.mosaedapp.workers.dev', MORNING_CRON: '0 6 * * *', ...CREDS };
+const STAGING_ENV = { DEPLOY_ENV: 'staging', SITE_URL: 'https://saydaliti-staging.saydalitiapp.workers.dev', MORNING_CRON: '0 6 * * *', ...CREDS };
+const PROD_ENV = { SITE_URL: 'https://saydaliti.saydalitiapp.workers.dev', MORNING_CRON: '0 6 * * *', ...CREDS };
 
 test('staging is recognised by either signal; production by neither', () => {
   assert.equal(isStaging(STAGING_ENV), true);
@@ -20,7 +20,7 @@ test('staging is recognised by either signal; production by neither', () => {
   assert.equal(isStaging({ SITE_URL: 'https://saydaliti-staging.x.workers.dev' }), true, 'the staging URL alone (var missing)');
   assert.equal(isStaging(PROD_ENV), false);
   assert.equal(isStaging({}), false);
-  assert.equal(isStaging({ DEPLOY_ENV: 'production', SITE_URL: 'https://saydaliti.mosaedapp.workers.dev' }), false);
+  assert.equal(isStaging({ DEPLOY_ENV: 'production', SITE_URL: 'https://saydaliti.saydalitiapp.workers.dev' }), false);
 });
 
 test('staging: every outside-service credential is removed; production keeps its env untouched', () => {
@@ -158,7 +158,7 @@ test('staging: the global fetch refuses http and https (the real fetch is never 
     assert.deepEqual(calls, [], 'the real fetch was never reached');
     // Only the second signal (DEPLOY_ENV missing): still staging.
     globalThis.fetch = spy;
-    isolateEnv({ SITE_URL: 'https://saydaliti-staging.mosaedapp.workers.dev', ...FAKE_BINDINGS });
+    isolateEnv({ SITE_URL: 'https://saydaliti-staging.saydalitiapp.workers.dev', ...FAKE_BINDINGS });
     assert.equal(globalThis.fetch, STAGING_FETCH, 'installed by the URL signal alone');
     // Production: nothing replaced, the same env object, the real fetch called.
     globalThis.fetch = spy;

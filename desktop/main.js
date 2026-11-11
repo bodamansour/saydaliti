@@ -12,7 +12,7 @@ const fs = require('node:fs/promises');
 const APP_DIR = join(__dirname, 'app');
 const LOCAL_HOME = 'app://saydaliti/index.html';
 const START = 'app://saydaliti/start.html';
-const SITE = (process.env.SAYDALITI_SITE || 'https://saydaliti.mosaedapp.workers.dev').replace(/\/$/, '');
+const SITE = (process.env.SAYDALITI_SITE || 'https://saydaliti.saydalitiapp.workers.dev').replace(/\/$/, '');
 const SITE_ORIGIN = new URL(SITE).origin;
 
 // The choice is kept in a small file next to the program's data.

@@ -10,7 +10,7 @@
 [![Android app](https://github.com/bodamansour/saydaliti/actions/workflows/android.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/android.yml)
 [![Windows program](https://github.com/bodamansour/saydaliti/actions/workflows/desktop.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/desktop.yml)
 
-[الموقع](https://saydaliti.mosaedapp.workers.dev) · [أبلكيشن أندرويد (APK)](https://github.com/bodamansour/saydaliti/releases/tag/android-latest) · [برنامج الويندوز](https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest) · [المستندات](docs/)
+[الموقع](https://saydaliti.saydalitiapp.workers.dev) · [أبلكيشن أندرويد (APK)](https://github.com/bodamansour/saydaliti/releases/tag/android-latest) · [برنامج الويندوز](https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest) · [المستندات](docs/)
 
 </div>
 
