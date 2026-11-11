@@ -57,7 +57,7 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   assert.doesNotMatch(wf, /npx wrangler|^\s*wrangler /m);
   for (const line of wf.split('\n').filter((l) => /\b(deploy|d1 |r2 |secret (put|list))\b/.test(l) && /\$GUARD/.test(l))) assert.match(line, /\$GUARD run -- /, line.trim());
   assert.doesNotMatch(wf.replace(/^\s*#.*$/gm, ''), /--env\b/, 'the guard alone chooses the environment');
-  assert.doesNotMatch(wf, /saydaliti-files[^-]|3cf7edd2|saydaliti\.mosaedapp/, 'no production resource named');
+  assert.doesNotMatch(wf, /saydaliti-files[^-]|3cf7edd2|saydaliti\.saydalitiapp/, 'no production resource named');
   assert.doesNotMatch(wf, /api\.cloudflare\.com/, 'Cloudflare API calls only through the guard');
   // Untrusted input is never pasted into a shell line.
   assert.doesNotMatch(wf, /run:.*\$\{\{\s*(inputs|github\.event)\./);

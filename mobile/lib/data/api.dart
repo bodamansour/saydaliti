@@ -7,7 +7,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-const siteUrl = String.fromEnvironment('SITE_URL', defaultValue: 'https://saydaliti.mosaedapp.workers.dev');
+const siteUrl = String.fromEnvironment('SITE_URL', defaultValue: 'https://saydaliti.saydalitiapp.workers.dev');
 
 class ApiError implements Exception {
   final String message;

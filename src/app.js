@@ -3080,7 +3080,7 @@ async function boot() {
     $('retryBoot').addEventListener('click', () => location.reload());
     return;
   }
-  if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>الاتصال مش متاح دلوقتي</h2><p class="note">جرّب تحدّث الصفحة. لو المشكلة استمرت، افتح <a class="navlink" href="https://saydaliti.mosaedapp.workers.dev/">صيدليتي من الخادم مباشرة</a>.</p>'; return; }
+  if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>الاتصال مش متاح دلوقتي</h2><p class="note">جرّب تحدّث الصفحة. لو المشكلة استمرت، افتح <a class="navlink" href="https://saydaliti.saydalitiapp.workers.dev/">صيدليتي من الخادم مباشرة</a>.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
   // A password-reset link opened while already signed in: it is not used silently, and its token is taken

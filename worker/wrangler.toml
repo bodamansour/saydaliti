@@ -30,7 +30,7 @@ BACKUP_CRON = "30 1 * * *"
 # Password hashing strength: 10000 fits the free Workers plan; raise to 100000 on Workers Paid
 # (each account is redone at its next sign-in).
 PBKDF2_ITER = "10000"
-SITE_URL = "https://saydaliti.mosaedapp.workers.dev"
+SITE_URL = "https://saydaliti.saydalitiapp.workers.dev"
 # Hourly sealing and owner verification limits; measure CPU and R2 history inventory on staging before changing them.
 SEAL_BUDGET = "150"
 VERIFY_MAX_ROWS = "200"
@@ -58,7 +58,7 @@ MORNING_CRON = "0 6 * * *"
 # Backups every 30 minutes on staging, so the schedule can be observed (production: daily at 01:30 UTC).
 BACKUP_CRON = "*/30 * * * *"
 PBKDF2_ITER = "10000"
-SITE_URL = "https://saydaliti-staging.mosaedapp.workers.dev"
+SITE_URL = "https://saydaliti-staging.saydalitiapp.workers.dev"
 # The test suites create many accounts.
 SIGNUP_PER_HOUR = "10000"
 SEAL_BUDGET = "150"
