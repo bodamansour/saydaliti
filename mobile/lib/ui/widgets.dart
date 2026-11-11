@@ -229,10 +229,17 @@ class AmountLine extends StatelessWidget {
     final style = TextStyle(fontSize: strong ? 17 : 15, fontWeight: strong ? FontWeight.w600 : FontWeight.w400, color: muted ? t.muted : t.fg);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(children: [
-        Expanded(child: Text(label, style: style)),
-        Text('$sign$amount', style: style, textDirection: TextDirection.rtl),
-      ]),
+      // A long value wraps under itself instead of pushing past the edge of a narrow phone.
+      child: LayoutBuilder(
+        builder: (context, box) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Text(label, style: style)),
+          const SizedBox(width: 12),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: box.maxWidth * .6),
+            child: Text('$sign$amount', style: style, textDirection: TextDirection.rtl, textAlign: TextAlign.end),
+          ),
+        ]),
+      ),
     );
   }
 }
