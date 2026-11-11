@@ -13,7 +13,7 @@
     const isDark = choice === 'dark' || (choice === 'system' && !!dark?.matches);
     document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = isDark ? '#07110d' : '#0b3b2e';
+    if (meta) meta.content = isDark ? '#0e1526' : '#ffffff';
     for (const b of document.querySelectorAll('[data-theme-toggle]')) {
       b.setAttribute('aria-label', NAME[choice]);
       b.title = NAME[choice];

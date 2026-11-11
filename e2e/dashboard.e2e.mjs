@@ -782,7 +782,9 @@ test('subscription: a note while it runs, the dashboard locks after the grace da
   }, sub);
   await page.goto(base);
   await page.waitForSelector('#app:not([hidden])');
-  const soon = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  // Two days from today on this machine's calendar (the app counts local days; the UTC date is a day behind after midnight in Cairo).
+  const d2 = new Date(Date.now() + 2 * 86400000);
+  const soon = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}`;
   await setSub({ status: 'trial', trial_ends: soon });
   await page.reload(); await page.waitForSelector('#app:not([hidden])');
   assert.ok(await until(async () => /فاضل 2 يوم/.test(await text('#subBanner'))));
