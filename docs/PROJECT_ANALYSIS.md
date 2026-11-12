@@ -1,12 +1,12 @@
 # Tablix Pharma — تحليل المشروع
 
-آخر مراجعة: 2026-10-30. المستودع الصحيح هو [`bodamansour/saydaliti`](https://github.com/bodamansour/saydaliti)، والنسخة المحلية موجودة تحت `work/saydaliti`. نسخة Downloads التي ظهرت في سياق المشروع كانت ملف باك اب المتحدة، مش سورس الكود.
+آخر مراجعة: 2026-10-30. المستودع الصحيح هو [`bodamansour/tablix-pharma`](https://github.com/bodamansour/tablix-pharma)، والنسخة المحلية موجودة تحت `work/saydaliti`. نسخة Downloads التي ظهرت في سياق المشروع كانت ملف باك اب المتحدة، مش سورس الكود.
 
 ## ملخص الحالة
 
 المشروع تطبيق قائم ومتعدد المنصات، مش مشروع جديد. فيه تشغيل صيدلية يومي، وواجهة اشتراكات أولية، وتطبيق ويب وPWA وبرنامج Windows وتطبيق Android مبني على WebView. المنطق التجاري مشترك في `src/`، والسيرفر الحالي Cloudflare Worker مع D1 وR2. التحليلات والمساعد والتنبؤات موجودة ومبنية على بيانات الصيدلية؛ جاهزية OCR وإجابات النموذج الخارجي تعتمد على إعداد مفتاح Anthropic.
 
-الفرع بدأ من `main` عند `a6ee8954c96277d985ac7781d597e67c75141546`. التعديلات موجودة على GitHub في مسودة [PR #46](https://github.com/bodamansour/saydaliti/pull/46)، ونجح GitHub Actions #106 وWindows program #80؛ لم تُدمج إلى `main`.
+الفرع بدأ من `main` عند `a6ee8954c96277d985ac7781d597e67c75141546`. التعديلات موجودة على GitHub في مسودة [PR #46](https://github.com/bodamansour/tablix-pharma/pull/46)، ونجح GitHub Actions #106 وWindows program #80؛ لم تُدمج إلى `main`.
 
 ## التقنيات ونقاط الدخول
 
