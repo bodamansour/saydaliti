@@ -3,7 +3,7 @@
 ## التبليغ عن ثغرة
 
 لو لقيت ثغرة أمنية في Tablix Pharma، **متفتحش Issue عام**. بلّغ بشكل خاص من
-[Security → Report a vulnerability](https://github.com/bodamansour/saydaliti/security/advisories/new).
+[Security → Report a vulnerability](https://github.com/bodamansour/tablix-pharma/security/advisories/new).
 
 اكتب في البلاغ:
 

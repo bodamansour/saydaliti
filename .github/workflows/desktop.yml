@@ -1,7 +1,7 @@
 # Builds the Windows program (desktop/) — online with the pharmacy's account, or offline with the data on
 # the computer —
 # and publishes the installer on the "desktop-latest" release:
-#   https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest
+#   https://github.com/bodamansour/tablix-pharma/releases/tag/desktop-latest
 name: Windows program
 
 on:

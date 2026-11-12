@@ -6,11 +6,11 @@
 
 **برنامج إدارة الصيدلية لصاحبها: المخزون، الطلبيات، الكاشير، والفلوس. على الويب والويندوز والأندرويد.**
 
-[![Tests](https://github.com/bodamansour/saydaliti/actions/workflows/test.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/test.yml)
-[![Android app](https://github.com/bodamansour/saydaliti/actions/workflows/android.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/android.yml)
-[![Windows program](https://github.com/bodamansour/saydaliti/actions/workflows/desktop.yml/badge.svg)](https://github.com/bodamansour/saydaliti/actions/workflows/desktop.yml)
+[![Tests](https://github.com/bodamansour/tablix-pharma/actions/workflows/test.yml/badge.svg)](https://github.com/bodamansour/tablix-pharma/actions/workflows/test.yml)
+[![Android app](https://github.com/bodamansour/tablix-pharma/actions/workflows/android.yml/badge.svg)](https://github.com/bodamansour/tablix-pharma/actions/workflows/android.yml)
+[![Windows program](https://github.com/bodamansour/tablix-pharma/actions/workflows/desktop.yml/badge.svg)](https://github.com/bodamansour/tablix-pharma/actions/workflows/desktop.yml)
 
-[الموقع](https://tablix.tablixpharma.workers.dev) · [أبلكيشن أندرويد (APK)](https://github.com/bodamansour/saydaliti/releases/tag/android-latest) · [برنامج الويندوز](https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest) · [المستندات](docs/)
+[الموقع](https://tablix.tablixpharma.workers.dev) · [أبلكيشن أندرويد (APK)](https://github.com/bodamansour/tablix-pharma/releases/tag/android-latest) · [برنامج الويندوز](https://github.com/bodamansour/tablix-pharma/releases/tag/desktop-latest) · [المستندات](docs/)
 
 </div>
 
@@ -70,8 +70,8 @@ npm run e2e   # تجربة اللوحة في متصفح (أول مرة: npx play
 - **نواقص السوق:** سجّل الأصناف اللي اختفت من المخازن، والبرنامج يقولك معاك منها كام ويكفيك قد إيه، وتطلب كام لما تتوفر (يكفي شهرين). بتظهر عليها علامة في «اطلب إيه» وفي تقرير الصبح.
 - **أسعار السوق:** سجّل سعر صنف شفته في صيدلية تانية أو موقع، وكل الشركاء يشوفوه. البرنامج بيقارن سعرك بأرخص سعر في آخر 45 يوم (للتجميل والمستلزمات أساساً).
 - **تذكير المرضى (صاحب الصيدلية بس):** رسالة واتساب للمريض في ميعاد الجرعة، أو قبل ما الدوا يخلص بيوم عشان يجدد. المريض لازم يوافق الأول، والبرنامج مش بيحفظه من غير موافقته.
-- **برنامج الكمبيوتر من غير نت (`desktop/`):** نسخة ويندوز بتشتغل من غير نت خالص ومن غير حساب: نفس اللوحة والكاشير والحضور، والبيانات كلها على الجهاز (`src/local-db.js` بيرد على نفس الطلبات اللي بتروح لقاعدة البيانات الأونلاين). مكتبة Excel والخطوط جوه البرنامج. نسخة احتياطية كل يوم في `Documents\Saydaliti\backups` (آخر 30)، ومن «النسخ الاحتياطي» تعمل نسخة أو ترجّع واحدة. الكاشير يقدر يطبع على الطابعة الافتراضية من غير نافذة. البرنامج بيتبني لوحده على GitHub Actions وبينزل على صفحة [desktop-latest](https://github.com/bodamansour/saydaliti/releases/tag/desktop-latest) باسم `TablixPharma-Setup.exe` (ويندوز 10 و11، 64 بت؛ ويندوز 7 و8 و32 بت مش مدعومين). التحديث: سطّب الملف الجديد فوق القديم والبيانات بتفضل. تجربته على أي جهاز: `cd desktop && npm install && npm start`. النسخة دي لجهاز واحد؛ الفروع والشركاء على أجهزة تانية محتاجين النسخة الأونلاين.
-- **أبلكيشن الموبايل:** البرنامج بيتسطب من الموقع (PWA)، وفيه كمان أبلكيشن أندرويد حقيقي لصاحب الصيدلية في `mobile/` (الملخص، المخزون، الطلبيات، الفلوس؛ الكاشير والإعدادات من الموقع) بيتبني لوحده على GitHub Actions مع كل تحديث، وبينزل على صفحة [android-latest](https://github.com/bodamansour/saydaliti/releases/tag/android-latest) باسم `tablix-pharma.apk`. على أندرويد: زرار «نزّل الأبلكيشن» أو من قائمة كروم ← «إضافة إلى الشاشة الرئيسية». على آيفون: من سفاري ← مشاركة ← «إضافة إلى الشاشة الرئيسية».
+- **برنامج الكمبيوتر من غير نت (`desktop/`):** نسخة ويندوز بتشتغل من غير نت خالص ومن غير حساب: نفس اللوحة والكاشير والحضور، والبيانات كلها على الجهاز (`src/local-db.js` بيرد على نفس الطلبات اللي بتروح لقاعدة البيانات الأونلاين). مكتبة Excel والخطوط جوه البرنامج. نسخة احتياطية كل يوم في `Documents\Saydaliti\backups` (آخر 30)، ومن «النسخ الاحتياطي» تعمل نسخة أو ترجّع واحدة. الكاشير يقدر يطبع على الطابعة الافتراضية من غير نافذة. البرنامج بيتبني لوحده على GitHub Actions وبينزل على صفحة [desktop-latest](https://github.com/bodamansour/tablix-pharma/releases/tag/desktop-latest) باسم `TablixPharma-Setup.exe` (ويندوز 10 و11، 64 بت؛ ويندوز 7 و8 و32 بت مش مدعومين). التحديث: سطّب الملف الجديد فوق القديم والبيانات بتفضل. تجربته على أي جهاز: `cd desktop && npm install && npm start`. النسخة دي لجهاز واحد؛ الفروع والشركاء على أجهزة تانية محتاجين النسخة الأونلاين.
+- **أبلكيشن الموبايل:** البرنامج بيتسطب من الموقع (PWA)، وفيه كمان أبلكيشن أندرويد حقيقي لصاحب الصيدلية في `mobile/` (الملخص، المخزون، الطلبيات، الفلوس؛ الكاشير والإعدادات من الموقع) بيتبني لوحده على GitHub Actions مع كل تحديث، وبينزل على صفحة [android-latest](https://github.com/bodamansour/tablix-pharma/releases/tag/android-latest) باسم `tablix-pharma.apk`. على أندرويد: زرار «نزّل الأبلكيشن» أو من قائمة كروم ← «إضافة إلى الشاشة الرئيسية». على آيفون: من سفاري ← مشاركة ← «إضافة إلى الشاشة الرئيسية».
 - كل الحسابات في `src/core.js` وعليها tests في `test/`.
 - نسب الضريبة في النظام المبسط من قانون 6 لسنة 2025؛ أهلية الصيدلية للنظام ده لازم تتأكد من محاسب.
 

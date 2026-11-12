@@ -1,6 +1,6 @@
 # Builds the Android app (mobile/) and publishes the APK on the "android-latest" release, so it can be
 # downloaded straight to a phone from:
-#   https://github.com/bodamansour/saydaliti/releases/tag/android-latest
+#   https://github.com/bodamansour/tablix-pharma/releases/tag/android-latest
 # Before that it checks the app's numbers are the website's: the website's calculations (the src/*.js files
 # listed below) are worked out again in Dart in mobile/lib/logic, and mobile/test/parity_test.dart compares them.
 name: Android app

@@ -132,7 +132,7 @@
 - **الاختبارات:** `npm test`: 169، `e2e`: 43.
 
 ### 2026-10-30: فحص Windows وتوثيق الحالة الفعلية
-- المصدر الصحيح موجود في `bodamansour/saydaliti` على GitHub؛ اتعمل clone محلي على فرع `codex/fix-windows-powershell-test-path` قبل رفع التغييرات لاحقًا في مسودة PR #46.
+- المصدر الصحيح موجود في `bodamansour/tablix-pharma` على GitHub؛ اتعمل clone محلي على فرع `codex/fix-windows-powershell-test-path` قبل رفع التغييرات لاحقًا في مسودة PR #46.
 - إصلاح مسار PowerShell في اختبار United بـ`fileURLToPath`، وتطبيع فواصل URL في خادمي اختبارات المتصفح على Windows.
 - اختبارات تنزيل Excel وCSV والنسخ الاحتياطي بقت تفحص Blob الناتج بدل حفظ تنزيل متصفح؛ Chromium في البيئة يلغي كل التنزيلات.
 - اختبار اللغة الإنجليزية بقى ينتظر ظهور كل ترجمات الأقسام قبل الفحص.
