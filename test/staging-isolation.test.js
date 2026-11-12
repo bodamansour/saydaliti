@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 const toml = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
 const [prod, stagingPart] = toml.split(/^\[env\.staging\]\s*$/m);
 const val = (src, key) => [...src.matchAll(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'gm'))].map((m) => m[1]);
-const PROD = { name: 'saydaliti', db: '3cf7edd2-1642-428b-bf1b-973f71d93529', bucket: 'saydaliti-files' };
+const PROD = { name: 'tablix', db: '3cf7edd2-1642-428b-bf1b-973f71d93529', bucket: 'saydaliti-files' };
 
 test('production bindings are unchanged', () => {
   assert.equal(val(prod, 'name')[0], PROD.name);
@@ -17,13 +17,13 @@ test('production bindings are unchanged', () => {
 
 test('staging has its own Worker, database and bucket — none of them production\'s', () => {
   assert.ok(stagingPart, 'an [env.staging] section');
-  assert.equal(val(stagingPart, 'name')[0], 'saydaliti-staging');
+  assert.equal(val(stagingPart, 'name')[0], 'tablix-staging');
   const ids = val(stagingPart, 'database_id'), buckets = val(stagingPart, 'bucket_name');
   assert.deepEqual(ids, ['0ba7c0dd-645e-453e-9999-a316a828e175']);
   assert.deepEqual(buckets, ['saydaliti-files-staging']);
   assert.ok(!stagingPart.includes(PROD.db) && !buckets.includes(PROD.bucket));
   assert.doesNotMatch(stagingPart, /^\s*(routes|route)\s*=/m, 'no custom routes');
-  assert.match(val(stagingPart, 'SITE_URL')[0], /saydaliti-staging\./);
+  assert.match(val(stagingPart, 'SITE_URL')[0], /tablix-staging\./);
   // Every binding production has, staging defines itself (wrangler does not inherit these per environment).
   assert.match(stagingPart, /\[\[env\.staging\.d1_databases\]\][\s\S]*binding = "DB"/);
   assert.match(stagingPart, /\[\[env\.staging\.r2_buckets\]\][\s\S]*binding = "FILES"/);
@@ -57,7 +57,7 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   assert.doesNotMatch(wf, /npx wrangler|^\s*wrangler /m);
   for (const line of wf.split('\n').filter((l) => /\b(deploy|d1 |r2 |secret (put|list))\b/.test(l) && /\$GUARD/.test(l))) assert.match(line, /\$GUARD run -- /, line.trim());
   assert.doesNotMatch(wf.replace(/^\s*#.*$/gm, ''), /--env\b/, 'the guard alone chooses the environment');
-  assert.doesNotMatch(wf, /saydaliti-files[^-]|3cf7edd2|saydaliti\.saydalitiapp/, 'no production resource named');
+  assert.doesNotMatch(wf, /saydaliti-files[^-]|3cf7edd2|tablix\.tablixpharma/, 'no production resource named');
   assert.doesNotMatch(wf, /api\.cloudflare\.com/, 'Cloudflare API calls only through the guard');
   // Untrusted input is never pasted into a shell line.
   assert.doesNotMatch(wf, /run:.*\$\{\{\s*(inputs|github\.event)\./);

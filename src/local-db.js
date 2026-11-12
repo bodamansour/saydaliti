@@ -272,7 +272,7 @@ export async function createLocalClient(name = DB_NAME) {
     // a broken or partial file leaves the data on this computer exactly as it was.
     async importAll(dump) {
       const bad = (why) => { throw new Error(`النسخة الاحتياطية دي فيها مشكلة (${why})، والبيانات اللي على الجهاز ماتغيرتش.`); };
-      if (dump?.app !== 'saydaliti' || !dump.tables || typeof dump.tables !== 'object' || Array.isArray(dump.tables)) throw new Error('الملف ده مش نسخة احتياطية من صيدليتي.');
+      if (dump?.app !== 'saydaliti' || !dump.tables || typeof dump.tables !== 'object' || Array.isArray(dump.tables)) throw new Error('الملف ده مش نسخة احتياطية من Tablix Pharma.');
       const rows = [];
       for (const [t, list] of Object.entries(dump.tables)) {
         if (!/^[a-z_]{1,40}$/.test(t) || !Array.isArray(list)) bad(`جدول «${t}»`);

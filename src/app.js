@@ -128,7 +128,7 @@ const BRANCH_ID = () => (BRANCH === 'all' ? null : BRANCHES.find((b) => key(b.id
 
 // Four sections, each with its own tabs (13 tabs in one row was too much on a phone).
 const SECTIONS = [
-  ['insights', 'الملخص', [['overview', 'نظرة عامة'], ['analysis', 'التحليلات'], ['health', 'صحة الصيدلية'], ['alerts', 'التنبيهات'], ['assistant', 'اسأل صيدليتي'], ['tasks', 'المهام']]],
+  ['insights', 'الملخص', [['overview', 'نظرة عامة'], ['analysis', 'التحليلات'], ['health', 'صحة الصيدلية'], ['alerts', 'التنبيهات'], ['assistant', 'اسأل Tablix Pharma'], ['tasks', 'المهام']]],
   ['stock', 'المخزون', [['items', 'كل الأصناف'], ['adjust', 'جرد وتالف'], ['reorder', 'اطلب إيه'], ['expiry', 'قرب ينتهي'], ['dead', 'راكد'], ['shortages', 'نواقص السوق'], ['movers', 'الأكتر سحباً'], ['morning', 'تقرير الصبح']]],
   ['buy', 'المشتريات', [['receive', 'طلبية وصلت'], ['invoices', 'فواتير الشراء'], ['supaccounts', 'حسابات الموردين']]],
   ['customers', 'العملاء', [['customers', 'حسابات العملاء'], ['claims', 'مطالبات التأمين']]],
@@ -250,7 +250,7 @@ function render(background = false) {
   else if (TAB === 'changes' && has) html = renderPriceChanges();
   else if (TAB === 'patients') html = renderPatients();
   else if (TAB === 'alerts') html = renderAlerts(A);
-  else if (TAB === 'assistant') html = hasFeature(PLAN, 'ai') ? renderAssistant() : notInPlan('«اسأل صيدليتي»');
+  else if (TAB === 'assistant') html = hasFeature(PLAN, 'ai') ? renderAssistant() : notInPlan('«اسأل Tablix Pharma»');
   else if (TAB === 'tasks') html = renderTasks();
   else if (!has && NEEDS_DATA.has(TAB)) html = emptyState();
   else if (TAB === 'overview') html = renderOverview(A);
@@ -2434,12 +2434,12 @@ function renderAlerts(A) {
   <p class="note">التنبيهات بتتحسب من البيانات كل مرة بتفتح اللوحة، فلو المشكلة اتحلت بتختفي لوحدها.</p>`;
 }
 
-// ---------- «اسأل صيدليتي» (src/assistant.js) ----------
+// ---------- «اسأل Tablix Pharma» (src/assistant.js) ----------
 // The conversation lives in memory on this page. Each answer shows the numbers it is based on, the
 // period and the source, with a link to the screen they come from.
 let CHAT = [], CHAT_BUSY = false, AI_ON = null;
 let PLAN = planOf(null, null); // what this pharmacy's plan includes (everything when it has none)
-const notInPlan = (what) => `<div class="card emptybox"><h3>${what} مش في باقتك</h3><p>كلّم دعم صيدليتي عشان تكبّر الباقة.</p></div>`;
+const notInPlan = (what) => `<div class="card emptybox"><h3>${what} مش في باقتك</h3><p>كلّم دعم Tablix Pharma عشان تكبّر الباقة.</p></div>`;
 function assistantCtx() {
   const here = (r) => BRANCH === 'all' || inBranch({ id: BRANCH_ID() })(r);
   return { data: DATA, A: ANALYSIS.full, receipts: POS_SALES.filter(here), expenses: EXP_READY ? EXPENSES : [], purchases: PURCHASES.filter(here), suppliers: SUPPLIERS(), chosen: CHOSEN(),
@@ -2591,7 +2591,7 @@ function payInfo() {
   const wa = String(APPCFG.support_phone || '').replace(/\D/g, '').replace(/^0/, '20');
   return `${price ? `<p>الاشتراك: <b class="n">${fmt(price)}</b> ج في الشهر${BRANCHES.length > 1 ? ' (لكل الفروع)' : ''}.</p>` : ''}
     ${APPCFG.pay_note ? `<p class="u-pre">${esc(APPCFG.pay_note)}</p>` : ''}
-    ${wa ? `<p><a class="btn primary" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`عايز أجدد اشتراك صيدليتي: ${SESS.pharmacy.name}`)}" target="_blank" rel="noopener">كلّمنا على واتساب</a></p>` : ''}`;
+    ${wa ? `<p><a class="btn primary" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`عايز أجدد اشتراك Tablix Pharma: ${SESS.pharmacy.name}`)}" target="_blank" rel="noopener">كلّمنا على واتساب</a></p>` : ''}`;
 }
 function renderSubBanner() {
   const st = subNow();
@@ -2796,7 +2796,7 @@ $('cloudImportFile').addEventListener('change', async (e) => {
   const snaps = Array.isArray(dump?.tables?.snapshots) ? dump.tables.snapshots : [];
   if (dump?.tables) dump.tables = { ...dump.tables, snapshots: [] };
   const { data, error } = await SESS.client.rpc('import_backup', { p_pharmacy: SESS.pharmacy.id, p_dump: dump });
-  if (error) { $('cloudBackupMsg').textContent = /not empty/.test(error.message) ? 'الصيدلية دي فيها بيانات خلاص. النقل بيتعمل في صيدلية جديدة فاضية بس.' : /not a backup/.test(error.message) ? 'الملف ده مش نسخة احتياطية من صيدليتي.' : `ماتنقلش: ${arabicError(error).message}`; return; }
+  if (error) { $('cloudBackupMsg').textContent = /not empty/.test(error.message) ? 'الصيدلية دي فيها بيانات خلاص. النقل بيتعمل في صيدلية جديدة فاضية بس.' : /not a backup/.test(error.message) ? 'الملف ده مش نسخة احتياطية من Tablix Pharma.' : `ماتنقلش: ${arabicError(error).message}`; return; }
   for (const sn of snaps) {
     if (!sn?.data?.items) continue;
     const r = await SESS.client.rpc('save_snapshot', { p_pharmacy: SESS.pharmacy.id, p_data: sn.data, p_branch: data?.branches?.[sn.branch_id] || null, p_at: sn.created_at });
@@ -2962,7 +2962,7 @@ function exportPrint(which) {
   // stylesheet, and the browser's print window offers «Save as PDF».
   printDoc(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(which)} — ${esc(SESS.pharmacy?.name || '')}</title>
     <link rel="stylesheet" href="${new URL('./src/print/export.css', location.href)}"></head>
-    <body><h1>${esc(SESS.pharmacy?.name || 'صيدليتي')} — ${esc(which)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' ? ` · ${esc(branchName(BRANCH))}` : ''} · ${fmt(rows.length)} سطر</p>
+    <body><h1>${esc(SESS.pharmacy?.name || 'Tablix Pharma')} — ${esc(which)}</h1><p>${esc(new Date().toLocaleString('ar-EG'))}${BRANCH !== 'all' ? ` · ${esc(branchName(BRANCH))}` : ''} · ${fmt(rows.length)} سطر</p>
     <table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`);
 }
 $('exportBox').addEventListener('click', (e) => {
@@ -3205,7 +3205,7 @@ async function boot() {
     $('retryBoot').addEventListener('click', () => location.reload());
     return;
   }
-  if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>الاتصال مش متاح دلوقتي</h2><p class="note">جرّب تحدّث الصفحة. لو المشكلة استمرت، افتح <a class="navlink" href="https://saydaliti.saydalitiapp.workers.dev/">صيدليتي من الخادم مباشرة</a>.</p>'; return; }
+  if (SESS.mode === 'local') { $('auth').innerHTML = '<h2>الاتصال مش متاح دلوقتي</h2><p class="note">جرّب تحدّث الصفحة. لو المشكلة استمرت، افتح <a class="navlink" href="https://tablix.tablixpharma.workers.dev/">Tablix Pharma من الخادم مباشرة</a>.</p>'; return; }
   if (SESS.mode === 'signed-out') return renderSignIn($('auth'), boot);
   if (SESS.mode === 'no-pharmacy') return renderPharmacyChoice($('auth'), boot);
   // A password-reset link opened while already signed in: it is not used silently, and its token is taken
@@ -3411,7 +3411,7 @@ $('memberBranchList').addEventListener('click', async (e) => {
 $('inviteShare').addEventListener('click', () => {
   if (!INVITE) return;
   const site = location.origin + location.pathname;
-  const text = `اتفضل كود الدخول على «صيدليتي» لـ${SESS.pharmacy.name}: ${INVITE.code}\nافتح ${site} واعمل حساب بإيميلك، وبعدين اكتب الكود. الكود بيشتغل مرة واحدة لمدة 7 أيام.`;
+  const text = `اتفضل كود الدخول على «Tablix Pharma» لـ${SESS.pharmacy.name}: ${INVITE.code}\nافتح ${site} واعمل حساب بإيميلك، وبعدين اكتب الكود. الكود بيشتغل مرة واحدة لمدة 7 أيام.`;
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 });
 

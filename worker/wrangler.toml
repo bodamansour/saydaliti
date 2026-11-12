@@ -1,7 +1,7 @@
-# صيدليتي on Cloudflare. Deployed by .github/workflows/cloudflare.yml (needs the repository secrets
+# Tablix Pharma on Cloudflare. Deployed by .github/workflows/cloudflare.yml (needs the repository secrets
 # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID). Secrets for the WhatsApp jobs and the PIN pepper
 # are set in the Cloudflare dashboard (Worker → Settings → Variables), never here.
-name = "saydaliti"
+name = "tablix"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
@@ -30,7 +30,7 @@ BACKUP_CRON = "30 1 * * *"
 # Password hashing strength: 10000 fits the free Workers plan; raise to 100000 on Workers Paid
 # (each account is redone at its next sign-in).
 PBKDF2_ITER = "10000"
-SITE_URL = "https://saydaliti.saydalitiapp.workers.dev"
+SITE_URL = "https://tablix.tablixpharma.workers.dev"
 # Hourly sealing and owner verification limits; measure CPU and R2 history inventory on staging before changing them.
 SEAL_BUDGET = "150"
 VERIFY_MAX_ROWS = "200"
@@ -47,7 +47,7 @@ enabled = true
 # .github/workflows/staging.yml with the staging-only token; test/staging-isolation.test.js fails if
 # any staging binding points at a production resource.
 [env.staging]
-name = "saydaliti-staging"
+name = "tablix-staging"
 workers_dev = true
 
 [env.staging.vars]
@@ -58,7 +58,7 @@ MORNING_CRON = "0 6 * * *"
 # Backups every 30 minutes on staging, so the schedule can be observed (production: daily at 01:30 UTC).
 BACKUP_CRON = "*/30 * * * *"
 PBKDF2_ITER = "10000"
-SITE_URL = "https://saydaliti-staging.saydalitiapp.workers.dev"
+SITE_URL = "https://tablix-staging.tablixpharma.workers.dev"
 # The test suites create many accounts.
 SIGNUP_PER_HOUR = "10000"
 SEAL_BUDGET = "150"

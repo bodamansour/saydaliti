@@ -313,7 +313,7 @@ Phases 1 and 2 come before the UX redesign on purpose. A redesigned screen on to
 
 ## 13. Questions and inputs needed from you
 
-1. **Production status:** Is `saydaliti.saydalitiapp.workers.dev` used today by real pharmacies with real data? This decides how cautious the Phase 1/2 migrations must be.
+1. **Production status:** Is `tablix.tablixpharma.workers.dev` used today by real pharmacies with real data? This decides how cautious the Phase 1/2 migrations must be.
 2. **Pilot pharmacy system:** The spec says the pilot uses **E-Plus**, but the code integrates **United/Genius**. Which one does the pilot use? If it is E-Plus: what version, and can you provide authorised, non-sensitive sample exports or screenshots?
 3. **Deploy gate (P0-4):** May I change the workflow so that production deploy needs manual approval?
 4. **Windows 7/8 (P0-8):** Keep the end-of-life Electron 22 installer, or drop it and document Win7 as unsupported?

@@ -39,20 +39,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // The only resources staging may touch.
 export const STAGING = Object.freeze({
-  worker: 'saydaliti-staging',
+  worker: 'tablix-staging',
   dbName: 'saydaliti-staging',
   dbId: '0ba7c0dd-645e-453e-9999-a316a828e175',
   bucket: 'saydaliti-files-staging',
   cron: '*/30 * * * *',
-  urlHost: /^https:\/\/saydaliti-staging\.[a-z0-9-]+\.workers\.dev$/,
+  urlHost: /^https:\/\/tablix-staging\.[a-z0-9-]+\.workers\.dev$/,
 });
 // Production, fixed here on purpose (not only read from wrangler.toml, so editing the file can't move the target).
 export const PRODUCTION = Object.freeze({
-  worker: 'saydaliti',
+  worker: 'tablix',
   dbName: 'saydaliti',
   dbId: '3cf7edd2-1642-428b-bf1b-973f71d93529',
   bucket: 'saydaliti-files',
-  url: 'saydaliti.saydalitiapp.workers.dev',
+  url: 'tablix.tablixpharma.workers.dev',
 });
 
 // Credentials for real outside services; mirrored from worker/src/egress.js (a test keeps the two lists equal).
@@ -203,7 +203,7 @@ function productionPatterns() {
   return [
     ['D1 id', new RegExp(PRODUCTION.dbId, 'i')],
     ['bucket', /(^|[^a-z0-9-])saydaliti-files(?![a-z0-9-])/i],
-    ['Worker or D1 name', /"saydaliti"/],
+    ['Worker or D1 name', /"(saydaliti|tablix)"/],
     ['URL', new RegExp(PRODUCTION.url.replace(/\./g, '\\.'), 'i')],
   ];
 }

@@ -1,4 +1,4 @@
-// صيدليتي — the Windows program. Two ways to run, chosen at the first start (menu: «طريقة التشغيل»):
+// Tablix Pharma — the Windows program. Two ways to run, chosen at the first start (menu: «طريقة التشغيل»):
 //   online: the pharmacy's account on the website (same data as the phone and browser); it keeps
 //           selling with no connection and uploads when it's back (the site's own offline support).
 //   local:  the same screens from files inside the program, all data on this computer, no account.
@@ -12,7 +12,7 @@ const fs = require('node:fs/promises');
 const APP_DIR = join(__dirname, 'app');
 const LOCAL_HOME = 'app://saydaliti/index.html';
 const START = 'app://saydaliti/start.html';
-const SITE = (process.env.SAYDALITI_SITE || 'https://saydaliti.saydalitiapp.workers.dev').replace(/\/$/, '');
+const SITE = (process.env.SAYDALITI_SITE || 'https://tablix.tablixpharma.workers.dev').replace(/\/$/, '');
 const SITE_ORIGIN = new URL(SITE).origin;
 
 // The choice is kept in a small file next to the program's data.
@@ -77,7 +77,7 @@ let win = null;
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 900, minHeight: 600,
-    title: 'صيدليتي', backgroundColor: '#f3f5f8', autoHideMenuBar: true,
+    title: 'Tablix Pharma', backgroundColor: '#f3f5f8', autoHideMenuBar: true,
     icon: join(APP_DIR, 'icons', 'icon-512.png'),
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false },
   });
@@ -125,10 +125,10 @@ function menu() {
   ]));
 }
 
-// ---------- Backups: Documents\Saydaliti\backups, the newest 30 automatic ones are kept ----------
+// ---------- Backups: Documents\Tablix Pharma\backups, the newest 30 automatic ones are kept ----------
 async function backupDir() {
   // SAYDALITI_BACKUP_DIR: another folder (the tests use a temporary one, never the real Documents).
-  const dir = process.env.SAYDALITI_BACKUP_DIR || join(app.getPath('documents'), 'Saydaliti', 'backups');
+  const dir = process.env.SAYDALITI_BACKUP_DIR || join(app.getPath('documents'), 'Tablix Pharma', 'backups');
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
@@ -250,7 +250,7 @@ function updateTray() {
   if (!tray) {
     tray = new Tray(nativeImage.createFromPath(join(APP_DIR, 'icons', 'icon-512.png')).resize({ width: 16, height: 16 }));
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'افتح صيدليتي', click: showWindow },
+      { label: 'افتح Tablix Pharma', click: showWindow },
       { label: 'زامن مع المتحدة دلوقتي', click: () => syncOnce() },
       { type: 'separator' },
       { label: 'خروج', click: () => { quitting = true; app.quit(); } },
@@ -258,7 +258,7 @@ function updateTray() {
     tray.on('click', showWindow);
   }
   const s = syncer?.status;
-  tray.setToolTip(`صيدليتي — مزامنة المتحدة${s?.lastError ? ' (فيه مشكلة)' : s?.lastUpload ? ' شغالة' : ''}`);
+  tray.setToolTip(`Tablix Pharma — مزامنة المتحدة${s?.lastError ? ' (فيه مشكلة)' : s?.lastUpload ? ' شغالة' : ''}`);
 }
 function showWindow() {
   if (!win) createWindow();
@@ -307,4 +307,4 @@ app.whenReady().then(async () => {
   if (!(BACKGROUND && SYNC?.enabled)) createWindow();
 });
 app.on('window-all-closed', () => { if (!SYNC?.enabled) app.quit(); });
-process.on('uncaughtException', (err) => { dialog.showErrorBox('صيدليتي', String(err?.stack || err)); });
+process.on('uncaughtException', (err) => { dialog.showErrorBox('Tablix Pharma', String(err?.stack || err)); });

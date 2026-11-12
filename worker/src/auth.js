@@ -322,8 +322,8 @@ export async function forgotPassword(env, { email }, ip, origin, later = null) {
   await env.DB.prepare('INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
     .bind(tokenHash, u.id, new Date(now).toISOString(), new Date(now + RESET_MINUTES * 60000).toISOString()).run();
   const site = String(env.SITE_URL || origin || '').replace(/\/$/, '');
-  const send = sendEmail(env, u.email, 'صيدليتي: تغيير كلمة السر',
-    `حد طلب تغيير كلمة السر لحسابك في صيدليتي.\nلو إنت، افتح اللينك ده خلال ${RESET_MINUTES} دقيقة:\n${site}/#reset=${token}\n\nلو مش إنت، تجاهل الرسالة دي وكلمة السر مش هتتغير.`);
+  const send = sendEmail(env, u.email, 'Tablix Pharma: تغيير كلمة السر',
+    `حد طلب تغيير كلمة السر لحسابك في Tablix Pharma.\nلو إنت، افتح اللينك ده خلال ${RESET_MINUTES} دقيقة:\n${site}/#reset=${token}\n\nلو مش إنت، تجاهل الرسالة دي وكلمة السر مش هتتغير.`);
   if (later && env?.EMAIL_OUTBOX !== 'dev') later(send.catch((e) => console.error('RESET_EMAIL_FAILED', e?.code || e?.message))); // logged, not shown
   else await send;
   return { sent: true };

@@ -36,7 +36,7 @@ export function setupGeniusLive({ $, esc, desk, makeToken }) {
       $('glFindMsg').textContent = found.length > 1 ? 'لقيت أكتر من قاعدة بيانات، اختار اللي فيها أصناف أكتر.' : 'لقيت المتحدة.';
     } else {
       const errs = (r?.errors || []).map((e) => e.message);
-      $('glFindMsg').innerHTML = `<span class="err">${esc(errs[0] || (r?.servers?.length ? 'لقيت SQL Server بس مفيش فيه قاعدة بيانات المتحدة.' : 'مفيش SQL Server على الجهاز ده. افتح صيدليتي على الجهاز اللي عليه المتحدة.'))}</span>`;
+      $('glFindMsg').innerHTML = `<span class="err">${esc(errs[0] || (r?.servers?.length ? 'لقيت SQL Server بس مفيش فيه قاعدة بيانات المتحدة.' : 'مفيش SQL Server على الجهاز ده. افتح Tablix Pharma على الجهاز اللي عليه المتحدة.'))}</span>`;
     }
   });
 

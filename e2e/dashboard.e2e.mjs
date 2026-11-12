@@ -857,7 +857,7 @@ test('admin page: see each pharmacy and turn on a paid month', async () => {
 test('public pages open', async () => {
   for (const f of ['about.html', 'privacy.html', 'terms.html']) {
     await page.goto(base + f);
-    assert.match(await text('h1'), /صيدليتي|الخصوصية|الشروط|شروط/);
+    assert.match(await text('h1'), /Tablix Pharma|الخصوصية|الشروط|شروط/);
   }
 });
 

@@ -37,7 +37,7 @@ export const OUTSIDE_SERVICE_SECRETS = Object.freeze([
 ]);
 
 export function isStaging(env) {
-  return env?.DEPLOY_ENV === 'staging' || /^https:\/\/saydaliti-staging\./.test(String(env?.SITE_URL || ''));
+  return env?.DEPLOY_ENV === 'staging' || /^https:\/\/tablix-staging\./.test(String(env?.SITE_URL || ''));
 }
 
 const hostOf = (u) => { try { return new URL(String(u instanceof Request ? u.url : u)).host; } catch { return '?'; } };

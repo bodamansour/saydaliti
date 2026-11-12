@@ -1,4 +1,4 @@
-// صيدليتي on Cloudflare: one Worker serves the app's pages (static assets), the data API on D1,
+// Tablix Pharma on Cloudflare: one Worker serves the app's pages (static assets), the data API on D1,
 // sign-in, uploads (kept in R2), and the daily WhatsApp jobs. Replaces Vercel + Supabase.
 //   GET  /api/config                → tells the pages to use this server
 //   POST /api/auth/{signup,signin,signout,password}, GET /api/auth/user

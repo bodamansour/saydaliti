@@ -44,21 +44,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: saydaliti-setup
-          path: desktop/dist/Saydaliti-Setup.exe
+          path: desktop/dist/TablixPharma-Setup.exe
       - name: Publish on the desktop-latest release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
         with:
           tag_name: desktop-latest
-          name: صيدليتي — برنامج الكمبيوتر
+          name: Tablix Pharma — برنامج الكمبيوتر
           body: |
-            نزّل `Saydaliti-Setup.exe` على كمبيوتر الصيدلية وافتحه عشان يتسطب (ويندوز 10 و11، 64 بت).
+            نزّل `TablixPharma-Setup.exe` على كمبيوتر الصيدلية وافتحه عشان يتسطب (ويندوز 10 و11، 64 بت).
             ويندوز 7 و8 و32 بت مش مدعومين: النسخة القديمة `Saydaliti-Setup-Win7.exe` (لو لسه موجودة هنا) مبنية على Electron 22 اللي مبقاش بياخد تحديثات أمان، ومش بتتحدّث تاني. استخدم ويندوز 10 أو 11 (64 بت)، أو افتح الموقع من متصفح حديث مدعوم.
             لو ويندوز قال «Windows protected your PC»، دوس More info ثم Run anyway (البرنامج مش موقّع بشهادة مدفوعة).
             أول مرة بيسأل: أونلاين بحسابك (نفس بيانات الموبايل والموقع)، ولا على الجهاز ده بس من غير نت (نسخة احتياطية كل يوم في Documents\Saydaliti\backups).
             التحديث: نزّل الملف الجديد وسطّبه فوق القديم، والبيانات بتفضل زي ما هي.
             الإصدار: 1.0.${{ github.run_number }}
-          files: desktop/dist/Saydaliti-Setup.exe
+          files: desktop/dist/TablixPharma-Setup.exe
           make_latest: false
 
 # Windows 7/8 and 32-bit Windows are not supported (owner decision, 2026-11-03): the only Electron

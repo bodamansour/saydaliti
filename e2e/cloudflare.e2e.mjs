@@ -578,7 +578,7 @@ test('signing out with no connection: the device forgets at once, the server ses
 test('public pages show the prices from the server', { skip }, async () => {
   const p = await newPage();
   await p.goto(`${BASE}/about.html`);
-  assert.match(await text(p, 'h1'), /صيدليتي/);
+  assert.match(await text(p, 'h1'), /Tablix Pharma/);
 });
 
 test('no script errors', { skip }, () => { assert.deepEqual(errors, []); assert.deepEqual(cspViolations, [], 'no Content-Security-Policy refusals in any test'); });

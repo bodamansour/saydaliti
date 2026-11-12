@@ -2,7 +2,7 @@
 
 ## التبليغ عن ثغرة
 
-لو لقيت ثغرة أمنية في صيدليتي، **متفتحش Issue عام**. بلّغ بشكل خاص من
+لو لقيت ثغرة أمنية في Tablix Pharma، **متفتحش Issue عام**. بلّغ بشكل خاص من
 [Security → Report a vulnerability](https://github.com/bodamansour/saydaliti/security/advisories/new).
 
 اكتب في البلاغ:
