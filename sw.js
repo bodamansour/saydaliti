@@ -2,7 +2,7 @@
 // App files: network first (so updates arrive right away), falling back to the saved copy.
 // Libraries and fonts from CDNs: saved copy first. Database and /api calls are never cached here —
 // the app keeps its own copy of the data and queues changes until the connection is back.
-const VERSION = 'saydaliti-v49';
+const VERSION = 'saydaliti-v50';
 const SHELL = [
   './', './index.html', './cashier.html', './attendance.html', './manifest.webmanifest',
   './src/style.css', './src/public.css', './src/theme.js', './src/fonts/cairo-arabic-wght-normal.woff2', './src/fonts/cairo-latin-wght-normal.woff2', './src/print/report.css', './src/print/receipt.css', './src/print/labels.css', './src/print/export.css', './src/app.js', './src/core.js', './src/branches-expenses.js', './src/features.js', './src/ordering.js', './src/pos.js', './src/inventory.js', './src/accounts.js', './src/genius.js', './src/local-db.js', './src/sale-rules.js', './src/treasury.js', './src/paged.js', './src/stock-reconcile.js', './src/cashier.js', './src/session.js',

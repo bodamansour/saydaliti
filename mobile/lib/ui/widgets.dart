@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// The logo: a capsule on the blue gradient, like the website's mark.
+/// The logo: four tablets on the blue gradient, like the website's mark.
 class Mark extends StatelessWidget {
   const Mark({super.key, this.size = 40, this.onHero = false});
   final double size;
 
-  /// On the gradient the mark turns over: a white square with a blue capsule.
+  /// On the gradient the mark turns over: a white square with blue tablets.
   final bool onHero;
   @override
   Widget build(BuildContext context) {
@@ -26,19 +26,15 @@ class _Cross extends CustomPainter {
   _Cross(this.color);
   final Color color;
 
-  /// The logo: a capsule, tilted up, its far half tinted (the same drawing as the website's mark and the icon).
+  /// The logo: four tablets in a blister, the last one tinted (the same drawing as the website's mark and the icon).
   @override
   void paint(Canvas c, Size s) {
-    final w = s.width * .66, h = s.width * .31;
     final white = color == Colors.white;
-    c.save();
-    c.translate(s.width / 2, s.height / 2);
-    c.rotate(-40 * 3.1415926535 / 180);
-    final pill = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset.zero, width: w, height: h), Radius.circular(h / 2));
-    c.clipRRect(pill);
-    c.drawRect(Rect.fromLTRB(-w / 2, -h / 2, 0, h / 2), Paint()..color = color);
-    c.drawRect(Rect.fromLTRB(0, -h / 2, w / 2, h / 2), Paint()..color = white ? const Color(0xFFBFE9F5) : const Color(0xFF06B6D4));
-    c.restore();
+    final tint = white ? const Color(0xFFBFE9F5) : const Color(0xFF06B6D4);
+    final r = s.width * .13;
+    for (final (dx, dy, last) in [(.34, .34, false), (.66, .34, false), (.34, .66, false), (.66, .66, true)]) {
+      c.drawCircle(Offset(s.width * dx, s.height * dy), r, Paint()..color = last ? tint : color);
+    }
   }
 
   @override
