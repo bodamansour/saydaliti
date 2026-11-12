@@ -1,4 +1,4 @@
-# Production release of صيدليتي on Cloudflare (worker/: pages, D1 database, R2 files).
+# Production release of Tablix Pharma on Cloudflare (worker/: pages, D1 database, R2 files).
 #
 # MANUAL ONLY (owner decision, 2026-11-03). Nothing here runs on push or merge: a merge to main no
 # longer publishes anything or changes the live database. To release:

@@ -1,4 +1,4 @@
-// «اسأل صيدليتي» with an AI model: POST /api/ai {pharmacy, messages, tools}.
+// «اسأل Tablix Pharma» with an AI model: POST /api/ai {pharmacy, messages, tools}.
 // The model never touches the database. It gets the conversation and the list of tools the page may
 // run for this user; when it wants numbers it asks for a tool, the page runs it locally (the same
 // tested calculations as the screens) and sends back the result. Off unless the server has an
@@ -8,7 +8,7 @@ import { ApiError } from './db.js';
 import { planFor } from './rpc.js';
 import { toolSpecs } from '../../src/assistant.js';
 
-const SYSTEM = `أنت «اسأل صيدليتي»، مساعد لصاحب صيدلية في مصر. بترد بالعامية المصرية (أو بالإنجليزي لو السؤال إنجليزي)، باختصار.
+const SYSTEM = `أنت «اسأل Tablix Pharma»، مساعد لصاحب صيدلية في مصر. بترد بالعامية المصرية (أو بالإنجليزي لو السؤال إنجليزي)، باختصار.
 قواعد لازم تمشي عليها:
 - أي رقم (مبيعات، ربح، رصيد، صلاحية…) لازم ييجي من أداة. ما تخمنش ولا تألف أرقام. لو مفيش أداة تجاوب، قول كده.
 - قول الفترة اللي الأرقام بتغطيها، وفرّق بين الرقم الفعلي والتوقع.

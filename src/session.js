@@ -215,7 +215,7 @@ export function renderSignIn(box, onDone, mode = 'in') {
     ${!up && client?.auth?.forgot ? '<p class="switch"><button class="linkbtn" type="button" id="forgotBtn">نسيت كلمة السر؟</button></p>' : ''}
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>
-    <p class="note u-center"><a class="navlink" href="./about.html">إيه هو صيدليتي؟ والأسعار</a></p>`;
+    <p class="note u-center"><a class="navlink" href="./about.html">إيه هو Tablix Pharma؟ والأسعار</a></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
   box.querySelector('#switchMode').addEventListener('click', () => renderSignIn(box, onDone, up ? 'in' : 'up'));
   box.querySelector('#forgotBtn')?.addEventListener('click', () => renderForgot(box, onDone));
@@ -249,7 +249,7 @@ export function renderSignIn(box, onDone, mode = 'in') {
 export function renderPharmacyChoice(box, onDone) {
   box.hidden = false;
   if (client?.local) {
-    box.innerHTML = `<h2>أهلاً بيك في صيدليتي</h2><p class="note">النسخة دي شغالة على الجهاز ده بس، ومش محتاجة نت ولا حساب. اكتب اسم الصيدلية عشان نبدأ.</p>
+    box.innerHTML = `<h2>أهلاً بيك في Tablix Pharma</h2><p class="note">النسخة دي شغالة على الجهاز ده بس، ومش محتاجة نت ولا حساب. اكتب اسم الصيدلية عشان نبدأ.</p>
       <form id="createForm" class="stack"><label>اسم الصيدلية<input id="phNameNew" required placeholder="صيدلية أحمد منصور"></label><button class="btn primary wide" type="submit">ابدأ</button></form>
       <p class="note" id="authMsg" role="status"></p>`;
   } else box.innerHTML = `<h2>أهلاً! الحساب ده لسه مش مربوط بصيدلية</h2>

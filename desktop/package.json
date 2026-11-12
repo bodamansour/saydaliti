@@ -1,8 +1,8 @@
 {
   "name": "saydaliti-desktop",
-  "productName": "Saydaliti",
+  "productName": "Tablix Pharma",
   "version": "1.0.0",
-  "description": "صيدليتي — برنامج الكمبيوتر: أونلاين بحسابك أو من غير نت على الجهاز",
+  "description": "Tablix Pharma — برنامج الكمبيوتر: أونلاين بحسابك أو من غير نت على الجهاز",
   "author": "abdelrahman mansour",
   "private": true,
   "main": "main.js",
@@ -20,8 +20,8 @@
   },
   "build": {
     "appId": "com.saydaliti.desktop",
-    "productName": "Saydaliti",
-    "artifactName": "Saydaliti-Setup.${ext}",
+    "productName": "Tablix Pharma",
+    "artifactName": "TablixPharma-Setup.${ext}",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -43,8 +43,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "صيدليتي",
-      "uninstallDisplayName": "صيدليتي",
+      "shortcutName": "Tablix Pharma",
+      "uninstallDisplayName": "Tablix Pharma",
       "deleteAppDataOnUninstall": false
     }
   }

@@ -1,4 +1,4 @@
-/* صيدليتي — light and clear: white surfaces, one royal blue for action and for where you are, and a
+/* Tablix Pharma — light and clear: white surfaces, one royal blue for action and for where you are, and a
    blue-to-cyan gradient kept for the one thing that matters most on a screen. Amber means expiry and
    attention, red means loss and refusal. Light and dark (theme.js sets data-theme). */
 
@@ -176,8 +176,10 @@ form.editing { border-color: var(--accent); box-shadow: var(--ring); }
 
 /* ---------- The pharmacy sign: brand mark and wordmark ---------- */
 .mark { width: 34px; height: 34px; flex: none; border-radius: 10px; background: var(--hero); display: grid; place-items: center; }
-/* The logo: a capsule, tilted up, its far half tinted. */
-.mark::before { content: ""; width: 66%; height: 31%; border-radius: 999px; background: linear-gradient(90deg, #ffffff 50%, #bfe9f5 50%); transform: rotate(-40deg); }
+/* The logo: four tablets in a blister, one tinted (the same drawing as the app icon). */
+.mark::before { content: ""; width: 62%; height: 62%; background:
+  radial-gradient(circle closest-side, #bfe9f5 84%, transparent 88%) 100% 100% / 50% 50% no-repeat,
+  radial-gradient(circle closest-side, #ffffff 84%, transparent 88%) 0 0 / 50% 50%; }
 .mark.lg { width: 56px; height: 56px; border-radius: 14px; }
 .wordmark { font-family: var(--sign); font-weight: 700; letter-spacing: 0; }
 
@@ -562,7 +564,9 @@ body.loading::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 
 html.lite *, html.lite *::before, html.lite *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; scroll-behavior: auto !important; }
 html.lite th { position: static; }
 
-/* On the gradient the mark turns over: a white square with a blue capsule. */
+/* On the gradient the mark turns over: a white square with blue tablets. */
 .gate-side .mark, .pub-hero .mark { background: #ffffff; }
-.gate-side .mark::before, .pub-hero .mark::before { background: linear-gradient(90deg, #1746d1 50%, #06b6d4 50%); }
+.gate-side .mark::before, .pub-hero .mark::before { background:
+  radial-gradient(circle closest-side, #06b6d4 84%, transparent 88%) 100% 100% / 50% 50% no-repeat,
+  radial-gradient(circle closest-side, #1746d1 84%, transparent 88%) 0 0 / 50% 50%; }
 .gate-points li::before { clip-path: none; border-radius: 50%; width: 8px; height: 8px; }

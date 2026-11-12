@@ -90,7 +90,7 @@ export function createCloudflareClient() {
   return {
     cloudflare: true,
     from: builder,
-    // «اسأل صيدليتي» with an AI model (only when the server has one configured).
+    // «اسأل Tablix Pharma» with an AI model (only when the server has one configured).
     ai(payload) { return payload === 'status' ? call('/api/ai/status', null, 'GET') : call('/api/ai', payload); },
     aiInvoice(payload) { return call('/api/ai/invoice', payload); },
     // Item photos: sent and read with the sign-in (an <img> can't), shown as a blob URL.

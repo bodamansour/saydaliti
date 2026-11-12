@@ -43,7 +43,7 @@ jobs:
       - name: App name, internet access, versions
         run: |
           M=android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="[^"]*"/android:label="صيدليتي"/' "$M"
+          sed -i 's/android:label="[^"]*"/android:label="Tablix Pharma"/' "$M"
           grep -q 'android.permission.INTERNET' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
           G=$(ls android/app/build.gradle* | head -1)
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' "$G"
@@ -73,7 +73,7 @@ jobs:
         run: |
           flutter --version | head -1 | sed 's/^/::notice::/'
           set +e
-          flutter build apk --release --build-number=${{ github.run_number }} --build-name=2.0.${{ github.run_number }} --dart-define=SITE_URL=https://saydaliti.saydalitiapp.workers.dev 2>&1 | tee build.log
+          flutter build apk --release --build-number=${{ github.run_number }} --build-name=2.0.${{ github.run_number }} --dart-define=SITE_URL=https://tablix.tablixpharma.workers.dev 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             # Surface the reason as annotations (readable on the run page and through the API).
@@ -81,7 +81,7 @@ jobs:
           fi
           exit $code
       - name: Name the file
-        run: cp build/app/outputs/flutter-apk/app-release.apk ../saydaliti.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../tablix-pharma.apk
 
       # Android installs an update over the old app only when both are signed with the same key.
       # The key comes from three repository secrets (see README, "مفتاح توقيع أبلكيشن أندرويد").
@@ -98,10 +98,10 @@ jobs:
           fi
           echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/app.jks"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" sign --ks "$RUNNER_TEMP/app.jks" --ks-pass env:KS_PASS --key-pass env:KS_PASS --ks-key-alias "$KS_ALIAS" --out ../signed.apk ../saydaliti.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/app.jks" --ks-pass env:KS_PASS --key-pass env:KS_PASS --ks-key-alias "$KS_ALIAS" --out ../signed.apk ../tablix-pharma.apk
           rm -f "$RUNNER_TEMP/app.jks"
-          mv ../signed.apk ../saydaliti.apk
-          "$BT/apksigner" verify ../saydaliti.apk && echo "::notice::Signed with the app key."
+          mv ../signed.apk ../tablix-pharma.apk
+          "$BT/apksigner" verify ../tablix-pharma.apk && echo "::notice::Signed with the app key."
 
       # On a pull request the APK is only kept as a build file, to check that it builds.
       - name: Keep the APK (pull request)
@@ -109,17 +109,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: saydaliti-apk
-          path: saydaliti.apk
+          path: tablix-pharma.apk
 
       - name: Publish on the android-latest release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
         with:
           tag_name: android-latest
-          name: صيدليتي — أبلكيشن أندرويد
+          name: Tablix Pharma — أبلكيشن أندرويد
           body: |
-            نزّل `saydaliti.apk` على الموبايل وافتحه عشان يتسطب.
+            نزّل `tablix-pharma.apk` على الموبايل وافتحه عشان يتسطب.
             لو الموبايل سأل، اسمح بتسطيب التطبيقات من المتصفح أو مدير الملفات.
             الإصدار: 2.0.${{ github.run_number }}
-          files: saydaliti.apk
+          files: tablix-pharma.apk
           make_latest: true

@@ -1,4 +1,4 @@
-// «اسأل صيدليتي»: answers questions about the pharmacy from its own records.
+// «اسأل Tablix Pharma»: answers questions about the pharmacy from its own records.
 // The answers come only from the tools below — fixed, tested calculations over the data the user is
 // already allowed to see on this screen. There is no free SQL and nothing is made up: a tool returns
 // the numbers, the period they cover and where they came from, and the text is built from them.

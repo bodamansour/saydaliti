@@ -3,12 +3,12 @@
   "redirects": [
     {
       "source": "/",
-      "destination": "https://saydaliti.saydalitiapp.workers.dev/",
+      "destination": "https://tablix.tablixpharma.workers.dev/",
       "permanent": false
     },
     {
       "source": "/:path*",
-      "destination": "https://saydaliti.saydalitiapp.workers.dev/:path*",
+      "destination": "https://tablix.tablixpharma.workers.dev/:path*",
       "permanent": false
     }
   ]

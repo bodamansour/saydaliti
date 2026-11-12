@@ -121,7 +121,7 @@ jobs:
       - name: The staging URL from the deploy output (no credentials)
         working-directory: worker
         run: |
-          url=$(grep -oE 'https://saydaliti-staging\.[a-z0-9-]+\.workers\.dev' deploy.log | head -1)
+          url=$(grep -oE 'https://tablix-staging\.[a-z0-9-]+\.workers\.dev' deploy.log | head -1)
           [ -n "$url" ] || { echo "::error::no staging URL in the deploy output"; exit 1; }
           echo "STAGING_URL=$url" >> "$GITHUB_ENV"
           echo "::notice::staging URL $url"

@@ -88,7 +88,7 @@ class _SignInScreenState extends State<SignInScreen> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 const Align(alignment: AlignmentDirectional.centerStart, child: Mark(size: 52, onHero: true)),
                 const SizedBox(height: 14),
-                Text('صيدليتي', style: TextStyle(fontFamily: signFont, fontWeight: FontWeight.w700, fontSize: 40, color: Colors.white, height: 1.3)),
+                Text('Tablix Pharma', style: TextStyle(fontFamily: signFont, fontWeight: FontWeight.w700, fontSize: 40, color: Colors.white, height: 1.3)),
                 Text('صيدليتك في جيبك: المخزون والطلبيات والفلوس.', style: const TextStyle(color: Color(0xD6FFFFFF), fontSize: 16)),
                 const SizedBox(height: 26),
                 Card(

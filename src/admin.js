@@ -24,7 +24,7 @@ async function load() {
   if (p.error) {
     $('gate').hidden = false; $('app').hidden = true;
     $('auth').innerHTML = /not allowed/.test(p.error.message)
-      ? '<p>الصفحة دي لصاحب برنامج صيدليتي بس.</p><a class="btn primary" href="./index.html">ارجع للوحة</a>'
+      ? '<p>الصفحة دي لصاحب برنامج Tablix Pharma بس.</p><a class="btn primary" href="./index.html">ارجع للوحة</a>'
       : `<p class="err">${esc(arabicError(p.error).message)}</p><p class="note">لو لسه ماطبقتش تحديث قاعدة البيانات 013، طبّقه الأول.</p>`;
     return;
   }

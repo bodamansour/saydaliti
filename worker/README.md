@@ -1,4 +1,4 @@
-# صيدليتي على Cloudflare
+# Tablix Pharma على Cloudflare
 
 سيرفر واحد (Worker) بيعمل كل اللي كان Vercel وSupabase بيعملوه:
 

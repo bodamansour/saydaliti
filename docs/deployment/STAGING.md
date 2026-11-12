@@ -8,7 +8,7 @@ The staging resources live on the **same Cloudflare account** as production; tha
 
 | | Production (not touched) | Staging |
 |---|---|---|
-| Worker | `saydaliti` (`https://saydaliti.saydalitiapp.workers.dev`) | `saydaliti-staging` (`https://saydaliti-staging.saydalitiapp.workers.dev`). **Not created yet:** the first staging deploy creates it. |
+| Worker | `saydaliti` (`https://tablix.tablixpharma.workers.dev`) | `saydaliti-staging` (`https://tablix-staging.tablixpharma.workers.dev`). **Not created yet:** the first staging deploy creates it. |
 | D1 | `saydaliti`, `3cf7edd2-1642-428b-bf1b-973f71d93529` | `saydaliti-staging`, `0ba7c0dd-645e-453e-9999-a316a828e175` (EEUR) |
 | R2 | `saydaliti-files` | `saydaliti-files-staging` |
 | Secrets | `PIN_PEPPER`, … (unchanged) | `BACKUP_KEY` (from GitHub `STAGING_BACKUP_KEY`); `PIN_PEPPER` (random, staging only) |

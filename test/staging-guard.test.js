@@ -21,8 +21,8 @@ test('config: any production resource in [env.staging] is refused', () => {
     'production D1 id': staging((p) => p.replace(STAGING.dbId, PRODUCTION.dbId)),
     'production D1 name': staging((p) => p.replace(`database_name = "${STAGING.dbName}"`, 'database_name = "saydaliti"')),
     'production bucket': staging((p) => p.replace(`bucket_name = "${STAGING.bucket}"`, 'bucket_name = "saydaliti-files"')),
-    'production Worker name': staging((p) => p.replace('name = "saydaliti-staging"', 'name = "saydaliti"')),
-    'production URL': staging((p) => p.replace('https://saydaliti-staging.saydalitiapp.workers.dev', 'https://saydaliti.saydalitiapp.workers.dev')),
+    'production Worker name': staging((p) => p.replace('name = "tablix-staging"', 'name = "tablix"')),
+    'production URL': staging((p) => p.replace('https://tablix-staging.tablixpharma.workers.dev', 'https://tablix.tablixpharma.workers.dev')),
     'a route': staging((p) => p.replace('workers_dev = true', 'workers_dev = true\nroutes = ["example.com/*"]')),
     'no workers.dev': staging((p) => p.replace('workers_dev = true', 'workers_dev = false')),
     'a preview database': staging((p) => p.replace(`database_id = "${STAGING.dbId}"`, `database_id = "${STAGING.dbId}"\npreview_database_id = "${PRODUCTION.dbId}"`)),
@@ -62,7 +62,7 @@ test('wrangler: production names, other environments, other configs and unlisted
     ['deploy', '--env='],
     ['deploy', '-e', 'staging'],
     ['deploy', '--config', 'other.toml'],
-    ['deploy', '--name', 'saydaliti'],
+    ['deploy', '--name', 'tablix'],
     ['deploy', '--account-id', '0'.repeat(32)],
     ['d1', 'create', 'x'],
     ['d1', 'delete', 'DB'],
@@ -83,16 +83,16 @@ test('wrangler: production names, other environments, other configs and unlisted
     ['deploy', '--route', 'pharmacy.example/*'],
     ['deploy', '--routes=pharmacy.example/*'],
     ['deploy', '--domain', 'pharmacy.example'],
-    ['deploy', '--var', 'SITE_URL:https://saydaliti.saydalitiapp.workers.dev'],
+    ['deploy', '--var', 'SITE_URL:https://tablix.tablixpharma.workers.dev'],
     ['deploy', '--triggers', '* * * * *'],
     ['deploy', 'src/other.js'],
     ['d1', 'migrations', 'apply', 'DB'],
     ['d1', 'migrations', 'apply', 'DB', '--remote', '--persist-to', 'x'],
-    ['secret', 'put', 'BACKUP_KEY', '--name', 'saydaliti'],
+    ['secret', 'put', 'BACKUP_KEY', '--name', 'tablix'],
     ['secret', 'bulk', 'x.json'],
     ['triggers', 'deploy'],
     ['versions', 'deploy'],
-    ['deployments', 'list', '--name', 'saydaliti'],
+    ['deployments', 'list', '--name', 'tablix'],
     [],
   ];
   for (const args of refused) assert.throws(() => checkWranglerArgs(args, ok), undefined, args.join(' '));
@@ -142,7 +142,7 @@ function tree() {
   return { root, repo: join(root, 'repo'), worker, done: () => rmSync(root, { recursive: true, force: true }) };
 }
 // What an attacker would put in an alternative config: production Worker, database, bucket, route and crons.
-const PROD_JSON = JSON.stringify({ name: 'saydaliti', main: 'src/index.js', env: { staging: {
+const PROD_JSON = JSON.stringify({ name: 'tablix', main: 'src/index.js', env: { staging: {
   name: PRODUCTION.worker, routes: ['pharmacy.example/*'], triggers: { crons: ['0 6 * * *', '15 * * * *'] },
   d1_databases: [{ binding: 'DB', database_name: PRODUCTION.dbName, database_id: PRODUCTION.dbId }],
   r2_buckets: [{ binding: 'FILES', bucket_name: PRODUCTION.bucket }] } } });

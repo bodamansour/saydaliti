@@ -1,4 +1,4 @@
-// صيدليتي for the pharmacy owner: the stock, what to order, and the money, from the phone. A native app
+// Tablix Pharma for the pharmacy owner: the stock, what to order, and the money, from the phone. A native app
 // that talks to the same server as the website (worker/) and shows the same numbers (lib/logic is
 // src/*.js in Dart; test/parity_test.dart checks they agree).
 import 'package:flutter/material.dart';
@@ -28,7 +28,7 @@ class SaydalitiApp extends StatelessWidget {
       child: ListenableBuilder(
         listenable: state,
         builder: (context, _) => MaterialApp(
-          title: 'صيدليتي',
+          title: 'Tablix Pharma',
           debugShowCheckedModeBanner: false,
           theme: buildTheme(Brightness.light),
           darkTheme: buildTheme(Brightness.dark),

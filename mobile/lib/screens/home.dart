@@ -74,7 +74,7 @@ class HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(m?.pharmacyName.isNotEmpty == true ? m!.pharmacyName : 'صيدليتي', maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(m?.pharmacyName.isNotEmpty == true ? m!.pharmacyName : 'Tablix Pharma', maxLines: 1, overflow: TextOverflow.ellipsis),
               if (sub.isNotEmpty) Text(sub, style: TextStyle(fontFamily: textFont, fontSize: 12.5, fontWeight: FontWeight.w400, color: t.railMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
             ]),
           ),
