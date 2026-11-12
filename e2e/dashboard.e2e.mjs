@@ -480,7 +480,7 @@ test('quick count: an unknown barcode becomes an item, a known one adds a batch'
   await page.click('[data-tab=adjust]');
   await page.fill('#qcQ', '6229999000017');
   await page.press('#qcQ', 'Enter');
-  assert.match(await text('#qcForm'), /صنف جديد/);
+  assert.ok(await until(async () => /صنف جديد/.test(await text('#qcForm'))), 'an unknown barcode opens the new-item form');
   await page.click('#qcForm button[type=submit]');
   assert.match(await text('#qcMsg'), /عدد العلب/, 'nothing is saved without a quantity');
   await page.fill('#qcQty', '4');
@@ -493,7 +493,7 @@ test('quick count: an unknown barcode becomes an item, a known one adds a batch'
   // The same barcode again: found, a second expiry, and a new price.
   await page.fill('#qcQ', '6229999000017');
   await page.press('#qcQ', 'Enter');
-  assert.match(await text('#qcForm'), /الرصيد دلوقتي 4/);
+  assert.ok(await until(async () => /الرصيد دلوقتي 4/.test(await text('#qcForm'))), 'the known barcode finds the item');
   await page.fill('#qcQty', '2');
   await page.fill('#qcExp', '2029-01');
   await page.fill('#qcPrice', '60');
@@ -804,6 +804,9 @@ test('a sale is never lost when the database update for the cashier is missing',
 test('two tabs queuing changes at the same moment lose none of them', async () => {
   const a = await ctx.newPage(), b = await ctx.newPage();
   await Promise.all([a.goto(`${base}cashier.html`), b.goto(base)]);
+  // Offline, so the pages' own sender leaves the queue alone: it drops an entry type it doesn't know,
+  // which made this count come up short now and then.
+  await ctx.setOffline(true);
   const run = (p, tag) => p.evaluate(async (tag) => {
     const { enqueue } = await import('./src/offline.js');
     await Promise.all(Array.from({ length: 40 }, (_, i) => enqueue('test-only', { tag, i })));
@@ -812,6 +815,7 @@ test('two tabs queuing changes at the same moment lose none of them', async () =
   const queued = await a.evaluate(async () => (await (await import('./src/offline.js')).pending()).filter((e) => e.type === 'test-only').length);
   assert.equal(queued, 80);
   await a.evaluate(async () => { const { kvUpdate } = await import('./src/offline.js'); await kvUpdate('outbox', (q) => q.filter((e) => e.type !== 'test-only'), []); });
+  await ctx.setOffline(false);
   await a.close(); await b.close();
 });
 
