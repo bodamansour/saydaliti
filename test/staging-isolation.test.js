@@ -29,6 +29,13 @@ test('staging has its own Worker, database and bucket — none of them productio
   assert.match(stagingPart, /\[\[env\.staging\.r2_buckets\]\][\s\S]*binding = "FILES"/);
 });
 
+test('staging runs backup and hourly sealing with the existing budget; production schedules stay unchanged', () => {
+  assert.match(prod, /^SEAL_BUDGET = "150"$/m);
+  assert.match(stagingPart, /^SEAL_BUDGET = "150"$/m);
+  assert.match(prod, /^crons = \["0 6 \* \* \*", "15 \* \* \* \*", "30 1 \* \* \*"\]$/m);
+  assert.match(stagingPart, /^crons = \["\*\/30 \* \* \* \*", "15 \* \* \* \*"\]$/m);
+});
+
 test('the staging workflow: staging credentials only, protected, guarded, never from a pull request', () => {
   const wf = readFileSync(new URL('../.github/workflows/staging.yml', import.meta.url), 'utf8');
   // Never the production token or account, not even as a fallback (`||`).
