@@ -1,5 +1,6 @@
 // The app after sign-in: the pharmacy's name on the green bar, the branch picker, and four parts at the
-// bottom: the summary, the stock, the orders and the money.
+// bottom: the summary, the stock, the orders and the money. The cashier opens from the summary, the quick
+// count and «طلبية وصلت» from the stock and the orders, the settings from the menu.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,10 +11,12 @@ import '../data/repo.dart';
 import '../ui/format.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'cashier.dart';
 import 'count.dart';
 import 'money.dart';
 import 'orders.dart';
 import 'receive.dart';
+import 'settings.dart';
 import 'stock.dart';
 import 'summary.dart';
 
@@ -96,7 +99,15 @@ class HomeScreenState extends State<HomeScreen> {
               label: Text(tab == 1 ? 'جرد سريع' : 'طلبية وصلت'),
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => tab == 1 ? const QuickCountScreen() : const ReceiveScreen())),
             )
-          : null,
+          // Selling, for the owner, the pharmacy device and the pharmacist.
+          : v != null && s.canSell && tab == 0
+              ? FloatingActionButton.extended(
+                  heroTag: 'cashier',
+                  icon: const Icon(Icons.point_of_sale),
+                  label: const Text('الكاشير'),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CashierScreen())),
+                )
+              : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: _show,
@@ -207,16 +218,12 @@ class _Menu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
-    const names = {ThemeMode.system: 'زي الجهاز', ThemeMode.light: 'فاتح', ThemeMode.dark: 'غامق'};
     return PopupMenuButton<String>(
       tooltip: 'القائمة',
       icon: const Icon(Icons.more_vert),
       onSelected: (v) async {
         if (v == 'refresh') s.refresh();
-        if (v == 'theme') {
-          final order = [ThemeMode.system, ThemeMode.light, ThemeMode.dark];
-          s.setTheme(order[(order.indexOf(s.themeMode) + 1) % order.length]);
-        }
+        if (v == 'settings') Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
         if (v == 'site') launchUrl(Uri.parse(siteUrl), mode: LaunchMode.externalApplication);
         if (v == 'out') {
           final ok = await showDialog<bool>(
@@ -236,8 +243,8 @@ class _Menu extends StatelessWidget {
       },
       itemBuilder: (_) => [
         const PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.refresh), title: Text('حدّث البيانات'), contentPadding: EdgeInsets.zero)),
-        PopupMenuItem(value: 'theme', child: ListTile(leading: const Icon(Icons.contrast), title: Text('الألوان: ${names[s.themeMode]}'), contentPadding: EdgeInsets.zero)),
-        const PopupMenuItem(value: 'site', child: ListTile(leading: Icon(Icons.open_in_new), title: Text('افتح الموقع'), subtitle: Text('للإعدادات والكاشير والتقارير الكاملة'), contentPadding: EdgeInsets.zero)),
+        const PopupMenuItem(value: 'settings', child: ListTile(leading: Icon(Icons.settings_outlined), title: Text('الإعدادات'), contentPadding: EdgeInsets.zero)),
+        const PopupMenuItem(value: 'site', child: ListTile(leading: Icon(Icons.open_in_new), title: Text('افتح الموقع'), subtitle: Text('للتقارير الكاملة وباقي الإعدادات'), contentPadding: EdgeInsets.zero)),
         const PopupMenuDivider(),
         PopupMenuItem(value: 'out', child: ListTile(leading: const Icon(Icons.logout), title: const Text('خروج'), subtitle: Text(s.email), contentPadding: EdgeInsets.zero)),
       ],

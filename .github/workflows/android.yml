@@ -47,18 +47,31 @@ jobs:
           grep -q 'android.permission.INTERNET' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
           # The camera reads barcodes (quick count, receiving). Asked for the first time it is used.
           grep -q 'android.permission.CAMERA' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <application#' "$M"
+          # The morning notification (flutter_local_notifications): allowed by the owner on Android 13+, and
+          # scheduled again after the phone restarts.
+          grep -q 'POST_NOTIFICATIONS' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <application#' "$M"
+          grep -q 'ScheduledNotificationReceiver' "$M" || sed -i 's#</application>#    <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>\n        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED"/>\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>\n                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>\n            </intent-filter>\n        </receiver>\n    </application>#' "$M"
           G=$(ls android/app/build.gradle* | head -1)
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' "$G"
+          # flutter_local_notifications needs Java 8+ library desugaring.
+          if [ "${G##*.}" = "kts" ]; then
+            sed -i 's/compileOptions {/compileOptions {\n        isCoreLibraryDesugaringEnabled = true/' "$G"
+            printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n' >> "$G"
+          else
+            sed -i 's/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/' "$G"
+            printf '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"\n}\n' >> "$G"
+          fi
+          grep -n -A4 'compileOptions' "$G"
           # The release lint pass crashes inside the lint tool itself on a plugin's Java file
           # (url_launcher_android, NoSuchMethodError in JavaDocParser). It checks nothing of ours, so it is off.
           B=$(ls android/build.gradle* | head -1)
           printf '\nsubprojects {\n    tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }\n}\n' >> "$B"
-          echo "--- manifest"; head -20 "$M"
+          echo "--- manifest"; cat "$M"
 
       - name: Get packages
         run: |
           flutter pub get
-          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|path_provider|url_launcher|mobile_scanner):$/) print "::notice::" p " " $2 }' pubspec.lock
+          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|path_provider|url_launcher|mobile_scanner|flutter_local_notifications|timezone):$/) print "::notice::" p " " $2 }' pubspec.lock
       - name: Check the code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       # The same pharmacy worked out by the website's code and by the app's: every number must match.
