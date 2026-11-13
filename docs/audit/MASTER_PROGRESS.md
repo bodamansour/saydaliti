@@ -223,7 +223,7 @@ Restart `wrangler dev` after adding files under `src/` or changing `worker/publi
 ## Session log
 
 - **2026-11-03 (Phase 0):** Audit. Ran every suite runnable on Linux, probed the sale API locally, captured screenshots of all 32 tabs plus the cashier and phone layouts. No application code changed.
-- **2026-11-03 (Phase 1):** Milestones M1–M5 above. Commits on `ccr-94719aa6-7k3i5e` after `0fc1522`. Production untouched.
+- **2026-11-03 (Phase 1):** Milestones M1–M5 above. Commits on the Phase 1 working branch after `0fc1522` (merged in PR #51). Production untouched.
 - **2026-11-03 (Phase 1 follow-ups):** F1 manager approval (`28a5529`), F2 offline receipts (`9a33ad9`). Production untouched.
 - **2026-11-03 (PR + Phase 2 M1):** Draft PR #51; CI fix `ec2627b`; M1 server stock (`2f69a2f`). Production untouched.
 - **2026-11-03 (Phase 2 M2):** encrypted backups and restore drill (`34b9aa9`); CI-found test fix (`226519d`). Production untouched.

@@ -20,7 +20,7 @@ on:
         description: 'Type STAGING to deploy the current commit to the isolated staging environment'
         required: true
   push:
-    branches: [ccr-94719aa6-7k3i5e]
+    branches: [main]
     paths: ['.github/staging-run']
 
 permissions:
@@ -58,10 +58,10 @@ jobs:
   deploy:
     name: Staging deploy and validation
     needs: preflight
-    # Manual runs only (a push of the request file runs the preflight alone). Owner only, and only from the
-    # Phase 2 branch: main's code would run the patient reminders on the staging cron (the guard refuses it too),
-    # so main is added back only after PR #51 is merged. Never a pull request (no such trigger above either).
-    if: github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.ref == 'refs/heads/ccr-94719aa6-7k3i5e'
+    # Manual runs only (a push of the request file runs the preflight alone). Owner only, and only from main
+    # (the Phase 2 branch it replaced was merged in PR #51; the guard still refuses reminders on the staging cron).
+    # Never a pull request (no such trigger above either).
+    if: github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.ref == 'refs/heads/main'
     environment: staging
     runs-on: ubuntu-latest
     timeout-minutes: 45

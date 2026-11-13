@@ -65,7 +65,7 @@ The guard never reads the production token, and it never sends a request about a
    - Optional: Client IP filtering is not practical with GitHub-hosted runners.
 2. **GitHub environment `staging`:** Settings → Environments → New environment `staging`.
    - **Required reviewers:** yourself. Each run then waits for your click.
-   - **Deployment branches:** selected branches, `ccr-94719aa6-7k3i5e` and `main`.
+   - **Deployment branches:** selected branches, `main`.
    - **Environment secrets:** move `CLOUDFLARE_STAGING_API_TOKEN` here and add `STAGING_BACKUP_KEY`. After that, delete the repository-level copy of the token: repository secrets can be read by workflows run from branches of this repository, including pull requests opened from them, while environment secrets are released only to a job that the environment admits.
    - **Environment variable:** `CLOUDFLARE_STAGING_ACCOUNT_ID`, the 32-character account id (Cloudflare dashboard → any page → Account ID). It isn't secret; the guard uses it to prove the token reaches the staging database in that account.
 3. **The staging backup key, made on your own computer:**
@@ -78,13 +78,13 @@ The guard never reads the production token, and it never sends a request about a
 
 ## 4. Running it (only after the owner's approval)
 
-**Deploy:** only from a manual run, Actions → Cloudflare staging validation → Run workflow (branch `ccr-94719aa6-7k3i5e`, type `STAGING`). GitHub shows that button only when a file named `.github/workflows/staging.yml` exists on the default branch (`main`); today it doesn't. Getting it there needs a decision by the owner (§5).
+**Deploy:** only from a manual run, Actions → Cloudflare staging validation → Run workflow (branch `main`, type `STAGING`).
 
-**Preflight only:** changing `.github/staging-run` on the working branch runs the credential-free `preflight` job; `deploy` is skipped.
+**Preflight only:** changing `.github/staging-run` on `main` runs the credential-free `preflight` job; `deploy` is skipped.
 
 **Job `preflight`** (no secrets): isolation and guard tests, then `staging-guard config`.
 
-**Job `deploy`** (runs after `preflight`, waits for the `staging` environment reviewer; owner only; branch `ccr-94719aa6-7k3i5e` only, with `main` added back after PR #51 is merged).
+**Job `deploy`** (runs after `preflight`, waits for the `staging` environment reviewer; owner only; branch `main` only).
 
 **Secrets.** No secret is set for the whole job. `CLOUDFLARE_STAGING_API_TOKEN` is given only to the steps that run the guard: the settings check, the remote proof, migrations, deploy, Worker secrets, the D1 checks and the schedules check. It is never given to `npm ci`, the build, Playwright, the test suites or the backup-check script. `test/staging-isolation.test.js` enforces this.
 
