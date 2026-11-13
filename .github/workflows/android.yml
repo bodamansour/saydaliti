@@ -45,6 +45,8 @@ jobs:
           M=android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="[^"]*"/android:label="Tablix Pharma"/' "$M"
           grep -q 'android.permission.INTERNET' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
+          # The camera reads barcodes (quick count, receiving). Asked for the first time it is used.
+          grep -q 'android.permission.CAMERA' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <application#' "$M"
           G=$(ls android/app/build.gradle* | head -1)
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' "$G"
           # The release lint pass crashes inside the lint tool itself on a plugin's Java file
@@ -56,7 +58,7 @@ jobs:
       - name: Get packages
         run: |
           flutter pub get
-          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|path_provider|url_launcher):$/) print "::notice::" p " " $2 }' pubspec.lock
+          awk '/^  [a-z_]+:$/{p=$1} /^    version:/{ if (p ~ /^(http|intl|shared_preferences|path_provider|url_launcher|mobile_scanner):$/) print "::notice::" p " " $2 }' pubspec.lock
       - name: Check the code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       # The same pharmacy worked out by the website's code and by the app's: every number must match.

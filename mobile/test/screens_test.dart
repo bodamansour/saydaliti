@@ -14,6 +14,7 @@ import 'package:saydaliti_app/data/outbox.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:saydaliti_app/app_state.dart';
 import 'package:saydaliti_app/data/repo.dart';
+import 'package:saydaliti_app/screens/entry.dart';
 import 'package:saydaliti_app/screens/home.dart';
 import 'package:saydaliti_app/screens/sign_in.dart';
 import 'package:saydaliti_app/ui/format.dart';
@@ -133,6 +134,16 @@ void main() {
     }));
     return (api: api, sent: sent, connect: () => online = true);
   }
+
+  test('a scanned code becomes the box barcode, also from the square codes on newer medicine boxes', () {
+    expect(scannedCode('6223000123456'), '6223000123456');
+    expect(scannedCode(' 6223000123456\n'), '6223000123456');
+    // GS1 DataMatrix: 01 + GTIN-14, then the expiry (17), the batch (10) and the serial (21).
+    expect(scannedCode('01062230001234561728123110A1B2C3\u001d21XYZ987'), '6223000123456');
+    expect(scannedCode(']d201062230001234561728123110A1B2C3'), '6223000123456');
+    expect(scannedCode('0112345678901234'), '12345678901234');
+    expect(scannedCode('Panadol'), 'Panadol');
+  });
 
   test('the queue keeps writes with no connection, sends them in order once it is back, and sets aside what the server refuses', () async {
     SharedPreferences.setMockInitialValues({});

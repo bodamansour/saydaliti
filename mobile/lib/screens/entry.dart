@@ -1,9 +1,12 @@
 // What the stock forms share: finding an item by its barcode or name, numbers typed in Arabic or English
 // digits, the expiry month, and the code of a new item (the same rules as the website, src/inventory.js).
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../app_state.dart';
 import '../logic/model.dart';
@@ -33,6 +36,77 @@ String newItemCode(String barcode, Set<String> taken) {
 }
 
 bool looksLikeBarcode(String q) => RegExp(r'^\d{6,}$').hasMatch(q);
+
+/// What a scanner read, as the item's barcode. The square codes on newer medicine boxes (GS1 DataMatrix)
+/// carry the product number (GTIN, after «01»), the batch and the expiry together: the GTIN is the box's
+/// barcode, written as the 13 digits under the lines when it starts with 0.
+String scannedCode(String raw) {
+  final s = raw.replaceAll(RegExp(r'^\][A-Za-z]\d'), '').replaceAll(RegExp(r'[\x00-\x1f]'), '').trim();
+  final m = RegExp(r'^01(\d{14})').firstMatch(s);
+  if (m == null) return s;
+  final gtin = m.group(1)!;
+  return gtin.startsWith('0') ? gtin.substring(1) : gtin;
+}
+
+/// The camera can scan on a phone (not in the tests, which run on a computer).
+bool get cameraAvailable => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+/// The camera as a barcode scanner: returns the first code it reads (null when closed).
+class ScanPage extends StatefulWidget {
+  const ScanPage({super.key});
+  @override
+  State<ScanPage> createState() => _ScanPageState();
+}
+
+class _ScanPageState extends State<ScanPage> {
+  final _cam = MobileScannerController(formats: const [
+    BarcodeFormat.ean13,
+    BarcodeFormat.ean8,
+    BarcodeFormat.upcA,
+    BarcodeFormat.upcE,
+    BarcodeFormat.code128,
+    BarcodeFormat.code39,
+    BarcodeFormat.dataMatrix,
+    BarcodeFormat.qrCode,
+  ]);
+  bool _done = false;
+
+  @override
+  void dispose() {
+    _cam.dispose();
+    super.dispose();
+  }
+
+  void _read(BarcodeCapture capture) {
+    if (_done) return;
+    for (final b in capture.barcodes) {
+      final v = b.rawValue;
+      if (v == null || v.trim().isEmpty) continue;
+      _done = true;
+      HapticFeedback.mediumImpact();
+      Navigator.pop(context, scannedCode(v));
+      return;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('وجّه الكاميرا على الباركود')),
+        body: Stack(children: [
+          MobileScanner(controller: _cam, onDetect: _read),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: double.infinity,
+              color: const Color(0xAA000000),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: const Text('خلّي الباركود جوه الصورة وفي النور. لو الكاميرا مش شغالة، اسمح للأبلكيشن يستخدمها من إعدادات الموبايل.',
+                  style: TextStyle(color: Colors.white, height: 1.5), textAlign: TextAlign.center),
+            ),
+          ),
+        ]),
+      );
+}
 
 /// Items that match what was typed: an exact code or barcode first, then names (Arabic, English, active ingredient).
 ({Item? exact, List<Item> matches}) findItems(AppState s, String query) {
@@ -82,8 +156,16 @@ class _ItemSearchState extends State<ItemSearch> {
     super.dispose();
   }
 
+  Future<void> _scan(AppState s) async {
+    final v = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const ScanPage()));
+    if (v == null || !mounted) return;
+    _c.text = v;
+    setState(() => q = v);
+    _enter(s);
+  }
+
   void _enter(AppState s) {
-    final text = _c.text.trim();
+    final text = scannedCode(_c.text);
     if (text.isEmpty) return;
     final r = findItems(s, text);
     if (r.exact != null) return widget.onPick(r.exact!);
@@ -95,7 +177,7 @@ class _ItemSearchState extends State<ItemSearch> {
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
     final t = context.tones;
-    final r = findItems(s, q);
+    final r = findItems(s, scannedCode(q));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       TextField(
         controller: _c,
@@ -103,7 +185,12 @@ class _ItemSearchState extends State<ItemSearch> {
         textInputAction: TextInputAction.search,
         onChanged: (x) => setState(() => q = x),
         onSubmitted: (_) => _enter(s),
-        decoration: InputDecoration(labelText: 'الصنف', hintText: widget.hint, prefixIcon: const Icon(Icons.qr_code_scanner)),
+        decoration: InputDecoration(
+          labelText: 'الصنف',
+          hintText: widget.hint,
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: cameraAvailable ? IconButton(tooltip: 'امسح بالكاميرا', icon: const Icon(Icons.photo_camera_outlined), onPressed: () => _scan(s)) : null,
+        ),
       ),
       if (q.trim().isNotEmpty) ...[
         const SizedBox(height: 8),
@@ -121,8 +208,8 @@ class _ItemSearchState extends State<ItemSearch> {
             margin: const EdgeInsets.only(bottom: 6),
             child: ListTile(
               leading: Icon(Icons.add_circle_outline, color: t.accent),
-              title: Text('صنف جديد: ${q.trim()}', maxLines: 2, overflow: TextOverflow.ellipsis),
-              onTap: () => widget.onNew(q.trim()),
+              title: Text('صنف جديد: ${scannedCode(q)}', maxLines: 2, overflow: TextOverflow.ellipsis),
+              onTap: () => widget.onNew(scannedCode(q)),
             ),
           ),
       ],
