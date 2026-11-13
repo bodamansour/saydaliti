@@ -330,6 +330,17 @@ void main() {
     expect(saleRow(pharmacyId: 'p1', branchId: null, lines: lines, discount: 0, payment: 'cash', paid: 50)['paid'], 50);
   });
 
+  test('an offline return is refused and never queued for a later refund', () async {
+    SharedPreferences.setMockInitialValues({});
+    final s = loaded(api: Api(client: MockClient((_) async => throw http.ClientException('no connection'))));
+    s.userId = 'u1';
+    await expectLater(s.sell({'kind': 'return', 'id': 'r1', 'return_of': 's1', 'pharmacy_id': 'p1', 'branch_id': 'b1',
+      'lines': [{'code': 'a', 'price': 10, 'qty': 1, 'discount': 0}], 'total': -10, 'discount': 0, 'paid': -10, 'payment': 'cash'}),
+      throwsA(isA<ApiError>()));
+    expect(s.pending, 0);
+    expect(s.repo.raw!.sales.where((x) => x['id'] == 'r1'), isEmpty);
+  });
+
   testWidgets('the cashier with no connection: the receipt is numbered, kept, and sent when the connection is back', (t) async {
     SharedPreferences.setMockInitialValues({});
     Repo.inline = true;
