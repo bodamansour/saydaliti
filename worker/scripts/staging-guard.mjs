@@ -44,6 +44,7 @@ export const STAGING = Object.freeze({
   dbId: '0ba7c0dd-645e-453e-9999-a316a828e175',
   bucket: 'saydaliti-files-staging',
   cron: '*/30 * * * *',
+  sealCron: '15 * * * *',
   urlHost: /^https:\/\/tablix-staging\.[a-z0-9-]+\.workers\.dev$/,
 });
 // Production, fixed here on purpose (not only read from wrangler.toml, so editing the file can't move the target).
@@ -178,11 +179,12 @@ export function checkConfig(text) {
   no(!STAGING.urlHost.test(vars.SITE_URL || ''), `staging SITE_URL is ${vars.SITE_URL}`);
 
   // Schedules: staging must declare its own triggers (otherwise it inherits production's morning report and
-  // reminders), with exactly the backup cron, and BACKUP_CRON must be that same cron.
+  // reminders), with only the backup and hourly audit cron, and BACKUP_CRON must match.
   const trig = tablesOf(cfg, 'env.staging.triggers');
   let crons = null;
   try { crons = trig.length === 1 ? JSON.parse(trig[0].crons ?? 'null') : null; } catch { crons = null; }
-  no(!Array.isArray(crons) || crons.length !== 1 || crons[0] !== STAGING.cron, `staging crons must be exactly ["${STAGING.cron}"] (got ${trig.length === 1 ? trig[0].crons : 'no [env.staging.triggers]'})`);
+  const expectedCrons = [STAGING.cron, STAGING.sealCron];
+  no(!Array.isArray(crons) || crons.length !== expectedCrons.length || expectedCrons.some((cron, i) => crons[i] !== cron), `staging crons must be exactly ${JSON.stringify(expectedCrons)} (got ${trig.length === 1 ? trig[0].crons : 'no [env.staging.triggers]'})`);
   no(vars.BACKUP_CRON !== STAGING.cron, `staging BACKUP_CRON must be "${STAGING.cron}" (got ${vars.BACKUP_CRON})`);
   no(vars.MORNING_CRON === STAGING.cron, 'staging MORNING_CRON must not equal the staging cron');
 
@@ -407,7 +409,8 @@ async function schedules() {
   const s = await cf(`/accounts/${account}/workers/scripts/${STAGING.worker}/schedules`);
   console.log('success:', s.ok, 'schedules:', JSON.stringify((s.result?.schedules || []).map((x) => x.cron)), s.errors.length ? `errors: ${s.errors.join('; ')}` : '');
   const got = (s.result?.schedules || []).map((x) => x.cron);
-  if (!s.ok || got.length !== 1 || got[0] !== STAGING.cron) fail(`the staging Worker's schedules are ${JSON.stringify(got)}, expected ["${STAGING.cron}"]`);
+  const expected = [STAGING.cron, STAGING.sealCron];
+  if (!s.ok || got.length !== expected.length || expected.some((cron) => !got.includes(cron))) fail(`the staging Worker's schedules are ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
 }
 
 // ---------- CLI ----------
@@ -416,7 +419,7 @@ async function main(argv) {
   // Every mode first checks the one config file (and that no other could be read) and the scheduled handler.
   loadCheckedConfig();
   if (mode === 'config') {
-    console.log('wrangler.toml: staging is isolated from production; the staging cron reaches only the backups');
+    console.log('wrangler.toml: staging is isolated from production; backup and hourly audit crons are allowed');
   } else if (mode === 'remote') {
     await remote();
   } else if (mode === 'schedules') {
