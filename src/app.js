@@ -8,8 +8,8 @@ import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyC
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
-import { shortagePlan, cheapestSeen, priceCompare, parseTimes } from './features.js';
-import { normalizeEgPhone } from './report.js';
+import { shortagePlan, cheapestSeen, priceCompare, parseTimes, handDue, reminderText, afterSend, waLink } from './features.js';
+import { normalizeEgPhone, parsePhones } from './report.js';
 import { isGeniusBackup } from './genius.js';
 import { readAll, showDataAlert, incompleteText } from './paged.js';
 import { reconcile, openingItems } from './stock-reconcile.js';
@@ -279,7 +279,7 @@ function render(background = false) {
     const name = SESS.pharmacy?.name || 'الصيدلية';
     html = `<p>ملخص اليوم في رسالة واحدة: الفلوس اللي في خطر، تطلب إيه، وتعمل عرض على إيه. انسخه وابعته على واتساب${OWNER !== 'all' ? ` (ده لبضاعة ${esc(OWNER)} بس)` : ''}${BRANCH !== 'all' && multi() ? ` (${esc(branchName(BRANCH))})` : ''}.</p>
       <div class="card msg"><textarea class="u-h320" id="morningMsg" aria-label="تقرير الصبح">${esc(morningReport(A, { pharmacyName: name, shortages: FEATURES_READY ? shortagePlan(SHORTAGES, A.rows).filter((x) => x.found) : [], priceChanged: nChanged }))}</textarea>
-      <div class="row"><button class="btn primary" id="copyMorning">انسخ التقرير</button><span class="note" id="copyMorningNote"></span></div></div>`;
+      <div class="row"><button class="btn primary" id="copyMorning">انسخ التقرير</button>${(() => { const ph = parsePhones($('waNumbers')?.value); return (ph.length ? ph : ['']).map((n) => `<button class="btn" data-morningwa="${esc(n)}">${n ? `ابعته واتساب لـ …${esc(n.slice(-4))}` : 'ابعته على واتساب'}</button>`).join(' '); })()}<span class="note" id="copyMorningNote"></span></div></div>`;
   } else if (TAB === 'books') {
     html = renderBooks(full, only);
   } else if (TAB === 'partners') {
@@ -1194,7 +1194,7 @@ function renderPatients() {
   const next30 = isoDay(addDays(TODAY, 30));
   const form = `<form id="remForm" class="card stack">
     <h3>تذكير جديد على الواتساب</h3>
-    <p class="note">البرنامج بيبعت للمريض رسالة في ميعاد الجرعة، أو قبل ما الدوا يخلص بيوم عشان يجدد من عندك.</p>
+    <p class="note">البرنامج بيجهزلك رسالة للمريض بمواعيد الجرعات، أو قبل ما الدوا يخلص بيوم عشان يجدد من عندك، وإنت تبعتها من واتساب.</p>
     <div class="grid2">
       <label>المريض<select id="remPatient"><option value="new">مريض جديد</option>${pOpts}</select></label>
       <span></span>
@@ -1216,10 +1216,15 @@ function renderPatients() {
     <td class="muted">${r.last_sent_at ? new Date(r.last_sent_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'لسه'}</td>
     <td><button class="btn" data-remtoggle="${esc(r.id)}">${r.active === false ? 'شغّل' : 'وقّف'}</button> <button class="btn" data-remdel="${esc(r.id)}" aria-label="امسح">امسح</button></td></tr>`);
   const plist = PATIENTS.map((p) => `<li>${esc(p.name)} <span class="muted n">…${esc(String(p.phone).slice(-4))}</span> <button class="linkbtn" data-patdel="${esc(p.id)}">امسح المريض وتذكيراته</button></li>`).join('');
-  return form
+  const pById = new Map(PATIENTS.map((p) => [p.id, p]));
+  const due = handDue(REMINDERS).filter((r) => pById.get(r.patient_id)?.active !== false && pById.get(r.patient_id)?.phone);
+  const today = due.length ? `<div class="card stack"><h3>رسايل النهارده (${fmt(due.length)})</h3>
+    <p class="note">دوس «ابعت» يفتحلك واتساب بالرسالة جاهزة للمريض، وإنت تدوس إرسال.</p>
+    <ul class="blist">${due.map((r) => `<li><b>${esc(pById.get(r.patient_id).name)}</b>: ${esc(r.medicine)} <span class="muted">${r.kind === 'dose' ? '(جدول الجرعات)' : '(تجديد)'}</span> <button class="btn primary" data-remsend="${esc(r.id)}">ابعت على واتساب</button></li>`).join('')}</ul></div>` : '';
+  return today + form
     + (rows.length ? `<div class="tablebox"><table><thead><tr><th>المريض</th><th>الدوا</th><th>التذكير</th><th>آخر رسالة</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<div class="tablebox"><p class="empty">لسه مفيش تذكيرات.</p></div>')
     + (PATIENTS.length ? `<details class="help"><summary>المرضى (${fmt(PATIENTS.length)})</summary><ul class="blist">${plist}</ul></details>` : '')
-    + `<p class="note">بيانات المرضى بيشوفها صاحب الصيدلية بس، ومتتحفظش غير بموافقة المريض. الرسايل بتتبعت لما يتفعّل واتساب بيزنس للصيدلية (التفاصيل في README).</p>`;
+    + `<p class="note">بيانات المرضى بيشوفها صاحب الصيدلية بس، ومتتحفظش غير بموافقة المريض. الرسايل بتتبعت من واتساب بتاعك: لما ييجي ميعاد التجديد، الرسالة بتظهر فوق في «رسايل النهارده».</p>`;
 }
 function bindPatients() {
   const sync2 = () => {
@@ -2561,7 +2566,7 @@ $('panel').addEventListener('click', (e) => {
 // ---------- Subscription (database update 013) ----------
 // The online version: a free trial, then a paid period turned on by the app owner. The dashboard
 // locks a few days after the end; the cashier never does. The desktop version has no subscription.
-let SUB = null, APPCFG = {};
+let SUB = null, APPCFG = {}, PAY_ON = false;
 const subNow = () => (SUB ? subscriptionState(SUB, APPCFG, TODAY) : { level: 'ok' });
 const subLocked = () => subNow().level === 'locked';
 async function loadSubscription() {
@@ -2580,6 +2585,7 @@ async function loadSubscription() {
     $('adminLink').hidden = adm.error || !adm.data;
   }
   SUB = got?.sub ?? null; APPCFG = got?.cfg ?? {};
+  if (isOnline() && isOwner() && SESS.client?.pay) PAY_ON = !!(await SESS.client.pay('status').catch(() => null))?.data?.enabled;
   PLAN = planOf(SUB, APPCFG.plans);
   renderSubBanner();
   // A gentle reminder to keep a copy of everything, every two weeks.
@@ -2590,6 +2596,7 @@ function payInfo() {
   const price = monthlyPrice(APPCFG, BRANCHES.filter((b) => b.id).length || 1, SUB?.price_month);
   const wa = String(APPCFG.support_phone || '').replace(/\D/g, '').replace(/^0/, '20');
   return `${price ? `<p>الاشتراك: <b class="n">${fmt(price)}</b> ج في الشهر${BRANCHES.length > 1 ? ' (لكل الفروع)' : ''}.</p>` : ''}
+    ${PAY_ON ? `<p class="row"><button class="btn primary" data-paynow="1">ادفع شهر أونلاين</button> <button class="btn" data-paynow="12">ادفع سنة</button> <span class="note" data-paynote role="status"></span></p><p class="note">بالكارت أو المحفظة (فودافون كاش وغيرها) من صفحة Paymob. الاشتراك بيتجدد لوحده أول ما الدفع يتم.</p>` : ''}
     ${APPCFG.pay_note ? `<p class="u-pre">${esc(APPCFG.pay_note)}</p>` : ''}
     ${wa ? `<p><a class="btn primary" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`عايز أجدد اشتراك Tablix Pharma: ${SESS.pharmacy.name}`)}" target="_blank" rel="noopener">كلّمنا على واتساب</a></p>` : ''}`;
 }
@@ -3321,9 +3328,14 @@ $('panel').addEventListener('click', (e) => {
   if (t('shortdel') && confirm('تمسح الصنف ده من النواقص؟')) localDelete('shortages', t('shortdel'));
   if (t('pricedel') && confirm('تمسح السعر ده؟')) localDelete('market_prices', t('pricedel'));
   if (t('remtoggle')) { const r = REMINDERS.find((x) => x.id === t('remtoggle')); if (r) localUpdate('reminders', r.id, { active: r.active === false }); }
+  if (t('remsend')) {
+    const r = REMINDERS.find((x) => x.id === t('remsend')); const p = r && PATIENTS.find((x) => x.id === r.patient_id);
+    if (r && p) { window.open(waLink(p.phone, reminderText(r, { patientName: p.name, pharmacyName: SESS.pharmacy?.name })), '_blank', 'noopener'); localUpdate('reminders', r.id, afterSend(r)); }
+  }
   if (t('remdel') && confirm('تمسح التذكير ده؟')) localDelete('reminders', t('remdel'));
   if (t('patdel') && confirm('تمسح المريض ده وكل تذكيراته؟')) localDelete('patients', t('patdel'));
   if (e.target.id === 'copyMorning') copyFrom($('morningMsg'), $('copyMorningNote'));
+  if (t('morningwa') !== undefined && $('morningMsg')) window.open(waLink(t('morningwa'), $('morningMsg').value), '_blank', 'noopener');
 });
 $('ownerSel').addEventListener('change', (e) => { OWNER = e.target.value; render(); });
 $('branchSel').addEventListener('change', (e) => { BRANCH = e.target.value; store.set('saydaliti-branch-v1', BRANCH); renderBranches(); setView(); render(); });
@@ -3337,6 +3349,18 @@ function enter(dir = 0) {
   p.classList.add('enter');
 }
 function openTab(id, dir = 0) { if (id === TAB) return; TAB = id; render(); enter(dir); }
+// Paying the subscription online: the banner and the locked page both show the buttons.
+document.addEventListener('click', (e) => {
+  const t = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+  if (t('paynow')) {
+    const note = e.target.closest('[data-paynow]').parentElement.querySelector('[data-paynote]');
+    if (note) note.textContent = 'بيفتح صفحة الدفع…';
+    SESS.client.pay({ pharmacy: SESS.pharmacy.id, months: +t('paynow') }).then((r) => {
+      if (r.data?.url) location.href = r.data.url;
+      else if (note) note.textContent = r.error?.message === 'no price set' ? 'لسه مفيش سعر للاشتراك. كلّمنا.' : 'الدفع مش متاح دلوقتي. جرّب كمان شوية أو كلّمنا.';
+    }).catch(() => { if (note) note.textContent = 'مفيش اتصال. جرّب تاني.'; });
+  }
+});
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) openTab(b.dataset.tab); });
 // On a touch screen: swipe sideways on the list to move to the next or the previous tab of the section.
 // Not from inside something that scrolls sideways itself (a wide table), or a field being typed in.

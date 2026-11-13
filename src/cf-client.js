@@ -93,6 +93,8 @@ export function createCloudflareClient() {
     // «اسأل Tablix Pharma» with an AI model (only when the server has one configured).
     ai(payload) { return payload === 'status' ? call('/api/ai/status', null, 'GET') : call('/api/ai', payload); },
     aiInvoice(payload) { return call('/api/ai/invoice', payload); },
+    // Paying the subscription online (Paymob), when the server has it set up.
+    pay(payload) { return payload === 'status' ? call('/api/pay/status', null, 'GET') : call('/api/pay/start', payload); },
     // Item photos: sent and read with the sign-in (an <img> can't), shown as a blob URL.
     async itemImage(pharmacy, code, blob = undefined) {
       const q = `/api/item-image?pharmacy=${encodeURIComponent(pharmacy)}&code=${encodeURIComponent(code)}`;
