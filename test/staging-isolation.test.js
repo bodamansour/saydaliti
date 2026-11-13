@@ -49,9 +49,11 @@ test('the staging workflow: staging credentials only, protected, guarded, never 
   assert.doesNotMatch(pre, /secrets\./);
   assert.match(dep, /needs: preflight/);
   assert.match(dep, /environment: staging/);
-  // Only the Phase 2 branch until PR #51 is merged (main's code would run the reminders on the staging cron).
-  assert.match(dep, /^ {4}if: github\.event_name == 'workflow_dispatch' && github\.actor == github\.repository_owner && github\.ref == 'refs\/heads\/ccr-94719aa6-7k3i5e'\n/m);
-  assert.doesNotMatch(dep.split('\n').find((l) => /^ {4}if:/.test(l)), /main|\|\||\*|startsWith|contains/, 'no broader branch list');
+  // Only main (the Phase 2 branch was merged in PR #51), only a manual run by the owner.
+  assert.match(dep, /^ {4}if: github\.event_name == 'workflow_dispatch' && github\.actor == github\.repository_owner && github\.ref == 'refs\/heads\/main'\n/m);
+  const gate = dep.split('\n').find((l) => /^ {4}if:/.test(l));
+  assert.equal(gate.match(/refs\/heads\//g).length, 1, 'one branch only');
+  assert.doesNotMatch(gate, /\|\||\*|startsWith|contains/, 'no broader branch list');
   assert.ok(dep.indexOf('$GUARD remote') > 0 && dep.indexOf('$GUARD remote') < dep.indexOf('migrations apply'), 'the remote check comes before any write');
   // Every wrangler call goes through the guard; no direct `wrangler` / `npx wrangler` in the workflow.
   assert.doesNotMatch(wf, /npx wrangler|^\s*wrangler /m);

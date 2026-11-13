@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Audit date | 2026-11-03 |
-| Branch | `ccr-94719aa6-7k3i5e` (identical to `main` at audit start) |
+| Branch | the working branch, identical to `main` at audit start (merged in PR #51) |
 | Commit audited | `7d23b83a17f9be170a17ec9e288424ae6550f577` (Merge PR #49, 2026-10-31) |
 | Working tree | Clean before the audit; the only changes are these new documents |
 | Scope | Read-only review of the whole repository, plus test runs against **local** D1/R2 (Miniflare). No production system, live database, or pharmacy data was touched. Nothing was deployed. |
