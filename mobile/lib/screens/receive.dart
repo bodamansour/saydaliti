@@ -2,6 +2,7 @@
 // expiry. Saved like the website's «طلبية وصلت»: the boxes go into stock and the invoice onto the
 // supplier's account. It works with no connection: the invoice goes to the server when it is back.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../data/outbox.dart';
@@ -77,11 +78,14 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
     if (startOfDay(date).isAfter(startOfDay())) return fail('تاريخ الاستلام لازم يكون النهارده أو قبله.');
     final items = s.view!.data.items;
     final taken = {for (final i in items) i.code};
+    // The same new item on two lines (two expiry dates, say) is one item: one code, added once.
+    final newCodes = <String, String>{};
     final entries = <Pending>[];
     final out = <Map<String, dynamic>>[];
     for (final l in lines) {
-      final boxes = numIn(l.boxes.text) ?? 0, bonus = numIn(l.bonus.text) ?? 0;
-      final cost = numIn(l.cost.text) ?? 0, price = numIn(l.price.text);
+      final double boxes = numIn(l.boxes.text) ?? 0, bonus = numIn(l.bonus.text) ?? 0;
+      final double cost = numIn(l.cost.text) ?? 0;
+      final price = numIn(l.price.text);
       if (boxes < 0 || bonus < 0 || boxes + bonus <= 0) return fail('اكتب كمية «${l.title}».');
       if (cost < 0) return fail('سعر الشراء بتاع «${l.title}» مش مظبوط.');
       String code, name;
@@ -90,8 +94,15 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
         if (name.isEmpty) return fail('اكتب اسم الصنف الجديد.');
         if (price == null || price < 0) return fail('اكتب سعر البيع بتاع «$name».');
         if (items.any((i) => i.name.trim() == name)) return fail('«$name» موجود قبل كده. شيل السطر وضيفه من البحث.');
+        final same = l.barcode.isNotEmpty ? 'b:${l.barcode}' : 'n:$name';
+        final had = newCodes[same];
+        if (had != null) {
+          out.add({'code': had, 'name': name, 'qty': boxes, 'bonus': bonus, 'cost': cost, 'price': price, 'expiry': l.expiry});
+          continue;
+        }
         code = newItemCode(l.barcode, taken);
         taken.add(code);
+        newCodes[same] = code;
         entries.add(Pending.insert('catalog_items', {
           'id': newRowId(),
           'pharmacy_id': m.pharmacyId,
@@ -110,7 +121,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
     }
     final paid = numIn(_paid.text) ?? 0;
     if (paid < 0) return fail('المدفوع مش مظبوط.');
-    final total = r2(out.fold<double>(0, (a, l) => a + (l['qty'] as double) * (l['cost'] as double)));
+    final total = r2(out.fold<double>(0, (a, l) => a + (l['qty'] as num) * (l['cost'] as num)));
     entries.add(Pending.insert('purchases', {
       'id': newRowId(),
       'pharmacy_id': m.pharmacyId,
@@ -155,7 +166,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
           ),
         const SizedBox(height: 10),
         Row(children: [
-          Expanded(child: TextField(controller: _invoice, decoration: const InputDecoration(labelText: 'رقم الفاتورة (اختياري)'))),
+          Expanded(child: TextField(controller: _invoice, inputFormatters: [LengthLimitingTextInputFormatter(60)], decoration: const InputDecoration(labelText: 'رقم الفاتورة (اختياري)'))),
           const SizedBox(width: 10),
           Expanded(
             child: OutlinedButton.icon(
@@ -185,7 +196,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                       }),
                 ]),
                 if (l.item == null) ...[
-                  TextField(controller: l.name, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'اسم الصنف الجديد')),
+                  TextField(controller: l.name, onChanged: (_) => setState(() {}), inputFormatters: [LengthLimitingTextInputFormatter(160)], decoration: const InputDecoration(labelText: 'اسم الصنف الجديد')),
                   const SizedBox(height: 10),
                 ],
                 Padding(

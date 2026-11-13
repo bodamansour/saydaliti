@@ -242,12 +242,15 @@ class AmountLine extends StatelessWidget {
 
 /// A scrollable page that refreshes when pulled down.
 class RefreshPage extends StatelessWidget {
-  const RefreshPage({super.key, required this.onRefresh, required this.children});
+  const RefreshPage({super.key, required this.onRefresh, required this.children, this.bottom = 28});
   final Future<void> Function() onRefresh;
   final List<Widget> children;
+
+  /// Room under the last card (more when a floating button sits over the list).
+  final double bottom;
   @override
   Widget build(BuildContext context) => RefreshIndicator(
         onRefresh: onRefresh,
-        child: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.fromLTRB(16, 12, 16, 28), children: children),
+        child: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 12, 16, bottom), children: children),
       );
 }

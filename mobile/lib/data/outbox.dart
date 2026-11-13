@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 
+/// Now, as the website writes times: UTC with milliseconds ('2026-11-13T04:20:00.123Z').
+String nowIso() => DateTime.fromMillisecondsSinceEpoch(DateTime.now().millisecondsSinceEpoch, isUtc: true).toIso8601String();
+
 /// A new random id for a row (a UUID v4, like the website's crypto.randomUUID()).
 String newRowId() {
   final r = math.Random.secure();

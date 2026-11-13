@@ -28,7 +28,11 @@ class SummaryTab extends StatelessWidget {
 
     return RefreshPage(onRefresh: s.refresh, children: [
       if (noData)
-        const Notice('لسه مفيش بيانات مخزون. ارفع ملف برنامج الصيدلية من الموقع (أو من الوصلة على جهاز الكاشير)، وهتظهر هنا.', tone: Tone.info),
+        Notice(
+            s.canStock
+                ? 'لسه مفيش بيانات مخزون. ارفع ملف برنامج الصيدلية من الموقع، أو ابدأ «جرد سريع» من تبويب المخزون وسجّل اللي على الرفوف.'
+                : 'لسه مفيش بيانات مخزون. ارفع ملف برنامج الصيدلية من الموقع (أو من الوصلة على جهاز الكاشير)، وهتظهر هنا.',
+            tone: Tone.info),
       if (v.branchesWithoutUpload.isNotEmpty) Notice('لسه مفيش رفع لـ: ${v.branchesWithoutUpload.join('، ')}', tone: Tone.warn),
       // Today, big.
       HeroCard(

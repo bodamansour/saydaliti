@@ -136,7 +136,7 @@ class _StockTabState extends State<StockTab> {
                 ])
               : ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  padding: EdgeInsets.fromLTRB(16, 4, 16, s.canStock ? 96 : 24),
                   itemCount: list.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _ItemCard(row: list[i], filter: filter),

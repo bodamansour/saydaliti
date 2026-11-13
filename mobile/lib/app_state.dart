@@ -175,7 +175,7 @@ class AppState extends ChangeNotifier {
       final list = switch (e.table) { 'catalog_items' => r.catalog, 'purchases' => r.purchases, 'stock_moves' => r.moves, _ => null };
       if (list == null) continue;
       if (e.op == 'insert') {
-        if (!list.any((x) => x['id'] == e.row['id'])) list.add({'created_at': DateTime.now().toUtc().toIso8601String(), ...e.row});
+        if (!list.any((x) => x['id'] == e.row['id'])) list.add({'created_at': nowIso(), ...e.row});
       } else {
         list.where((x) => x['id'] == e.id).firstOrNull?.addAll(e.row);
       }

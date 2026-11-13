@@ -2,6 +2,7 @@
 // The boxes are added to the balance (a second expiry date is a second entry). An item that isn't known
 // yet is added on the spot. It works with no connection: the counts go to the server when it is back.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../data/outbox.dart';
@@ -76,7 +77,7 @@ class _QuickCountScreenState extends State<QuickCountScreen> {
     if (hasPrice && (price == null || price < 0)) return fail('سعر البيع مش مظبوط.');
     if (hasCost && (cost == null || cost < 0)) return fail('سعر الشراء مش مظبوط.');
     final m = s.member!;
-    final now = DateTime.now().toUtc().toIso8601String();
+    final now = nowIso();
     final entries = <Pending>[];
     final it = item;
     String code, name;
@@ -177,7 +178,7 @@ class _QuickCountScreenState extends State<QuickCountScreen> {
           ),
           const SizedBox(height: 10),
           if (isNew) ...[
-            TextField(controller: _name, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'اسم الصنف')),
+            TextField(controller: _name, textInputAction: TextInputAction.next, inputFormatters: [LengthLimitingTextInputFormatter(160)], decoration: const InputDecoration(labelText: 'اسم الصنف')),
             const SizedBox(height: 10),
           ],
           NumField(_boxes, 'عدد العلب', decimal: false),
