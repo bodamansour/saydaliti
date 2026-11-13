@@ -164,5 +164,15 @@ class Api {
   Future<void> insert(String table, List<Map<String, dynamic>> rows) =>
       call('/api/db', body: {'table': table, 'op': 'upsert', 'rows': rows, 'ignoreDuplicates': true});
 
+  /// Changes fields of one row, by its id.
+  Future<void> update(String table, String id, Map<String, dynamic> patch) => call('/api/db', body: {
+        'table': table,
+        'op': 'update',
+        'patch': patch,
+        'filters': [
+          ['id', 'eq', id]
+        ],
+      });
+
   Future<dynamic> rpc(String name, [Map<String, dynamic> params = const {}]) => call('/api/rpc/$name', body: params);
 }

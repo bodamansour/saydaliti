@@ -235,8 +235,12 @@ class Repo {
   }
 
   /// Works out what the screens show, in a separate isolate.
+  /// Works the numbers out on this thread instead of a background one (the screen tests).
+  static bool inline = false;
+
   Future<PharmacyView> view(String branch) {
     final m = member!, r = raw!;
+    if (inline) return Future.value(buildView(m, r, branch, DateTime.now()));
     return Isolate.run(() => buildView(m, r, branch, DateTime.now()));
   }
 }

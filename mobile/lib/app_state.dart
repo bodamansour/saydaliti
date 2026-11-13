@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/api.dart';
+import 'data/outbox.dart';
 import 'data/repo.dart';
 
 enum Phase { starting, signedOut, noPharmacy, ready }
@@ -10,9 +11,18 @@ enum Phase { starting, signedOut, noPharmacy, ready }
 class AppState extends ChangeNotifier {
   AppState({Api? api}) : api = api ?? Api() {
     repo = Repo(this.api);
+    outbox = Outbox(this.api);
   }
   final Api api;
   late final Repo repo;
+
+  /// Counts and goods received on this phone that the server doesn't have yet.
+  late final Outbox outbox;
+  int get pending => outbox.length;
+  List<Refused> get refused => outbox.refused;
+
+  /// The owner and the stock keeper count stock and receive goods (the server checks it too).
+  bool get canStock => const ['owner', 'stock'].contains(member?.role);
 
   Phase phase = Phase.starting;
   String email = '';
@@ -34,6 +44,7 @@ class AppState extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     themeMode = ThemeMode.values.firstWhere((m) => m.name == p.getString(_kTheme), orElse: () => ThemeMode.system);
     branch = p.getString(_kBranch) ?? 'all';
+    await outbox.load();
     final s = await api.restore();
     if (s == null) {
       phase = Phase.signedOut;
@@ -61,6 +72,7 @@ class AppState extends ChangeNotifier {
       final m = repo.member!;
       if (branch != 'all' && !m.branches.any((b) => branchKey(b.id) == branch)) branch = 'all';
       if (m.branches.length == 1) branch = branchKey(m.branches.first.id);
+      _applyLocal(outbox.items);
       try {
         view = await repo.view(branch);
         fromSaved = true;
@@ -73,6 +85,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    // What wasn't sent belongs to this account's pharmacy; it is not sent later under another account.
+    outbox.items = [];
+    await outbox.add(const []);
     await api.signOut();
     await repo.forget(userId);
     fromSaved = false;
@@ -92,6 +107,7 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
+      await sync();
       final m = await repo.loadMembership();
       if (m == null) {
         phase = Phase.noPharmacy;
@@ -101,6 +117,7 @@ class AppState extends ChangeNotifier {
       if (branch != 'all' && !keys.contains(branch)) branch = 'all';
       if (m.branches.length == 1) branch = branchKey(m.branches.first.id);
       await repo.load();
+      _applyLocal(outbox.items); // what is still waiting to be sent shows as if it were there
       view = await repo.view(branch);
       loadedAt = DateTime.now();
       fromSaved = false;
@@ -119,6 +136,49 @@ class AppState extends ChangeNotifier {
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  /// Saves rows made on the phone: they show at once, and go to the server now or when the connection is back.
+  Future<void> write(List<Pending> entries) async {
+    await outbox.add(entries);
+    _applyLocal(entries);
+    if (repo.member != null && repo.raw != null) {
+      view = await repo.view(branch);
+      repo.keep(userId);
+    }
+    notifyListeners();
+    sync();
+  }
+
+  /// Sends what is waiting; a no-op when there is nothing.
+  Future<void> sync() async {
+    if (outbox.length == 0) return;
+    final before = (outbox.length, outbox.refused.length);
+    try {
+      await outbox.send();
+    } catch (_) {
+      // An unexpected error: the rows stay in the queue for the next try.
+    }
+    if ((outbox.length, outbox.refused.length) != before) notifyListeners();
+  }
+
+  void dismissRefused(Refused r) {
+    outbox.refused.remove(r);
+    notifyListeners();
+  }
+
+  void _applyLocal(List<Pending> entries) {
+    final r = repo.raw;
+    if (r == null) return;
+    for (final e in entries) {
+      final list = switch (e.table) { 'catalog_items' => r.catalog, 'purchases' => r.purchases, 'stock_moves' => r.moves, _ => null };
+      if (list == null) continue;
+      if (e.op == 'insert') {
+        if (!list.any((x) => x['id'] == e.row['id'])) list.add({'created_at': DateTime.now().toUtc().toIso8601String(), ...e.row});
+      } else {
+        list.where((x) => x['id'] == e.id).firstOrNull?.addAll(e.row);
+      }
     }
   }
 
