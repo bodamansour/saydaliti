@@ -26,7 +26,7 @@ class SummaryTab extends StatelessWidget {
     final orderCost = a.reorder.fold<double>(0, (x, r) => x + r.order * r.cost);
     final noData = v.data.items.isEmpty;
 
-    return RefreshPage(onRefresh: s.refresh, children: [
+    return RefreshPage(onRefresh: s.refresh, bottom: s.canSell ? 96 : 28, children: [
       if (noData)
         Notice(
             s.canStock

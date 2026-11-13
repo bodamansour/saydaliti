@@ -11,11 +11,15 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:saydaliti_app/data/api.dart';
 import 'package:saydaliti_app/data/outbox.dart';
+import 'package:saydaliti_app/data/receipts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:saydaliti_app/app_state.dart';
 import 'package:saydaliti_app/data/repo.dart';
+import 'package:saydaliti_app/logic/model.dart';
+import 'package:saydaliti_app/screens/cashier.dart';
 import 'package:saydaliti_app/screens/entry.dart';
 import 'package:saydaliti_app/screens/home.dart';
+import 'package:saydaliti_app/screens/settings.dart';
 import 'package:saydaliti_app/screens/sign_in.dart';
 import 'package:saydaliti_app/ui/format.dart';
 import 'package:saydaliti_app/ui/theme.dart';
@@ -295,4 +299,95 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('اكتب الإيميل وكلمة السر.'), findsOneWidget);
   });
+
+  test('receipt numbers: the day, the app, this phone, a counter that never repeats', () async {
+    SharedPreferences.setMockInitialValues({});
+    final r = Receipts();
+    final d = await r.device();
+    expect(isDeviceCode(d), isTrue);
+    expect(await Receipts().device(), d, reason: 'kept on the phone');
+    final day = DateTime(2026, 11, 13, 10);
+    expect(await r.next(day), '261113-M1-$d-0001');
+    expect(await r.next(day), '261113-M1-$d-0002');
+    expect(await r.next(day, server: 7), '261113-M1-$d-0008', reason: 'past what the server has');
+    expect(await r.next(day, held: ['261113-M1-$d-0011']), '261113-M1-$d-0012', reason: 'past what the phone holds');
+    expect(await r.next(DateTime(2026, 11, 14, 9)), '261114-M1-$d-0001', reason: 'a new day starts again');
+    expect(counterIn('261113-M1-$d-0042', '261113-M1-$d-'), 42);
+    expect(counterIn('other', '261113-M1-$d-'), 0);
+  });
+
+  test('a receipt\'s money, the server\'s way: piasters, discount at most the items', () {
+    final a = Item(code: 'a', name: 'A', category: 'دواء', owner: '', cost: 1, price: 12.35, qty: 5);
+    final b = Item(code: 'b', name: 'B', category: 'دواء', owner: '', cost: 1, price: 10, qty: 5);
+    final lines = [CartLine(a, 2), CartLine(b)];
+    expect(totals(lines, 0), (gross: 34.7, discount: 0.0, total: 34.7));
+    expect(totals(lines, 4.7)!.total, 30);
+    expect(totals(lines, 40), isNull);
+    final row = saleRow(pharmacyId: 'p1', branchId: 'b1', lines: lines, discount: 4.7, payment: 'card', paid: 0);
+    expect([row['total'], row['discount'], row['paid'], row['payment']], [30.0, 4.7, 30.0, 'card']);
+    expect((row['lines'] as List).first, {'code': 'a', 'name': 'A', 'price': 12.35, 'qty': 2, 'discount': 0});
+    expect(saleRow(pharmacyId: 'p1', branchId: null, lines: lines, discount: 0, payment: 'cash', paid: 50)['paid'], 50);
+  });
+
+  testWidgets('the cashier with no connection: the receipt is numbered, kept, and sent when the connection is back', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    Repo.inline = true;
+    addTearDown(() => Repo.inline = false);
+    final srv = server();
+    final s = loaded(api: srv.api);
+    s.userId = 'u1';
+    final before = s.repo.raw!.sales.length;
+    await size(t, 320, 640);
+    await t.pumpWidget(app(s, const HomeScreen(), Brightness.light));
+    await t.pumpAndSettle();
+    await t.tap(find.text('الكاشير'));
+    await t.pumpAndSettle();
+    expect(t.takeException(), isNull, reason: 'opening the cashier on a narrow phone');
+    await t.ensureVisible(find.text('سجّل الفاتورة'));
+    await t.tap(find.text('سجّل الفاتورة'));
+    await t.pumpAndSettle();
+    expect(find.text('ضيف الأصناف الأول.'), findsOneWidget);
+
+    final item = s.view!.data.items.firstWhere((i) => i.price > 0);
+    for (var i = 0; i < 2; i++) {
+      await t.enterText(find.byType(TextField).first, item.code);
+      await t.testTextInput.receiveAction(TextInputAction.search);
+      await t.pumpAndSettle();
+    }
+    expect(t.takeException(), isNull, reason: 'adding the same item twice');
+    expect(find.text('2'), findsOneWidget, reason: 'one line with two boxes');
+    await t.ensureVisible(find.text('سجّل الفاتورة'));
+    await t.tap(find.text('سجّل الفاتورة'));
+    await t.pumpAndSettle();
+    expect(t.takeException(), isNull);
+    expect(s.pending, 1, reason: 'the receipt waits for the connection');
+    expect(s.repo.raw!.sales.length, before + 1, reason: 'and counts at once');
+    expect(find.textContaining('هتتبعت أول ما النت يرجع'), findsOneWidget);
+
+    srv.connect();
+    final f = s.sync();
+    await t.pumpAndSettle();
+    await f;
+    expect(s.pending, 0);
+    final sale = (srv.sent.last['rows'] as List).single as Map;
+    expect(srv.sent.last['table'], 'pos_sales');
+    expect(sale['number'], matches(RegExp(r'^\d{6}-M1-[A-HJ-NP-Z2-9]{4}-0001$')));
+    expect([sale['kind'], sale['payment'], sale['created_by'], (sale['lines'] as List).single['qty']], ['sale', 'cash', 'u1', 2]);
+    expect(sale['total'], closeTo(((item.price * 100).round() * 2) / 100, 0.001));
+  });
+
+  for (final b in [Brightness.light, Brightness.dark]) {
+    testWidgets('the settings open (${b.name}, narrow phone)', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      await size(t, 320, 640);
+      await t.pumpWidget(app(loaded(), const SettingsScreen(), b));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.text('إشعار الصبح'), findsOneWidget);
+      await t.scrollUntilVisible(find.text('ضيف المورد'), 200, scrollable: find.byType(Scrollable).first);
+      await t.tap(find.text('ضيف المورد'));
+      await t.pumpAndSettle();
+      expect(find.text('اكتب اسم المورد.'), findsOneWidget);
+    });
+  }
 }

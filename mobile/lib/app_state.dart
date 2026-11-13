@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/alerts.dart';
 import 'data/api.dart';
 import 'data/outbox.dart';
+import 'data/receipts.dart';
 import 'data/repo.dart';
 
 enum Phase { starting, signedOut, noPharmacy, ready }
@@ -23,6 +25,15 @@ class AppState extends ChangeNotifier {
 
   /// The owner and the stock keeper count stock and receive goods (the server checks it too).
   bool get canStock => const ['owner', 'stock'].contains(member?.role);
+
+  /// The owner, the pharmacy device and the pharmacist sell (the server checks it too).
+  bool get canSell => const ['owner', 'device', 'pharmacist'].contains(member?.role);
+
+  /// Receipt numbers made on this phone.
+  final receipts = Receipts();
+
+  /// The morning notification (settings).
+  final alerts = Alerts();
 
   Phase phase = Phase.starting;
   String email = '';
@@ -45,6 +56,7 @@ class AppState extends ChangeNotifier {
     themeMode = ThemeMode.values.firstWhere((m) => m.name == p.getString(_kTheme), orElse: () => ThemeMode.system);
     branch = p.getString(_kBranch) ?? 'all';
     await outbox.load();
+    await alerts.load();
     final s = await api.restore();
     if (s == null) {
       phase = Phase.signedOut;
@@ -122,6 +134,7 @@ class AppState extends ChangeNotifier {
       loadedAt = DateTime.now();
       fromSaved = false;
       repo.keep(userId); // in the background
+      alerts.schedule(view?.analysis); // tomorrow morning's notification, with these numbers
     } on ApiError catch (e) {
       if (e.signedOut) {
         await api.forget();
@@ -151,6 +164,49 @@ class AppState extends ChangeNotifier {
     sync();
   }
 
+  /// A receipt: its number, then to the server at once (so a sale the server refuses, a box the branch no
+  /// longer has, is known before the customer leaves); with no connection it waits in the queue like the
+  /// rest, and the server checks it when it arrives. Returns true when the server has it now.
+  Future<bool> sell(Map<String, dynamic> sale) async {
+    final m = member!;
+    final now = DateTime.now();
+    final prefix = receiptPrefix(now, await receipts.device());
+    var server = 0;
+    try {
+      final r = await api.select('pos_sales', 'number',
+          filters: [['pharmacy_id', 'eq', m.pharmacyId], ['number', 'gte', prefix], ['number', 'lt', '$prefix~']], order: 'number', asc: false, limit: 1);
+      if (r.isNotEmpty) server = counterIn('${r.first['number']}', prefix);
+    } on ApiError catch (_) {
+      // No connection: the counter kept on the phone goes on.
+    }
+    final row = {
+      ...sale,
+      'number': await receipts.next(now, held: [for (final x in repo.raw?.sales ?? const <Map<String, dynamic>>[]) x['number'] as String?], server: server),
+      'receipt_device': await receipts.device(),
+      'sold_at': nowIso(),
+      'kind': 'sale',
+      'created_by': userId,
+    };
+    lastReceipt = '${row['number']}';
+    try {
+      await api.insert('pos_sales', [row]);
+    } on ApiError catch (e) {
+      if (!(e.offline || e.status == 429 || e.status >= 500)) rethrow;
+      await write([Pending.insert('pos_sales', row)]);
+      return false;
+    }
+    _applyLocal([Pending.insert('pos_sales', row)]);
+    if (repo.raw != null) {
+      view = await repo.view(branch);
+      repo.keep(userId);
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// The number of the last receipt made on this phone (shown after a sale).
+  String? lastReceipt;
+
   /// Sends what is waiting; a no-op when there is nothing.
   Future<void> sync() async {
     if (outbox.length == 0) return;
@@ -172,7 +228,7 @@ class AppState extends ChangeNotifier {
     final r = repo.raw;
     if (r == null) return;
     for (final e in entries) {
-      final list = switch (e.table) { 'catalog_items' => r.catalog, 'purchases' => r.purchases, 'stock_moves' => r.moves, _ => null };
+      final list = switch (e.table) { 'catalog_items' => r.catalog, 'purchases' => r.purchases, 'stock_moves' => r.moves, 'pos_sales' => r.sales, _ => null };
       if (list == null) continue;
       if (e.op == 'insert') {
         if (!list.any((x) => x['id'] == e.row['id'])) list.add({'created_at': nowIso(), ...e.row});
