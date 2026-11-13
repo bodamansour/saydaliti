@@ -181,7 +181,7 @@ class AppState extends ChangeNotifier {
     }
     final row = {
       ...sale,
-      'number': await receipts.next(now, held: [for (final x in repo.raw?.sales ?? const <Map<String, dynamic>>[]) x['number'] as String?], server: server),
+      'number': await receipts.next(now, held: [for (final x in repo.raw?.sales ?? const <Map<String, dynamic>>[]) x['number']?.toString()], server: server),
       'receipt_device': await receipts.device(),
       'sold_at': nowIso(),
       'kind': 'sale',

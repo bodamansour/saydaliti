@@ -384,7 +384,8 @@ void main() {
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
       expect(find.text('إشعار الصبح'), findsOneWidget);
-      await t.scrollUntilVisible(find.text('ضيف المورد'), 200, scrollable: find.byType(Scrollable).first);
+      await t.ensureVisible(find.text('ضيف المورد'));
+      await t.pumpAndSettle();
       await t.tap(find.text('ضيف المورد'));
       await t.pumpAndSettle();
       expect(find.text('اكتب اسم المورد.'), findsOneWidget);
