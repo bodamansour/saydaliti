@@ -246,7 +246,10 @@ void main() {
     await t.enterText(find.widgetWithText(TextField, 'سعر الشراء'), '20');
     await t.pumpAndSettle();
     expect(t.takeException(), isNull, reason: 'a line on a narrow phone');
-    await t.ensureVisible(find.text('سجّل الطلبية'));
+    // The form is a list built as it scrolls: scroll down to the button.
+    final form = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first;
+    await t.scrollUntilVisible(find.text('سجّل الطلبية'), 200, scrollable: form);
+    await t.pumpAndSettle();
     await t.tap(find.text('سجّل الطلبية'));
     await t.pumpAndSettle();
     expect(t.takeException(), isNull);
