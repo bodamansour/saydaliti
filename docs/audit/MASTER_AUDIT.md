@@ -1,4 +1,4 @@
-# Saydaliti — Master Audit (Phase 0)
+# Tablix Pharma — Master Audit (Phase 0)
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ Evidence labels used in this document:
 
 ## 1. Executive summary
 
-Saydaliti is a real, working, multi-platform product. It is not a prototype. It has a Cloudflare Worker API, D1 (SQLite), R2 file storage, a web app and PWA, an Electron desktop app with a fully offline mode, a Flutter WebView Android wrapper, and an importer for United/Genius `.Gen` backups. It also has a fairly broad set of pharmacy features. Every automated test suite passes in this environment [RUN].
+Tablix Pharma is a real, working, multi-platform product. It is not a prototype. It has a Cloudflare Worker API, D1 (SQLite), R2 file storage, a web app and PWA, an Electron desktop app with a fully offline mode, a Flutter WebView Android wrapper, and an importer for United/Genius `.Gen` backups. It also has a fairly broad set of pharmacy features. Every automated test suite passes in this environment [RUN].
 
 The product is **NOT READY** for commercial multi-pharmacy sale and **NOT READY** to replace the system of record at a pharmacy. The main reasons are architectural:
 
@@ -133,7 +133,7 @@ The source of truth is `worker/src/schema.js`; the SQL is generated from it and 
 | # | Finding | Severity |
 |---|---|---|
 | D1 | No authoritative stock table (`stock_levels` / `batches`). Stock = R2 snapshot JSON + later rows, recomputed in each browser (`src/inventory.js`). | P0 (architecture) |
-| D2 | Uploading a new pharmacy-program file **replaces the opening balance**. Saydaliti-side activity before it is dropped from the stock calculation (by design while United is the master [DOC]). This cannot work once Saydaliti is the primary system. | P0 for go-live |
+| D2 | Uploading a new pharmacy-program file **replaces the opening balance**. Tablix Pharma-side activity before it is dropped from the stock calculation (by design while United is the master [DOC]). This cannot work once Tablix Pharma is the primary system. | P0 for go-live |
 | D3 | Sale lines live in a JSON column (`pos_sales.lines`), not in a lines table, so SQL cannot aggregate, index or validate per-item sales. Same for `purchases.lines`. | P1 |
 | D4 | `pos_sales.number` has an index but no `UNIQUE (pharmacy_id, number)`. | P0 |
 | D5 | Suppliers are not a table; `supplier_id` is free text into settings JSON. Supplier balances cannot be enforced or joined. | P1 |
@@ -207,7 +207,7 @@ Status of the existing `docs/security/SECURITY_AUDIT.md` items: the closed items
 | S12 | Audit log is not tamper-evident (no hash chain); readable by the owner only | Low/Medium | [CODE] |
 | S13 | Desktop build tooling: 15 moderate `minimatch` advisories | Low (build-time) | [RUN] |
 
-Positive controls observed: parameterised SQL with a column whitelist (no SQL injection path found in `db.js`); hashed session tokens; constant-time password comparison; tenant scoping on every query; Electron `contextIsolation: true` and `nodeIntegration: false` with navigation and window-open handlers; SRI on the SheetJS CDN script; the connector's restore scripts refuse to touch a database not created by Saydaliti.
+Positive controls observed: parameterised SQL with a column whitelist (no SQL injection path found in `db.js`); hashed session tokens; constant-time password comparison; tenant scoping on every query; Electron `contextIsolation: true` and `nodeIntegration: false` with navigation and window-open handlers; SRI on the SheetJS CDN script; the connector's restore scripts refuse to touch a database not created by Tablix Pharma.
 
 ---
 

@@ -1,4 +1,4 @@
-# Saydaliti — Master Progress
+# Tablix Pharma — Master Progress
 
 **Source of truth for project progress.** Read this first at the start of every session, then check `git status`, the branch and the latest commit before trusting anything written here.
 

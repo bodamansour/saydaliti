@@ -69,4 +69,4 @@ Re-run the release workflow on a known-good commit, but only after checking that
 
 ## 7. Windows 7 / 8 / 32-bit
 
-Unsupported (owner decision, 2026-11-03). The only Electron that runs there (22.x) is end-of-life and receives no security fixes. `desktop.yml` no longer builds it. An older `Saydaliti-Setup-Win7.exe` may remain attached to the `desktop-latest` release as a legacy file. The next release text marks it unsupported and unpatched, and it is not rebuilt. Supported: Windows 10/11 x64 (Electron 45), or a current, supported browser for the web app.
+Unsupported (owner decision, 2026-11-03). The only Electron that runs there (22.x) is end-of-life and receives no security fixes. `desktop.yml` no longer builds it. The last Windows 7 installer was removed from the `desktop-latest` release on 2026-11-13. Supported: Windows 10/11 x64 (Electron 45), or a current, supported browser for the web app.

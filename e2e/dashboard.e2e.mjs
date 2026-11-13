@@ -670,7 +670,7 @@ test('export: Excel with every table, CSV, and the Saydaliti file', async () => 
   await openTools(page);
   await page.click('#exportBox summary');
   const x = await captureDownload(page, '[data-export=xlsx]');
-  assert.match(x.filename, /^saydaliti-.*\.xlsx$/);
+  assert.match(x.filename, /^tablix-pharma-.*\.xlsx$/);
   const xbytes = Buffer.from(x.bytes);
   assert.equal(xbytes.subarray(0, 2).toString(), 'PK', 'a real Excel file');
   await page.selectOption('#exportWhich', 'الأصناف');

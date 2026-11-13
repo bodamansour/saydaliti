@@ -1,4 +1,4 @@
-// The app owner's page: every pharmacy using Saydaliti online, its trial or paid period, and the
+// The app owner's page: every pharmacy using Tablix Pharma online, its trial or paid period, and the
 // prices. Payments are by transfer (InstaPay / Vodafone Cash) and turned on here by hand.
 // Only accounts in the app_admins table can read or change anything here (checked in the database).
 import { getSession, renderSignIn } from './session.js';
