@@ -5,6 +5,7 @@ import { ApiError, nowIso, uuid } from './db.js';
 import { newSecret, checkTotp, otpauthUrl, newRecoveryCodes, normRecovery } from './totp.js';
 import { guardedFetch } from './egress.js';
 import { keyring } from './keys.js';
+import { verifyGoogleToken } from './google.js';
 
 // 100,000 is the most Cloudflare Workers allow for PBKDF2 (needs the Workers Paid plan's CPU time;
 // on the free plan set PBKDF2_ITER lower). Hashes keep their own count, and are redone at sign-in
@@ -51,7 +52,7 @@ export const hashPin = async (env, pharmacyId, pin) => {
 export const oldPinHashes = async (env, pharmacyId, pin) => Promise.all(String(env?.PIN_PEPPER_OLD || '').split(',').map((x) => x.trim()).filter(Boolean)
   .map((pep) => sha256(`${pep}:${pharmacyId}:${pin}`)));
 
-export async function tooMany(env, k, max, minutes) {
+async function tooMany(env, k, max, minutes) {
   const since = new Date(Date.now() - minutes * 60000).toISOString();
   const r = await env.DB.prepare('SELECT count(*) AS n FROM auth_attempts WHERE k = ? AND at > ?').bind(k, since).first();
   return (r?.n ?? 0) >= max;
@@ -110,12 +111,12 @@ const reserveMfaAttempt = async (env, userId, ip) => reserveAttempt(env, [
 ], 'Too many two-step attempts. Request rate limit reached');
 const waitForAttempt = (attempt) => attempt.delayMs ? new Promise((resolve) => setTimeout(resolve, attempt.delayMs)) : Promise.resolve();
 const acceptAttempt = (env, attempt) => env.DB.prepare(`DELETE FROM auth_attempts WHERE k IN (${attempt.keys.map(() => '?').join(', ')})`).bind(...attempt.keys).run();
-export const note = (env, k) => env.DB.batch([
+const note = (env, k) => env.DB.batch([
   env.DB.prepare('INSERT INTO auth_attempts (k, at) VALUES (?, ?)').bind(k, nowIso()),
   env.DB.prepare('DELETE FROM auth_attempts WHERE at < ?').bind(new Date(Date.now() - 86400000).toISOString()),
 ]);
 
-export async function newSession(env, user) {
+async function newSession(env, user) {
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
   await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(token), user.id, nowIso(), expires).run();
@@ -157,6 +158,53 @@ export async function signIn(env, { email, password, code }, ip) {
   }
   if (!u.pw_hash.startsWith(`pbkdf2$${iterOf(env)}$`)) await env.DB.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').bind(await hashPassword(password, env), u.id).run();
   return newSession(env, u);
+}
+
+export async function signInWithGoogle(env, { credential, code }, ip, fetchImpl) {
+  const sourceKey = `google:${await sha256(sourceOf(ip))}`;
+  if (await tooMany(env, sourceKey, 30, 15)) throw new ApiError('Too many sign-in attempts', 'over_request_rate_limit', 429);
+  let identity;
+  try { identity = await verifyGoogleToken(env, credential, fetchImpl); }
+  catch (e) { if (e.code === 'google_invalid') await note(env, sourceKey); throw e; }
+  const attempt = await reservePasswordAttempt(env, identity.email, ip);
+  let u = await env.DB.prepare('SELECT id, email, google_sub, totp_secret, totp_recovery FROM users WHERE google_sub = ?').bind(identity.sub).first();
+  if (!u) {
+    if (await env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(identity.email).first()) {
+      await acceptAttempt(env, attempt);
+      throw new ApiError('Sign in with your password first, then link Google in account security', 'google_link_required', 409);
+    }
+    const fresh = { id: uuid(), email: identity.email };
+    await env.DB.prepare('INSERT OR IGNORE INTO users (id, email, pw_hash, google_sub, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(fresh.id, fresh.email, `google-only$${randomHex(32)}`, identity.sub, nowIso()).run();
+    u = await env.DB.prepare('SELECT id, email, google_sub, totp_secret, totp_recovery FROM users WHERE google_sub = ?').bind(identity.sub).first();
+    if (!u) {
+      await acceptAttempt(env, attempt);
+      throw new ApiError('Sign in with your password first, then link Google in account security', 'google_link_required', 409);
+    }
+  }
+  await acceptAttempt(env, attempt);
+  if (u.totp_secret) {
+    if (!String(code ?? '').trim()) throw new ApiError('Two-step code required', 'mfa_required', 401);
+    if (!(await secondStep(env, u, code, ip))) throw new ApiError('Wrong two-step code', 'mfa_invalid', 400);
+  }
+  return newSession(env, u);
+}
+
+export async function linkGoogle(env, user, { credential, current_password }, ip, fetchImpl) {
+  const identity = await verifyGoogleToken(env, credential, fetchImpl);
+  if (identity.email !== user.email.toLowerCase()) throw new ApiError('Google email must match this account', 'google_email_mismatch', 400);
+  const attempt = await reservePasswordAttempt(env, user.email, ip);
+  const u = await env.DB.prepare('SELECT pw_hash, google_sub FROM users WHERE id = ?').bind(user.id).first();
+  if (!u || !(await checkPassword(String(current_password || ''), u.pw_hash))) {
+    await waitForAttempt(attempt);
+    throw new ApiError('Current password is wrong', 'invalid_credentials', 400);
+  }
+  await acceptAttempt(env, attempt);
+  if (u.google_sub && u.google_sub !== identity.sub) throw new ApiError('This account already has a different Google identity', 'google_already_linked', 409);
+  const used = await env.DB.prepare('SELECT id FROM users WHERE google_sub = ?').bind(identity.sub).first();
+  if (used && used.id !== user.id) throw new ApiError('This Google identity belongs to another account', 'google_already_linked', 409);
+  await env.DB.prepare('UPDATE users SET google_sub = ? WHERE id = ?').bind(identity.sub, user.id).run();
+  return { linked: true };
 }
 
 export async function signOut(env, token) {

@@ -36,7 +36,7 @@ export const OUTSIDE_SERVICE_SECRETS = Object.freeze([
   'RESEND_API_KEY', 'EMAIL_FROM', 'EMAIL_OUTBOX',
   // online subscription payments (Paymob, worker/src/pay.js)
   'PAYMOB_SECRET_KEY', 'PAYMOB_PUBLIC_KEY', 'PAYMOB_INTEGRATION_IDS', 'PAYMOB_HMAC',
-  'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_CLIENT_ID',
 ]);
 
 export function isStaging(env) {

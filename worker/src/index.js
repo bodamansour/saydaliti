@@ -6,12 +6,11 @@
 //   POST /api/rpc/<name>            → the database functions
 //   POST /rest/v1/rpc/upload_snapshot (the pharmacy connector, same address shape as before)
 import { ApiError, select, insert, update, remove } from './db.js';
-import { signUp, signIn, signOut, userOf, changePassword, sessionCookie, clearCookie, mfaSetup, mfaEnable, mfaDisable, forgotPassword, resetPassword, emailReady, mfaOf, tooMany, note } from './auth.js';
+import { signUp, signIn, signInWithGoogle, linkGoogle, signOut, userOf, changePassword, sessionCookie, clearCookie, mfaSetup, mfaEnable, mfaDisable, forgotPassword, resetPassword, emailReady, mfaOf } from './auth.js';
 import { RPC, rpcNamed, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
 import { payStart, payWebhook, payReady } from './pay.js';
-import { googleStart, googleCallback, googleReady } from './google.js';
 import { backupAll } from './backup.js';
 import { sealAll, sealBudget } from './audit-seal.js';
 import { isolateEnv, guardedFetch } from './egress.js';
@@ -75,7 +74,7 @@ function rowsJson(rows, blob) {
 async function api(req, env, url, ctx) {
   const path = url.pathname;
   const ip = req.headers.get('CF-Connecting-IP') || 'local';
-  if (path === '/api/config') return json({ configured: true, backend: 'cloudflare' });
+  if (path === '/api/config') return json({ configured: true, backend: 'cloudflare', ...(env.GOOGLE_CLIENT_ID ? { googleClientId: env.GOOGLE_CLIENT_ID } : {}) });
   if (path.startsWith('/api/auth/')) {
     const what = path.slice('/api/auth/'.length);
     // Every change here comes from the app itself: JSON with the app's header. A form on another site can
@@ -84,10 +83,7 @@ async function api(req, env, url, ctx) {
     if (req.method !== 'GET' && req.method !== 'HEAD' && (req.headers.get('X-Saydaliti') !== '1' || !/^application\/json\b/i.test(req.headers.get('Content-Type') || ''))) {
       throw new ApiError('request refused', 'csrf', 403);
     }
-    if (what === 'user') { const u = await userOf(env, req); return json({ data: { user: u ? { id: u.id, email: u.email, mfa: await mfaOf(env, u.id) } : null, expires_at: u?.expires_at ?? null, email: emailReady(env), google: googleReady(env) }, error: null }); }
-    // Sign in with Google: two GET steps (a redirect to Google and back), see google.js.
-    if (what === 'google/start' && req.method === 'GET') return googleStart(env, url);
-    if (what === 'google/callback' && req.method === 'GET') return googleCallback(env, req, url, { fetchImpl: guardedFetch(env), ip, tooMany, note });
+    if (what === 'user') { const u = await userOf(env, req); return json({ data: { user: u ? { id: u.id, email: u.email, mfa: await mfaOf(env, u.id), google: !!(await env.DB.prepare('SELECT google_sub FROM users WHERE id = ?').bind(u.id).first())?.google_sub } : null, expires_at: u?.expires_at ?? null, email: emailReady(env) }, error: null }); }
     // Local development and tests only: the last email written for an address.
     // Only on a development machine: EMAIL_OUTBOX=dev and a request to localhost itself. Never in production
     // (the release refuses EMAIL_OUTBOX, and a public address never matches).
@@ -95,6 +91,8 @@ async function api(req, env, url, ctx) {
     if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
     if (what === 'signup') return signedIn(req, await signUp(env, await body(req, 10000), ip));
     if (what === 'signin') return signedIn(req, await signIn(env, await body(req, 10000), ip));
+    if (what === 'google') return signedIn(req, await signInWithGoogle(env, await body(req, 16000), ip, guardedFetch(env)));
+    if (what === 'google/link') { const u = await userOf(env, req); if (!u) throw new ApiError('not signed in', '42501', 401); return json({ data: await linkGoogle(env, u, await body(req, 16000), ip, guardedFetch(env)), error: null }); }
     if (what === 'signout') { const u = await userOf(env, req).catch(() => null); await signOut(env, u?.token); const r = json({ data: null, error: null }); r.headers.append('Set-Cookie', clearCookie()); return r; }
     // An app that still keeps its token in the page's storage (from before the cookie): the same session moves into the cookie.
     if (what === 'adopt') { const u = await userOf(env, req); if (!u || u.via !== 'bearer') throw new ApiError('not signed in', '42501', 401); return signedIn(req, { access_token: u.token, expires_at: u.expires_at, user: { id: u.id, email: u.email } }); }

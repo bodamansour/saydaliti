@@ -6,6 +6,27 @@ import { clearLocal, setAlwaysOnline } from './offline.js';
 
 export const ROLE_LABEL = { owner: 'صاحب الصيدلية', partner: 'شريك', device: 'جهاز الصيدلية', pharmacist: 'صيدلي', accountant: 'محاسب', stock: 'مسؤول مخزن' };
 let client = null;
+let googleClientId = null;
+let googleScript = null;
+export const googleReady = () => !!(googleClientId && client?.auth?.signInWithGoogle);
+export function googleButton(target, callback) {
+  if (!googleReady()) return;
+  googleScript ||= new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) return resolve();
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => { googleScript = null; reject(new Error('تعذر تحميل زر جوجل. جرّب تاني.')); };
+    document.head.append(script);
+  });
+  googleScript.then(() => {
+    if (!target.isConnected) return;
+    target.replaceChildren();
+    window.google.accounts.id.initialize({ client_id: googleClientId, callback: ({ credential }) => callback(credential) });
+    window.google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', text: 'signin_with', locale: 'ar' });
+  }).catch((e) => callback(null, e));
+}
 
 const cache = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } },
@@ -19,9 +40,11 @@ let scopeCheckedAt = 0;
 async function loadConfig() {
   try {
     const r = await fetch('/api/config', { cache: 'no-store' });
-    if (r.ok) { const cfg = await r.json(); cache.set(CFG, cfg); return cfg; }
+    if (r.ok) { const cfg = await r.json(); googleClientId = cfg.backend === 'cloudflare' ? cfg.googleClientId || null : null; cache.set(CFG, cfg); return cfg; }
   } catch { /* offline, or opened without the server */ }
-  return cache.get(CFG) || { configured: false };
+  const cfg = cache.get(CFG) || { configured: false };
+  googleClientId = cfg.backend === 'cloudflare' ? cfg.googleClientId || null : null;
+  return cfg;
 }
 
 async function loadMembership(userId, email) {
@@ -197,18 +220,11 @@ function renderForgot(box, onDone) {
   });
 }
 
-const GOOGLE_WHY = {
-  cancelled: 'الدخول بجوجل اتلغى.',
-  expired: 'الدخول بجوجل خلص وقته. جرّب تاني.',
-  mfa: 'الحساب ده عليه تحقق بخطوتين: ادخل بالإيميل وكلمة السر والكود.',
-  busy: 'حسابات جديدة كتير من نفس المكان. استنى ساعة وجرّب تاني.',
-  failed: 'مقدرناش ندخلك بجوجل. جرّب تاني، أو ادخل بالإيميل وكلمة السر.',
-};
-
 export function renderSignIn(box, onDone, mode = 'in') {
   box.hidden = false;
   if (mode === 'in' && client?.auth?.resetPassword && resetToken()) return renderReset(box, onDone, resetToken());
   const up = mode === 'up';
+  let googleCredential = null;
   box.innerHTML = `<h2>${up ? 'حساب جديد' : 'تسجيل الدخول'}</h2>
     <p class="note">${up ? 'اعمل حساب بإيميلك، وبعدها هتعمل صيدليتك أو تدخل بكود دعوة.' : 'ادخل بحسابك عشان تفتح لوحة صيدليتك.'}</p>
     <form id="loginForm" class="stack" novalidate>
@@ -220,24 +236,42 @@ export function renderSignIn(box, onDone, mode = 'in') {
       <label id="mfaWrap" hidden>كود التحقق<input id="mfaCode" autocomplete="one-time-code" inputmode="numeric" maxlength="12" placeholder="الكود من تطبيق التحقق، أو كود احتياطي"></label>
       <button class="btn primary wide" type="submit">${up ? 'اعمل الحساب' : 'دخول'}</button>
     </form>
+    ${googleReady() ? '<div class="u-center" id="googleBtn" aria-label="دخول بجوجل"></div><p class="note u-center">تقدر تدخل أو تعمل حساب بجوجل. لو عندك حساب قديم، اربطه من أمان الحساب بعد دخولك بكلمة السر.</p>' : ''}
     ${!up && client?.auth?.forgot ? '<p class="switch"><button class="linkbtn" type="button" id="forgotBtn">نسيت كلمة السر؟</button></p>' : ''}
-    <div id="googleWrap" hidden><p class="note u-center">أو</p><a class="btn wide" id="googleBtn" href="/api/auth/google/start">${up ? 'اعمل حساب بجوجل' : 'ادخل بحساب جوجل'}</a></div>
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>
     <p class="note u-center"><a class="navlink" href="./about.html">إيه هو Tablix Pharma؟ والأسعار</a></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
-  // Sign in with Google, when the server has it set up (and back from Google with a reason it didn't work).
-  // Not in the Windows program: Google refuses its sign-in page inside an app's own window.
-  if (!globalThis.saydalitiDesktop) client?.auth?.status?.().then((r) => { if (r?.data?.google && box.querySelector('#googleWrap')) box.querySelector('#googleWrap').hidden = false; }).catch(() => {});
-  const g = new URLSearchParams(location.search).get('google');
-  if (g) {
-    msg(GOOGLE_WHY[g] || GOOGLE_WHY.failed);
-    try { history.replaceState(null, '', location.pathname); } catch { /* keep the address */ }
-  }
   box.querySelector('#switchMode').addEventListener('click', () => renderSignIn(box, onDone, up ? 'in' : 'up'));
   box.querySelector('#forgotBtn')?.addEventListener('click', () => renderForgot(box, onDone));
+  box.querySelector('#password').addEventListener('input', () => { googleCredential = null; });
+  const google = box.querySelector('#googleBtn');
+  if (google) googleButton(google, async (credential, loadingError) => {
+    if (loadingError) return msg(loadingError.message);
+    googleCredential = credential;
+    msg('لحظة…');
+    const r = await client.auth.signInWithGoogle({ credential });
+    if (r.error?.code === 'mfa_required') {
+      box.querySelector('#mfaWrap').hidden = false;
+      box.querySelector('#mfaCode').focus();
+      return msg('الحساب ده عليه تحقق بخطوتين. اكتب الكود، وبعدها اضغط «دخول».');
+    }
+    if (r.error) {
+      googleCredential = null;
+      return msg(r.error.code === 'google_link_required' ? 'الإيميل ده عليه حساب بالفعل. ادخل بكلمة السر واربط جوجل من «أمان الحساب».' : arabicError(r.error).message);
+    }
+    onDone();
+  });
   box.querySelector('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (googleCredential) {
+      const code = box.querySelector('#mfaCode').value.trim();
+      if (!code) return msg('اكتب كود التحقق الأول.');
+      msg('لحظة…');
+      const r = await client.auth.signInWithGoogle({ credential: googleCredential, code });
+      if (r.error) return msg(r.error.code === 'mfa_invalid' ? 'الكود غلط أو خلص وقته.' : arabicError(r.error).message);
+      return onDone();
+    }
     const email = box.querySelector('#email').value.trim();
     const password = box.querySelector('#password').value;
     if (!/^\S+@\S+\.\S+$/.test(email)) return msg('اكتب إيميل صحيح.');

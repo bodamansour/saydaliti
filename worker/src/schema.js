@@ -23,7 +23,8 @@ export const TABLES = {
     id: ['id', { nn: true, def: 'uuid' }], email: ['text', { nn: true, max: 254 }], pw_hash: ['text', { nn: true }],
     created_at: ['ts', { nn: true, def: 'now' }],
     // Two-step sign-in (migration 0015): the authenticator secret (encrypted), one being set up, recovery codes (hashed).
-    totp_secret: ['text', { added: 15 }], totp_pending: ['text', { added: 15 }], totp_recovery: ['json', { added: 15 }] },
+    totp_secret: ['text', { added: 15 }], totp_pending: ['text', { added: 15 }], totp_recovery: ['json', { added: 15 }],
+    google_sub: ['text', { added: 19, max: 255 }] },
   unique: [['email']] },
   // A forgotten-password link (only its hash), valid 30 minutes, used once (migration 0015).
   password_resets: { pk: 'token_hash', internal: true, added: 15, cols: {

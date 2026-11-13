@@ -35,7 +35,7 @@ export async function dumpPharmacy(env, pharmacyId) {
   if (!ph.length) throw new ApiError('pharmacy not found', '404', 404);
   const tables = { pharmacies: ph, members: await rowsOf(env, 'SELECT * FROM members WHERE pharmacy_id = ?', pharmacyId) };
   // The accounts that belong to it (sign-in hashes only, no sessions), so people can sign in after a restore.
-  tables.users = await rowsOf(env, 'SELECT id, email, pw_hash, created_at FROM users WHERE id IN (SELECT user_id FROM members WHERE pharmacy_id = ?)', pharmacyId);
+  tables.users = await rowsOf(env, 'SELECT id, email, pw_hash, google_sub, created_at FROM users WHERE id IN (SELECT user_id FROM members WHERE pharmacy_id = ?)', pharmacyId);
   for (const t of BACKUP_TABLES) {
     const col = TABLES[t].tenant || 'pharmacy_id';
     tables[t] = await rowsOf(env, `SELECT * FROM ${t} WHERE ${col} = ? ORDER BY ${keyCol(t).join(', ')}`, pharmacyId);
@@ -185,7 +185,7 @@ export async function restoreInto(env, dump) {
   if (dump?.app !== 'saydaliti' || dump.kind !== 'server-backup' || !dump.tables?.pharmacies?.[0]) throw new ApiError('not a server backup');
   const pid = dump.pharmacy_id;
   if (await env.DB.prepare('SELECT 1 FROM pharmacies WHERE id = ?').bind(pid).first()) throw new ApiError('pharmacy already exists here: restore only into an empty database');
-  for (const u of dump.tables.users || []) if (await env.DB.prepare('SELECT 1 FROM users WHERE id = ? OR email = ?').bind(u.id, u.email).first()) throw new ApiError('account already exists here: restore only into an empty database');
+  for (const u of dump.tables.users || []) if (await env.DB.prepare('SELECT 1 FROM users WHERE id = ? OR email = ? OR (google_sub IS NOT NULL AND google_sub = ?)').bind(u.id, u.email, u.google_sub ?? null).first()) throw new ApiError('account already exists here: restore only into an empty database');
   const order = ['pharmacies', 'users', 'members', ...BACKUP_TABLES];
   const counts = {};
   for (const table of order) {

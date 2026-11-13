@@ -209,7 +209,7 @@
       <section class="grp" aria-label="أمان الحساب">
       <h2>أمان الحساب</h2>
       <details class="help" id="securityBox" hidden>
-        <summary>أمان الحساب (كلمة السر والتحقق بخطوتين)</summary>
+          <summary>أمان الحساب (كلمة السر وجوجل والتحقق بخطوتين)</summary>
         <form id="pwForm" class="stack">
           <b>غيّر كلمة السر</b>
           <div class="grid2"><label>كلمة السر الحالية<input id="pwOld" type="password" autocomplete="current-password" required></label>
@@ -223,6 +223,16 @@
           <p class="note" id="mfaState" role="status"></p>
           <div id="mfaSteps"></div>
         </div>
+          <hr>
+          <div class="stack" id="googleLink" hidden>
+            <b>تسجيل الدخول بجوجل</b>
+            <p class="note" id="googleState" role="status"></p>
+            <div id="googleLinkForm">
+              <label>كلمة السر الحالية<input id="googleLinkPassword" type="password" autocomplete="current-password"></label>
+              <div id="googleLinkButton" aria-label="اربط حساب جوجل"></div>
+              <p class="note" id="googleMsg" role="status"></p>
+            </div>
+          </div>
       </details>
       </section>
       <section class="grp" aria-label="الربط مع برنامج الصيدلية">

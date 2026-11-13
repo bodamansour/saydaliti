@@ -1,7 +1,7 @@
-// The database migrations (worker/migrations/0001–0018): numbered once each and in order, written in the
+// The database migrations (worker/migrations/0001–0019): numbered once each and in order, written in the
 // SQL that D1 accepts, applied in order on an empty database and on one full of (made-up) data, and
 // rolled back for real with the statements written in each new migration's header, then applied again.
-// Production is at 0010 (the last migration released), so 0011–0016 are the ones that will run on it.
+// The production-shaped fixture is at 0010; later migrations are checked against it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeD1, migrationFiles, migrationSql } from './helpers/d1-fake.js';
@@ -40,12 +40,12 @@ function fill(DB, rowsPerTable = 3) {
   return counts;
 }
 
-test('numbering: 0001 to 0018, each number once, no gaps, names in order', () => {
+test('numbering: 0001 to 0019, each number once, no gaps, names in order', () => {
   const files = migrationFiles();
   const nums = files.map(num);
   assert.equal(new Set(nums).size, nums.length, `a number is used twice: ${files.join(', ')}`);
   assert.deepEqual(nums, Array.from({ length: nums.length }, (_, i) => i + 1), 'no gaps');
-  assert.equal(nums.at(-1), 18);
+  assert.equal(nums.at(-1), 19);
   assert.deepEqual([...files].sort(), files, 'the order wrangler applies them in is the numbered order');
 });
 
@@ -58,7 +58,7 @@ test('D1: no transactions or PRAGMA/ATTACH/VACUUM in a migration (D1 runs each f
   }
 });
 
-test('an empty database: all 18 in order, every table the server knows exists with its columns', () => {
+test('an empty database: all 19 in order, every table the server knows exists with its columns', () => {
   const DB = fakeD1(); DB.raw.exec('PRAGMA foreign_keys = ON');
   apply(DB, 1, Infinity);
   const have = new Set(tables(DB));
@@ -75,7 +75,7 @@ test('an empty database: all 18 in order, every table the server knows exists wi
   }
 });
 
-test('a database like production (0001–0010 with data): 0011–0018 apply and every existing row stays exactly as it was', () => {
+test('a database like production (0001–0010 with data): 0011–0019 apply and every existing row stays exactly as it was', () => {
   const DB = fakeD1();
   apply(DB, 1, LIVE);
   const counts = fill(DB);
@@ -93,7 +93,7 @@ test('a database like production (0001–0010 with data): 0011–0018 apply and 
   assert.throws(() => DB.raw.prepare('DELETE FROM audit_log').run(), /audit log is append-only/);
 });
 
-test('rollback of 0018 → 0011, for real: back to the 0010 shape with the data kept, then applied again (twice)', () => {
+test('rollback of 0019 → 0011, for real: back to the 0010 shape with the data kept, then applied again (twice)', () => {
   const DB = fakeD1();
   apply(DB, 1, LIVE);
   fill(DB);
