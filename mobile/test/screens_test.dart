@@ -384,6 +384,9 @@ void main() {
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
       expect(find.text('إشعار الصبح'), findsOneWidget);
+      // The settings are a list built as it scrolls: drag down to the button.
+      await t.dragUntilVisible(find.text('ضيف المورد'), find.byType(ListView).first, const Offset(0, -200));
+      await t.pumpAndSettle();
       await t.ensureVisible(find.text('ضيف المورد'));
       await t.pumpAndSettle();
       await t.tap(find.text('ضيف المورد'));
