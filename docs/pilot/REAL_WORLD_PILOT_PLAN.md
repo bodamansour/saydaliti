@@ -4,10 +4,10 @@ Status: **plan, not started.** Last updated: 2026-11-03.
 
 ## 0. Ground rules
 
-- **E-Plus remains the system of record** for sales, stock and accounts throughout the observation phases. Saydaliti runs alongside it; nothing in Saydaliti changes E-Plus.
+- **E-Plus remains the system of record** for sales, stock and accounts throughout the observation phases. Tablix Pharma runs alongside it; nothing in Tablix Pharma changes E-Plus.
 - **No connection to the E-Plus database** and no writes to it. Data comes in only as **authorised exports** that the owner provides. The United/Genius connector is **not** used for E-Plus.
-- Staging uses synthetic data only. Real pharmacy data enters Saydaliti only in phase 2 and later, with the owner's written go-ahead per phase, into a production pharmacy record that the owner controls. Production deployment needs its own approval.
-- Every phase has explicit exit criteria. The **rollback is always the same**: stop using Saydaliti and keep working in E-Plus as today. Nothing in E-Plus depends on Saydaliti.
+- Staging uses synthetic data only. Real pharmacy data enters Tablix Pharma only in phase 2 and later, with the owner's written go-ahead per phase, into a production pharmacy record that the owner controls. Production deployment needs its own approval.
+- Every phase has explicit exit criteria. The **rollback is always the same**: stop using Tablix Pharma and keep working in E-Plus as today. Nothing in E-Plus depends on Tablix Pharma.
 
 ## 1. Phases
 
@@ -15,14 +15,14 @@ Status: **plan, not started.** Last updated: 2026-11-03.
 |---|---|---|---|
 | **P0: Staging rehearsal** | The full scripted scenario set (§3) on staging, by the team | Synthetic | All scenarios pass. Backup restore drill passes on Cloudflare. No open P0/P1 defect. |
 | **P1: Read-only comparison** | Daily E-Plus exports (items, stock with batches and expiry, sales, purchases) are imported into a **test pharmacy** and compared with E-Plus totals (§4) | Real exports, test pharmacy, owner-approved | 10 consecutive business days with stock differences ≤ 0.5% of items, explained or 0, and money totals equal to the piastre (or every difference explained) |
-| **P2: Shadow cashier** | One counter also records each sale in Saydaliti; E-Plus is still the system of record. Opening from the E-Plus numbers each morning; "block selling below zero" **on** in that branch (owner decision 2026-11-03). | Real, one branch, one counter | 10 business days. Every Saydaliti receipt matched to an E-Plus receipt. No receipt lost. Refused receipts explained. Shift cash reconciles. Staff can complete the scripted tasks unaided (§5). |
-| **P3: Limited operational use** | One branch uses Saydaliti for one defined workflow (e.g. expiry and reorder, or a second counter). E-Plus is still the source for accounts. | Real | Owner sign-off. Daily backups verified. A restore drill on staging from a production-shaped backup. Release approval. |
+| **P2: Shadow cashier** | One counter also records each sale in Tablix Pharma; E-Plus is still the system of record. Opening from the E-Plus numbers each morning; "block selling below zero" **on** in that branch (owner decision 2026-11-03). | Real, one branch, one counter | 10 business days. Every Tablix Pharma receipt matched to an E-Plus receipt. No receipt lost. Refused receipts explained. Shift cash reconciles. Staff can complete the scripted tasks unaided (§5). |
+| **P3: Limited operational use** | One branch uses Tablix Pharma for one defined workflow (e.g. expiry and reorder, or a second counter). E-Plus is still the source for accounts. | Real | Owner sign-off. Daily backups verified. A restore drill on staging from a production-shaped backup. Release approval. |
 
 Moving between phases is the owner's decision, based on the discrepancy report (§4).
 
 ## 2. Who does what (permissions)
 
-| Person | Saydaliti role | Can | Cannot |
+| Person | Tablix Pharma role | Can | Cannot |
 |---|---|---|---|
 | Owner | `owner` | Everything; sets stock policy; opens server stock; flags approvers; backups | — |
 | Pharmacist at the counter | `pharmacist` (one branch) or the counter `device` account plus a personal PIN | Sell; return against a receipt | Change prices or stock; approve their own no-receipt return |
@@ -57,17 +57,17 @@ S6–S10 are automated (`worker/test/stock.test.mjs`, `e2e/offline-sync.e2e.mjs`
 
 ## 4. Discrepancy report (daily in P1/P2)
 
-Produced from the E-Plus export of the day and Saydaliti's numbers (dashboard → «قارن رصيد السيرفر بالبرنامج» for stock; «الأرباح» / «الفواتير والمبيعات» for money).
+Produced from the E-Plus export of the day and Tablix Pharma's numbers (dashboard → «قارن رصيد السيرفر بالبرنامج» for stock; «الأرباح» / «الفواتير والمبيعات» for money).
 
 | Section | Columns |
 |---|---|
-| Stock | item code · name · E-Plus qty · Saydaliti app qty · Saydaliti server qty · difference · explanation |
-| Sales | day · E-Plus receipts / total · Saydaliti receipts / total · unmatched receipts (both sides) |
-| Purchases | invoice no · supplier · E-Plus total · Saydaliti total |
+| Stock | item code · name · E-Plus qty · Tablix Pharma app qty · Tablix Pharma server qty · difference · explanation |
+| Sales | day · E-Plus receipts / total · Tablix Pharma receipts / total · unmatched receipts (both sides) |
+| Purchases | invoice no · supplier · E-Plus total · Tablix Pharma total |
 | Cash | shift · expected · counted · difference |
 | Refused / flagged | receipt no · state (refused / flagged) · reason · resolution |
 
-Each difference is classified as one of: timing (export vs entry time), missing entry (which side), unit or pack mismatch, price change, data error, or Saydaliti defect. A defect goes into MASTER_PROGRESS with a priority.
+Each difference is classified as one of: timing (export vs entry time), missing entry (which side), unit or pack mismatch, price change, data error, or Tablix Pharma defect. A defect goes into MASTER_PROGRESS with a priority.
 
 **Blocked until the owner provides the E-Plus version and sample exports.** The field mapping (`docs/integrations/EPLUS_MIGRATION_PLAN.md`, to be written) depends on them.
 
@@ -77,7 +77,7 @@ During P2, every receipt's lag (`created_at − sold_at`) is kept. Each week, re
 
 ## 6. Rollback
 
-At any phase: tell the staff to use E-Plus only, set the branch's stock policy back to "allowed", and stop the Saydaliti counter. Saydaliti data is kept for the comparison; nothing needs undoing in E-Plus.
+At any phase: tell the staff to use E-Plus only, set the branch's stock policy back to "allowed", and stop the Tablix Pharma counter. Tablix Pharma data is kept for the comparison; nothing needs undoing in E-Plus.
 
 ## 7. Readiness today (2026-11-03)
 
