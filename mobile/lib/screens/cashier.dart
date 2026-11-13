@@ -1,7 +1,8 @@
-// Selling from the phone: scan or type the items, the boxes, a discount, and how the customer pays. Saved
-// like the website's cashier (src/cashier.js): one receipt with all its lines, numbered on this phone, sent
-// to the server at once or, with no connection, when it is back. Boxes only; strips, customers on account,
-// delivery and returns are on the website's cashier.
+// Selling from the phone: scan or type the items, how many boxes, strips or pills, a discount, and how the
+// customer pays. Saved like the website's cashier (src/cashier.js): one receipt with all its lines, numbered
+// on this phone, sent to the server at once or, with no connection, when it is back. Returns against a
+// receipt are in return.dart; customers on account, delivery and returns without a receipt (a manager's PIN)
+// are on the website's cashier.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -13,14 +14,43 @@ import '../ui/format.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'entry.dart';
+import 'return.dart';
+
+/// How an item is sold: by the box, or by the strip or the pill when the box holds more than one (src/pos.js unitsOf).
+class SaleUnit {
+  const SaleUnit(this.key, this.per, this.label);
+  final String key; // 'box', 'strip', 'pill'
+  final int per;
+  final String label;
+}
+
+List<SaleUnit> unitsOf(Item i) {
+  final strips = (i.strips ?? 0).round(), pills = (i.pills ?? 0).round();
+  return [
+    const SaleUnit('box', 1, 'علبة'),
+    if (strips > 1) SaleUnit('strip', strips, 'شريط'),
+    if (pills > 1 && pills != strips) SaleUnit('pill', pills, 'حباية'),
+  ];
+}
+
+/// The price of one strip or pill: the box's price shared, rounded to the piaster (src/pos.js unitPrice).
+double unitPrice(double boxPrice, int per) => ((boxPrice / (per < 1 ? 1 : per)) * 100).round() / 100;
 
 class CartLine {
-  CartLine(this.item, [this.boxes = 1]);
+  CartLine(this.item, [this.boxes = 1, this.unit = const SaleUnit('box', 1, 'علبة')]);
   final Item item;
-  int boxes;
 
-  /// In piasters, as the server counts it: the price rounded to the piaster, times the boxes.
-  int get grossPt => (item.price * 100).round() * boxes;
+  /// How many of [unit] (boxes, strips or pills).
+  int boxes;
+  SaleUnit unit;
+
+  double get price => unit.per > 1 ? unitPrice(item.price, unit.per) : item.price;
+
+  /// In boxes, for the stock (src/pos.js boxQty).
+  double get inBoxes => boxes / unit.per;
+
+  /// In piasters, as the server counts it: the price rounded to the piaster, times the quantity.
+  int get grossPt => (price * 100).round() * boxes;
 }
 
 /// The receipt's money, worked out the server's way (src/sale-rules.js). Null when the discount is too big.
@@ -50,9 +80,10 @@ Map<String, dynamic> saleRow({
         {
           'code': l.item.code,
           'name': l.item.name,
-          'price': l.item.price,
+          'price': l.price,
           'qty': l.boxes,
           'discount': 0,
+          if (l.unit.per > 1) ...{'per': l.unit.per, 'unit': l.unit.key},
           if ((l.item.tax ?? 0) > 0) 'tax': l.item.tax,
         }
     ],
@@ -98,7 +129,7 @@ class _CashierScreenState extends State<CashierScreen> {
   void _add(Item i) {
     HapticFeedback.selectionClick();
     setState(() {
-      final had = lines.where((l) => l.item.code == i.code).firstOrNull;
+      final had = lines.where((l) => l.item.code == i.code && l.unit.per == 1).firstOrNull;
       if (had != null) {
         had.boxes++;
       } else {
@@ -108,6 +139,9 @@ class _CashierScreenState extends State<CashierScreen> {
       _search++;
     });
   }
+
+  /// The boxes of an item on the receipt, all its lines together.
+  double _inBoxes(Item i) => lines.where((l) => l.item.code == i.code).fold(0.0, (a, l) => a + l.inBoxes);
 
   Future<void> _save(AppState s) async {
     void fail(String m) => setState(() => err = m);
@@ -155,7 +189,13 @@ class _CashierScreenState extends State<CashierScreen> {
     final paid = numIn(_paid.text);
     final change = tt != null && payment == 'cash' && paid != null ? paid - tt.total : null;
     return Scaffold(
-      appBar: AppBar(title: const Text('الكاشير')),
+      appBar: AppBar(title: const Text('الكاشير'), actions: [
+        TextButton.icon(
+          icon: const Icon(Icons.assignment_return_outlined),
+          label: const Text('مرتجع'),
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReturnScreen())),
+        ),
+      ]),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 32), children: [
         ItemSearch(
           key: ValueKey('search-$_search'),
@@ -175,12 +215,22 @@ class _CashierScreenState extends State<CashierScreen> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(l.item.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
-                    Text('${money(l.item.price)} للعلبة · ${money(l.grossPt / 100)}', style: TextStyle(color: t.muted, fontSize: 13)),
-                    if (l.boxes > l.item.qty) Text('الرصيد المسجل ${qty(l.item.qty)} بس', style: TextStyle(color: t.warn, fontSize: 12.5)),
+                    Text('${money(l.price)} لل${l.unit.label} · ${money(l.grossPt / 100)}', style: TextStyle(color: t.muted, fontSize: 13)),
+                    if (unitsOf(l.item).length > 1)
+                      Wrap(spacing: 6, children: [
+                        for (final u in unitsOf(l.item))
+                          ChoiceChip(
+                            label: Text(u.label),
+                            selected: u.key == l.unit.key,
+                            visualDensity: VisualDensity.compact,
+                            onSelected: (_) => setState(() => l.unit = u),
+                          ),
+                      ]),
+                    if (_inBoxes(l.item) > l.item.qty + 0.0005) Text('الرصيد المسجل ${qty(l.item.qty)} علبة بس', style: TextStyle(color: t.warn, fontSize: 12.5)),
                   ]),
                 ),
                 IconButton(
-                  tooltip: 'علبة أقل',
+                  tooltip: 'واحد أقل',
                   icon: const Icon(Icons.remove_circle_outline),
                   onPressed: () => setState(() {
                     if (l.boxes > 1) {
@@ -191,7 +241,7 @@ class _CashierScreenState extends State<CashierScreen> {
                   }),
                 ),
                 Text('${l.boxes}', style: Theme.of(context).textTheme.titleMedium),
-                IconButton(tooltip: 'علبة كمان', icon: const Icon(Icons.add_circle_outline), onPressed: () => setState(() => l.boxes++)),
+                IconButton(tooltip: 'واحد كمان', icon: const Icon(Icons.add_circle_outline), onPressed: () => setState(() => l.boxes++)),
               ]),
             ),
           ),
@@ -215,7 +265,7 @@ class _CashierScreenState extends State<CashierScreen> {
         if (err != null) Notice(err!),
         FilledButton(onPressed: busy ? null : () => _save(s), child: const Text('سجّل الفاتورة')),
         const SizedBox(height: 8),
-        Text('المرتجع والبيع بالشريط والآجل والتوصيل من كاشير الموقع.', style: TextStyle(color: t.faint, fontSize: 12.5)),
+        Text('الآجل والتوصيل والمرتجع من غير فاتورة من كاشير الموقع.', style: TextStyle(color: t.faint, fontSize: 12.5)),
       ]),
     );
   }

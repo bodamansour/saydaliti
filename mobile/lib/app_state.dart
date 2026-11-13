@@ -164,7 +164,7 @@ class AppState extends ChangeNotifier {
     sync();
   }
 
-  /// A receipt: its number, then to the server at once (so a sale the server refuses, a box the branch no
+  /// A receipt (a sale, or a return against a receipt): its number, then to the server at once (so a sale the server refuses, a box the branch no
   /// longer has, is known before the customer leaves); with no connection it waits in the queue like the
   /// rest, and the server checks it when it arrives. Returns true when the server has it now.
   Future<bool> sell(Map<String, dynamic> sale) async {
@@ -184,7 +184,7 @@ class AppState extends ChangeNotifier {
       'number': await receipts.next(now, held: [for (final x in repo.raw?.sales ?? const <Map<String, dynamic>>[]) x['number']?.toString()], server: server),
       'receipt_device': await receipts.device(),
       'sold_at': nowIso(),
-      'kind': 'sale',
+      'kind': sale['kind'] ?? 'sale',
       'created_by': userId,
     };
     lastReceipt = '${row['number']}';

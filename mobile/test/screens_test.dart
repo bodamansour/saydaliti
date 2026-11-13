@@ -19,6 +19,7 @@ import 'package:saydaliti_app/logic/model.dart';
 import 'package:saydaliti_app/screens/cashier.dart';
 import 'package:saydaliti_app/screens/entry.dart';
 import 'package:saydaliti_app/screens/home.dart';
+import 'package:saydaliti_app/screens/return.dart';
 import 'package:saydaliti_app/screens/settings.dart';
 import 'package:saydaliti_app/screens/sign_in.dart';
 import 'package:saydaliti_app/ui/format.dart';
@@ -394,4 +395,40 @@ void main() {
       expect(find.text('اكتب اسم المورد.'), findsOneWidget);
     });
   }
+
+  test('a return against a receipt: what is left, at the price paid (the website\'s numbers), in strips too', () {
+    final sale = <String, dynamic>{
+      'id': 's1', 'kind': 'sale', 'discount': 5, 'pharmacy_id': 'p1', 'branch_id': 'b1', 'payment': 'card',
+      'lines': [
+        {'code': 'a', 'name': 'A', 'price': 10, 'qty': 3, 'discount': 0},
+        {'code': 'b', 'name': 'B', 'price': 5, 'qty': 4, 'discount': 2, 'per': 2, 'unit': 'strip'},
+      ],
+    };
+    final returns = [
+      <String, dynamic>{'id': 'r1', 'kind': 'return', 'return_of': 's1', 'lines': [{'code': 'a', 'qty': 1, 'price': 10}]},
+    ];
+    final ls = returnableLines(sale, returns);
+    // The same as src/pos.js returnableLines for this receipt.
+    expect(ls, [
+      {'code': 'a', 'name': 'A', 'price': 10.0, 'sold': 3.0, 'left': 2.0, 'unitOff': 0.625},
+      {'code': 'b', 'name': 'B', 'price': 5.0, 'sold': 4.0, 'left': 4.0, 'unitOff': 0.7813, 'per': 2, 'unit': 'strip'},
+    ]);
+    final row = returnRow(sale, [(line: ls[0], qty: 2), (line: ls[1], qty: 4)]);
+    expect([row['kind'], row['return_of'], row['branch_id'], row['payment']], ['return', 's1', 'b1', 'card']);
+    expect(row['total'], closeTo(-35.62, 1e-9));
+    expect(row['paid'], row['total']);
+    expect(row['discount'], closeTo(4.38, 1e-9));
+    expect([for (final l in row['lines'] as List) [l['qty'], l['discount'], l['per']]], [[2.0, 1.25, null], [4.0, 3.13, 2]]);
+  });
+
+  test('strips and pills: the price shared from the box, rounded to the piaster', () {
+    final i = Item(code: 'x', name: 'X', category: 'دواء', owner: '', cost: 1, price: 100, qty: 3, strips: 3, pills: 30);
+    expect([for (final u in unitsOf(i)) '${u.key}:${u.per}'], ['box:1', 'strip:3', 'pill:30']);
+    expect(unitPrice(100, 3), 33.33);
+    final l = CartLine(i, 2, unitsOf(i)[1]);
+    expect([l.price, l.grossPt, l.inBoxes], [33.33, 6666, closeTo(0.6667, 1e-4)]);
+    final row = saleRow(pharmacyId: 'p1', branchId: null, lines: [l], discount: 0, payment: 'cash', paid: 70);
+    expect((row['lines'] as List).single, {'code': 'x', 'name': 'X', 'price': 33.33, 'qty': 2, 'discount': 0, 'per': 3, 'unit': 'strip'});
+    expect(row['total'], 66.66);
+  });
 }
