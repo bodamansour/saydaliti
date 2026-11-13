@@ -30,3 +30,13 @@ test('the window is isolated and sandboxed', () => {
   assert.match(prefs, /nodeIntegration: false/);
   assert.match(prefs, /sandbox: true/);
 });
+
+test('an update finds the data of the version named Saydaliti, and the United sync keeps starting with Windows', () => {
+  const pin = src.indexOf("app.setPath('userData', LEGACY_DATA)");
+  assert.ok(pin > 0, 'the old data folder is used when it is there');
+  assert.match(src, /LEGACY_DATA = join\(app\.getPath\('appData'\), 'Saydaliti'\)/);
+  for (const use of ["app.requestSingleInstanceLock()", "app.getPath('userData')"]) {
+    assert.ok(src.indexOf(use) > pin, `${use} comes after the data folder is chosen`);
+  }
+  assert.match(src, /if \(SYNC\?\.enabled\) \{ startWithWindows\(true\);/, 'the start-with-Windows entry is renewed at every start');
+});
