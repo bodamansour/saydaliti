@@ -8,6 +8,13 @@ const { GeniusLiveSync, parseFind, sqlMessage } = require('./genius-live.js');
 const { join, normalize, sep } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
+const { existsSync } = require('node:fs');
+
+// Before the rename to Tablix Pharma the program's data folder was %APPDATA%\Saydaliti. An update keeps
+// using it, so the pharmacy's data on this computer, the chosen mode and the United sync are where they
+// were (the data folder follows the program's name otherwise). Set before anything uses it.
+const LEGACY_DATA = join(app.getPath('appData'), 'Saydaliti');
+if (existsSync(LEGACY_DATA)) app.setPath('userData', LEGACY_DATA);
 
 const APP_DIR = join(__dirname, 'app');
 const LOCAL_HOME = 'app://saydaliti/index.html';
@@ -128,7 +135,9 @@ function menu() {
 // ---------- Backups: Documents\Tablix Pharma\backups, the newest 30 automatic ones are kept ----------
 async function backupDir() {
   // SAYDALITI_BACKUP_DIR: another folder (the tests use a temporary one, never the real Documents).
-  const dir = process.env.SAYDALITI_BACKUP_DIR || join(app.getPath('documents'), 'Tablix Pharma', 'backups');
+  // Backups made before the rename stay together with the new ones, in the folder they were in.
+  const legacy = join(app.getPath('documents'), 'Saydaliti', 'backups');
+  const dir = process.env.SAYDALITI_BACKUP_DIR || (existsSync(legacy) ? legacy : join(app.getPath('documents'), 'Tablix Pharma', 'backups'));
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
@@ -303,7 +312,8 @@ app.whenReady().then(async () => {
   else protocol.registerBufferProtocol('app', serveLegacy); // Electron 22: the Windows 7 / 32-bit version
   menu();
   await loadSync();
-  if (SYNC?.enabled) { await newSyncer(); updateTray(); schedule(30000); }
+  // Registered again at every start: after an update the program may be in another folder.
+  if (SYNC?.enabled) { startWithWindows(true); await newSyncer(); updateTray(); schedule(30000); }
   if (!(BACKGROUND && SYNC?.enabled)) createWindow();
 });
 app.on('window-all-closed', () => { if (!SYNC?.enabled) app.quit(); });
