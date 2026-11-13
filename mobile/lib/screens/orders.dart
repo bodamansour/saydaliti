@@ -38,7 +38,7 @@ class _OrdersTabState extends State<OrdersTab> {
       }
     }
     final t = context.tones;
-    return RefreshPage(onRefresh: s.refresh, children: [
+    return RefreshPage(onRefresh: s.refresh, bottom: s.canStock ? 96 : 28, children: [
       Text('الطلبيات', style: Theme.of(context).textTheme.headlineSmall),
       Text('أصناف هتخلص خلال ${fmt(v.settings.lead + 7)} يوم أو أقل، بكمية تكفي ${fmt(v.settings.cover)} يوم. عدّل الكمية لو حابب، وابعتها للمخزن.',
           style: TextStyle(color: t.muted)),

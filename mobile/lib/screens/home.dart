@@ -10,8 +10,10 @@ import '../data/repo.dart';
 import '../ui/format.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'count.dart';
 import 'money.dart';
 import 'orders.dart';
+import 'receive.dart';
 import 'stock.dart';
 import 'summary.dart';
 
@@ -86,6 +88,15 @@ class HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: _body(context, s),
+      // Counting stock and receiving an order, for the owner and the stock keeper.
+      floatingActionButton: v != null && s.canStock && (tab == 1 || tab == 2)
+          ? FloatingActionButton.extended(
+              heroTag: 'stock-entry',
+              icon: Icon(tab == 1 ? Icons.qr_code_scanner : Icons.move_to_inbox_outlined),
+              label: Text(tab == 1 ? 'جرد سريع' : 'طلبية وصلت'),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => tab == 1 ? const QuickCountScreen() : const ReceiveScreen())),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: _show,
@@ -135,6 +146,17 @@ class HomeScreenState extends State<HomeScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Text('دي آخر أرقام محفوظة على الموبايل. بنجيب الجديد…', style: TextStyle(color: context.tones.faint, fontSize: 12.5)),
+        ),
+      if (s.pending > 0)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Notice('${s.pending} حاجة متسجلة على الموبايل ومستنية النت. هتتبعت لوحدها.', tone: Tone.info, action: TextButton(onPressed: s.sync, child: const Text('ابعت'))),
+        ),
+      for (final r in s.refused)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Notice('السيرفر رفض حاجة اتسجلت على الموبايل: ${r.why}',
+              action: TextButton(onPressed: () => s.dismissRefused(r), child: const Text('تمام'))),
         ),
       if (s.error != null)
         Padding(
@@ -201,7 +223,8 @@ class _Menu extends StatelessWidget {
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text('تخرج من الحساب؟'),
-              content: Text('هتحتاج تدخل بالإيميل وكلمة السر تاني على الموبايل ده.\n${s.email}'),
+              content: Text('هتحتاج تدخل بالإيميل وكلمة السر تاني على الموبايل ده.\n${s.email}'
+                  '${s.pending > 0 ? '\n\nفيه ${s.pending} حاجة لسه متبعتتش للسيرفر، وهتتمسح لو خرجت دلوقتي.' : ''}'),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
                 FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('خروج')),

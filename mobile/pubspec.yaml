@@ -18,6 +18,9 @@ dependencies:
   shared_preferences: any
   path_provider: any
   url_launcher: any
+  # The one package from outside the Flutter and Dart teams: the phone's camera as a barcode scanner
+  # (Google ML Kit on Android). Only the quick count and the receive form use it.
+  mobile_scanner: any
 
 dev_dependencies:
   flutter_test:
