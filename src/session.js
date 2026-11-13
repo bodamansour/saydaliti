@@ -197,6 +197,14 @@ function renderForgot(box, onDone) {
   });
 }
 
+const GOOGLE_WHY = {
+  cancelled: 'الدخول بجوجل اتلغى.',
+  expired: 'الدخول بجوجل خلص وقته. جرّب تاني.',
+  mfa: 'الحساب ده عليه تحقق بخطوتين: ادخل بالإيميل وكلمة السر والكود.',
+  busy: 'حسابات جديدة كتير من نفس المكان. استنى ساعة وجرّب تاني.',
+  failed: 'مقدرناش ندخلك بجوجل. جرّب تاني، أو ادخل بالإيميل وكلمة السر.',
+};
+
 export function renderSignIn(box, onDone, mode = 'in') {
   box.hidden = false;
   if (mode === 'in' && client?.auth?.resetPassword && resetToken()) return renderReset(box, onDone, resetToken());
@@ -213,10 +221,19 @@ export function renderSignIn(box, onDone, mode = 'in') {
       <button class="btn primary wide" type="submit">${up ? 'اعمل الحساب' : 'دخول'}</button>
     </form>
     ${!up && client?.auth?.forgot ? '<p class="switch"><button class="linkbtn" type="button" id="forgotBtn">نسيت كلمة السر؟</button></p>' : ''}
+    <div id="googleWrap" hidden><p class="note u-center">أو</p><a class="btn wide" id="googleBtn" href="/api/auth/google/start">${up ? 'اعمل حساب بجوجل' : 'ادخل بحساب جوجل'}</a></div>
     <p class="note" id="authMsg" role="status"></p>
     <p class="switch">${up ? 'عندك حساب؟' : 'معندكش حساب؟'} <button class="linkbtn" type="button" id="switchMode">${up ? 'سجّل دخول' : 'اعمل حساب جديد'}</button></p>
     <p class="note u-center"><a class="navlink" href="./about.html">إيه هو Tablix Pharma؟ والأسعار</a></p>`;
   const msg = (t) => { box.querySelector('#authMsg').textContent = t; };
+  // Sign in with Google, when the server has it set up (and back from Google with a reason it didn't work).
+  // Not in the Windows program: Google refuses its sign-in page inside an app's own window.
+  if (!globalThis.saydalitiDesktop) client?.auth?.status?.().then((r) => { if (r?.data?.google && box.querySelector('#googleWrap')) box.querySelector('#googleWrap').hidden = false; }).catch(() => {});
+  const g = new URLSearchParams(location.search).get('google');
+  if (g) {
+    msg(GOOGLE_WHY[g] || GOOGLE_WHY.failed);
+    try { history.replaceState(null, '', location.pathname); } catch { /* keep the address */ }
+  }
   box.querySelector('#switchMode').addEventListener('click', () => renderSignIn(box, onDone, up ? 'in' : 'up'));
   box.querySelector('#forgotBtn')?.addEventListener('click', () => renderForgot(box, onDone));
   box.querySelector('#loginForm').addEventListener('submit', async (e) => {

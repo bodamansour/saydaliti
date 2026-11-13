@@ -51,7 +51,7 @@ export const hashPin = async (env, pharmacyId, pin) => {
 export const oldPinHashes = async (env, pharmacyId, pin) => Promise.all(String(env?.PIN_PEPPER_OLD || '').split(',').map((x) => x.trim()).filter(Boolean)
   .map((pep) => sha256(`${pep}:${pharmacyId}:${pin}`)));
 
-async function tooMany(env, k, max, minutes) {
+export async function tooMany(env, k, max, minutes) {
   const since = new Date(Date.now() - minutes * 60000).toISOString();
   const r = await env.DB.prepare('SELECT count(*) AS n FROM auth_attempts WHERE k = ? AND at > ?').bind(k, since).first();
   return (r?.n ?? 0) >= max;
@@ -110,12 +110,12 @@ const reserveMfaAttempt = async (env, userId, ip) => reserveAttempt(env, [
 ], 'Too many two-step attempts. Request rate limit reached');
 const waitForAttempt = (attempt) => attempt.delayMs ? new Promise((resolve) => setTimeout(resolve, attempt.delayMs)) : Promise.resolve();
 const acceptAttempt = (env, attempt) => env.DB.prepare(`DELETE FROM auth_attempts WHERE k IN (${attempt.keys.map(() => '?').join(', ')})`).bind(...attempt.keys).run();
-const note = (env, k) => env.DB.batch([
+export const note = (env, k) => env.DB.batch([
   env.DB.prepare('INSERT INTO auth_attempts (k, at) VALUES (?, ?)').bind(k, nowIso()),
   env.DB.prepare('DELETE FROM auth_attempts WHERE at < ?').bind(new Date(Date.now() - 86400000).toISOString()),
 ]);
 
-async function newSession(env, user) {
+export async function newSession(env, user) {
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
   await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(token), user.id, nowIso(), expires).run();
