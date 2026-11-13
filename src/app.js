@@ -2775,7 +2775,7 @@ $('cloudBackupBtn').addEventListener('click', async () => {
   $('cloudBackupBtn').disabled = true;
   try {
     const dump = await cloudBackup();
-    download(`saydaliti-full-backup-${isoDay(new Date())}.json`, new Blob([JSON.stringify(dump)], { type: 'application/json' }));
+    download(`tablix-pharma-full-backup-${isoDay(new Date())}.json`, new Blob([JSON.stringify(dump)], { type: 'application/json' }));
     store.set(`saydaliti-cloud-backup-${SESS.pharmacy.id}`, Date.now());
     const n = Object.values(dump.tables).reduce((a, r) => a + r.length, 0);
     $('cloudBackupMsg').textContent = `اتنزلت: ${fmt(n)} سطر. احتفظ بيها في مكان آمن.`;
@@ -2816,7 +2816,7 @@ function setupLocal() {
   localModeButton($('logout'));
   $('localBox').hidden = false;
   updateNet();
-  $('backupWhere').textContent = desktop() ? 'البرنامج بيعمل نسخة احتياطية لوحده كل يوم في فولدر «Saydaliti» جوه «Documents». احتفظ بنسخة كمان على فلاشة أو على الموبايل.' : 'نزّل نسخة احتياطية كل فترة واحتفظ بيها على فلاشة.';
+  $('backupWhere').textContent = desktop() ? 'البرنامج بيعمل نسخة احتياطية لوحده كل يوم في فولدر البرنامج جوه «Documents» (بيظهر مكانها بالظبط لما تعمل نسخة). احتفظ بنسخة كمان على فلاشة أو على الموبايل.' : 'نزّل نسخة احتياطية كل فترة واحتفظ بيها على فلاشة.';
   void autoBackup();
   clearInterval(backupTimer);
   backupTimer = setInterval(() => void autoBackup(), 20 * 3600 * 1000);
@@ -2891,7 +2891,7 @@ $('restoreFile').addEventListener('change', async (e) => {
   try { await SESS.client.importAll(dump); await clearLocal(); location.reload(); } catch (err) { $('backupMsg').textContent = err.message; }
 });
 
-// ---------- Export: Excel, CSV, JSON (Saydaliti), print / PDF ----------
+// ---------- Export: Excel, CSV, JSON (this program's own format), print / PDF ----------
 const dateText = (d) => (d ? isoDay(d instanceof Date ? d : new Date(d)) : '');
 function exportTables() {
   const bid = BRANCH === 'all' ? 'all' : BRANCH_ID();
@@ -2921,7 +2921,7 @@ function exportTables() {
 // Plain Latin file names: some browsers drop a name written in Arabic.
 const exportName = (ext) => {
   const i = BRANCHES.findIndex((b) => key(b.id) === BRANCH);
-  return `saydaliti-${isoDay(TODAY)}${multi() ? (BRANCH === 'all' ? '-all-branches' : `-branch${i + 1}`) : ''}.${ext}`;
+  return `tablix-pharma-${isoDay(TODAY)}${multi() ? (BRANCH === 'all' ? '-all-branches' : `-branch${i + 1}`) : ''}.${ext}`;
 };
 function download(name, blob) {
   const a = document.createElement('a');
@@ -3171,7 +3171,7 @@ async function renderStuck() {
 }
 $('stuckBox').addEventListener('click', async (e) => {
   const t = e.target.closest('button'); if (!t) return;
-  if (t.id === 'stuckSave') { download(`saydaliti-refused-${isoDay(new Date())}.json`, new Blob([JSON.stringify(await stuck(), null, 2)], { type: 'application/json' })); return; }
+  if (t.id === 'stuckSave') { download(`tablix-pharma-refused-${isoDay(new Date())}.json`, new Blob([JSON.stringify(await stuck(), null, 2)], { type: 'application/json' })); return; }
   if (t.id === 'stuckRetryAll' || t.dataset.stretry) { await retryStuck(t.dataset.stretry ? [t.dataset.stretry] : null); await sync(); return; }
   if (t.dataset.stdrop) {
     if (!confirm('تمسحها خالص؟ مش هتترفع ومش هتظهر تاني.')) return;

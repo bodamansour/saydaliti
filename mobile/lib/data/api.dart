@@ -1,4 +1,4 @@
-// The connection to the Saydaliti server (worker/): the same requests the website makes. The sign-in is a
+// The connection to the Tablix Pharma server (worker/): the same requests the website makes. The sign-in is a
 // token kept on this phone only (the app's own storage), sent as "Authorization: Bearer …".
 import 'dart:async';
 import 'dart:convert';

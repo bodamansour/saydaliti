@@ -53,9 +53,9 @@ jobs:
           name: Tablix Pharma — برنامج الكمبيوتر
           body: |
             نزّل `TablixPharma-Setup.exe` على كمبيوتر الصيدلية وافتحه عشان يتسطب (ويندوز 10 و11، 64 بت).
-            ويندوز 7 و8 و32 بت مش مدعومين: النسخة القديمة `Saydaliti-Setup-Win7.exe` (لو لسه موجودة هنا) مبنية على Electron 22 اللي مبقاش بياخد تحديثات أمان، ومش بتتحدّث تاني. استخدم ويندوز 10 أو 11 (64 بت)، أو افتح الموقع من متصفح حديث مدعوم.
+            ويندوز 7 و8 و32 بت مش مدعومين. استخدم ويندوز 10 أو 11 (64 بت)، أو افتح الموقع من متصفح حديث.
             لو ويندوز قال «Windows protected your PC»، دوس More info ثم Run anyway (البرنامج مش موقّع بشهادة مدفوعة).
-            أول مرة بيسأل: أونلاين بحسابك (نفس بيانات الموبايل والموقع)، ولا على الجهاز ده بس من غير نت (نسخة احتياطية كل يوم في Documents\Saydaliti\backups).
+            أول مرة بيسأل: أونلاين بحسابك (نفس بيانات الموبايل والموقع)، ولا على الجهاز ده بس من غير نت (نسخة احتياطية كل يوم في Documents\Tablix Pharma\backups).
             التحديث: نزّل الملف الجديد وسطّبه فوق القديم، والبيانات بتفضل زي ما هي.
             الإصدار: 1.0.${{ github.run_number }}
           files: desktop/dist/TablixPharma-Setup.exe
@@ -63,5 +63,4 @@ jobs:
 
 # Windows 7/8 and 32-bit Windows are not supported (owner decision, 2026-11-03): the only Electron
 # that still runs there (22.x) is end-of-life and gets no security fixes, so no installer is built for it.
-# An older Saydaliti-Setup-Win7.exe may still be attached to the desktop-latest release; it is kept as
-# a legacy file only and is not a supported or patched release.
+# The last Windows 7 installer was removed from the desktop-latest release on 2026-11-13.
