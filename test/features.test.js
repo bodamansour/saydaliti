@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortagePlan, cheapestSeen, priceCompare, cairoClock, parseTimes, dueReminders, advanceRefill } from '../src/features.js';
+import { shortagePlan, cheapestSeen, priceCompare, cairoClock, parseTimes, dueReminders, advanceRefill, handDue, reminderText, afterSend, waLink } from '../src/features.js';
 
 const d = (s) => new Date(`${s}T00:00:00`);
 // Cairo is UTC+3 on these dates (summer time in 2026 runs until the last Thursday of October).
@@ -84,4 +84,25 @@ test('refill reminder the day before, once', () => {
 test('refill date moves forward after sending', () => {
   assert.equal(advanceRefill('2026-11-01', 30, d('2026-10-31')).getTime(), d('2026-12-01').getTime());
   assert.equal(advanceRefill('2026-09-01', 30, d('2026-10-31')).getTime(), d('2026-11-30').getTime());
+});
+
+test('reminders sent by hand: refill the day before, the dose schedule once', () => {
+  const now = new Date('2026-11-13T08:00:00Z'); // 10:00 Cairo
+  const rs = [
+    { id: 'a', kind: 'refill', medicine: 'جلوكوفاج', next_refill: '2026-11-14', refill_every_days: 30 },
+    { id: 'b', kind: 'refill', medicine: 'كونكور', next_refill: '2026-11-20', refill_every_days: 30 },
+    { id: 'c', kind: 'dose', medicine: 'أوجمنتين', dose_times: ['09:00', '21:00'] },
+    { id: 'd', kind: 'dose', medicine: 'فلاجيل', dose_times: ['09:00'], last_sent_at: '2026-11-10T08:00:00Z' },
+    { id: 'e', kind: 'refill', medicine: 'مقفول', next_refill: '2026-11-14', active: false },
+  ];
+  assert.deepEqual(handDue(rs, now).map((r) => r.id), ['a', 'c']);
+  const patch = afterSend(rs[0], now);
+  assert.equal(patch.next_refill, '2026-12-14');
+  assert.equal(patch.last_sent_at, now.toISOString());
+  assert.deepEqual(handDue([{ ...rs[0], ...patch }], now), []);
+  assert.equal(afterSend(rs[2], now).next_refill, undefined);
+  assert.match(reminderText(rs[2], { patientName: 'أم محمد', pharmacyName: 'صيدلية النور' }), /أم محمد.*صيدلية النور.*09:00، 21:00/);
+  assert.match(reminderText(rs[0]), /جلوكوفاج قرب يخلص/);
+  assert.equal(waLink('201012345678', 'أهلاً يا فندم'), `https://wa.me/201012345678?text=${encodeURIComponent('أهلاً يا فندم')}`);
+  assert.equal(waLink('', 'x'), 'https://wa.me/?text=x');
 });

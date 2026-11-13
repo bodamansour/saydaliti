@@ -10,6 +10,7 @@ import { signUp, signIn, signOut, userOf, changePassword, sessionCookie, clearCo
 import { RPC, rpcNamed, checkPosSale, reportFeed, remindersFeed, markRemindersSent, storeSnapshotText, branchOf } from './rpc.js';
 import { requireRole } from './db.js';
 import { aiChat, aiInvoice } from './ai.js';
+import { payStart, payWebhook, payReady } from './pay.js';
 import { backupAll } from './backup.js';
 import { sealAll, sealBudget } from './audit-seal.js';
 import { isolateEnv, guardedFetch } from './egress.js';
@@ -105,6 +106,7 @@ async function api(req, env, url, ctx) {
     throw new ApiError('not found', '404', 404);
   }
   if (path === '/api/ai/status') return json({ data: { enabled: !!env.ANTHROPIC_API_KEY }, error: null });
+  if (path === '/api/pay/status') return json({ data: { enabled: payReady(env) }, error: null });
   // An item's photo (R2: images/<pharmacy>/<code>): anyone in the pharmacy reads it; the owner and the
   // stock manager put a small picture (made small on the device, at most 300 KB).
   if (path === '/api/item-image') {
@@ -131,6 +133,10 @@ async function api(req, env, url, ctx) {
   if (req.method !== 'POST') throw new ApiError('method not allowed', '405', 405);
   // The AI calls go through guardedFetch: refused on staging (egress.js), the real fetch on production.
   if (path === '/api/ai') return json({ data: await aiChat(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
+  // Subscription payments (Paymob): the checkout goes out through guardedFetch (refused on staging); the
+  // webhook is Paymob's signed message, so it needs no sign-in.
+  if (path === '/api/pay/start') return json({ data: await payStart(env, await contextOf(env, req), await body(req, 10000), { fetchImpl: guardedFetch(env), site: (env.SITE_URL || url.origin).replace(/\/$/, '') }), error: null });
+  if (path === '/api/pay/webhook') return json({ data: await payWebhook(env, req, url), error: null });
   if (path === '/api/ai/invoice') return json({ data: await aiInvoice(env, await contextOf(env, req), req, { fetchImpl: guardedFetch(env) }), error: null });
   if (path === '/api/db') {
     const q = await body(req);

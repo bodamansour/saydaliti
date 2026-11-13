@@ -1,6 +1,7 @@
 // A pharmacy's subscription: free trial, paid until a date, free (the app owner's own pharmacies),
 // or suspended. Pure: what to tell the owner, and whether the dashboard is locked.
 // The cashier is never locked: a pharmacy must always be able to sell to a patient.
+import { readPlans } from './plans.js';
 const DAY = 86400000;
 const day = (v) => { const d = new Date(`${String(v).slice(0, 10)}T00:00:00`); return Number.isNaN(d.getTime()) ? null : d; };
 const daysBetween = (a, b) => Math.round((b - a) / DAY);
@@ -37,4 +38,13 @@ export function extendPaid(until, months, today = new Date(new Date().setHours(0
   const d = new Date(end && end > today ? end : today);
   d.setMonth(d.getMonth() + months);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// What n months cost (1 or 12): the plan's price when the pharmacy has a plan with one (a year at the
+// plan's yearly price when set), else the monthly price (own, or base plus branches) times the months.
+// Worked out on the server for online payment (worker/src/pay.js); 0 = no price set.
+export function payAmount({ sub = null, cfg = {}, branches = 1, months = 1 } = {}) {
+  const plan = sub?.plan ? readPlans(cfg?.plans)[sub.plan] : null;
+  if (plan && +plan.price_month > 0) return months === 12 && +plan.price_year > 0 ? +plan.price_year : +plan.price_month * months;
+  return Math.round(monthlyPrice(cfg || {}, branches, sub?.price_month) * months * 100) / 100;
 }

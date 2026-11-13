@@ -34,6 +34,8 @@ export const OUTSIDE_SERVICE_SECRETS = Object.freeze([
   'ANTHROPIC_API_KEY', 'AI_MODEL',
   // forgotten-password emails (Resend); EMAIL_OUTBOX=dev keeps them in the database on a development machine
   'RESEND_API_KEY', 'EMAIL_FROM', 'EMAIL_OUTBOX',
+  // online subscription payments (Paymob, worker/src/pay.js)
+  'PAYMOB_SECRET_KEY', 'PAYMOB_PUBLIC_KEY', 'PAYMOB_INTEGRATION_IDS', 'PAYMOB_HMAC',
 ]);
 
 export function isStaging(env) {

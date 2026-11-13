@@ -102,3 +102,32 @@ export function advanceRefill(nextRefill, everyDays, today) {
 }
 
 export const daysBetween = (a, b) => Math.round((toDay(b) - toDay(a)) / DAY);
+
+// ---------- Reminders sent by hand on WhatsApp (wa.me) ----------
+// With no WhatsApp Business account, the owner sends each message from his own WhatsApp: the page opens it
+// ready to send. A refill reminder is due the day before the medicine runs out; a dose reminder is the
+// schedule, sent once (the patient sets an alarm), and again only if it was never sent.
+export function handDue(reminders, now = new Date(), tz = 'Africa/Cairo') {
+  const refills = dueReminders(reminders.filter((r) => r.kind === 'refill'), now, tz);
+  const doses = reminders.filter((r) => r.kind === 'dose' && r.active !== false && !r.last_sent_at && (r.dose_times || []).length);
+  return [...refills, ...doses];
+}
+
+export function reminderText(r, { patientName = '', pharmacyName = 'الصيدلية' } = {}) {
+  const hi = patientName ? `أهلاً ${patientName}` : 'أهلاً';
+  if (r.kind === 'dose') return `${hi}، معاك ${pharmacyName}. مواعيد ${r.medicine}: ${(r.dose_times || []).join('، ')}. ظبّط منبّه على الموبايل بالمواعيد دي. ألف سلامة عليك.`;
+  return `${hi}، معاك ${pharmacyName}. ${r.medicine} قرب يخلص. تحب نجهزهولك؟ رد على الرسالة دي ونجهزه.`;
+}
+
+/** What to save after the message is opened: when it was sent, and the next refill day. */
+export function afterSend(r, now = new Date(), tz = 'Africa/Cairo') {
+  const patch = { last_sent_at: now.toISOString() };
+  if (r.kind === 'refill' && r.next_refill) {
+    const d = advanceRefill(r.next_refill, r.refill_every_days, toDay(cairoClock(now, tz).date));
+    patch.next_refill = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return patch;
+}
+
+/** A WhatsApp link with the message ready; no number opens the contact chooser. */
+export const waLink = (phone, text) => `https://wa.me/${phone || ''}?text=${encodeURIComponent(text)}`;

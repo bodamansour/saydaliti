@@ -195,6 +195,11 @@ export const TABLES = {
     pharmacy_id: ['id', { nn: true }], status: ['text', { nn: true, def: 'trial', in: ['trial', 'active', 'free', 'suspended'] }],
     trial_ends: ['date'], paid_until: ['date'], price_month: ['num'], note: ['text', { max: 600 }], updated_at: ['ts', { nn: true, def: 'now' }],
     plan: ['text', { max: 30, added: 8 }] } },
+  // Subscription payments through Paymob (migration 0018, worker/src/pay.js): written by the server only.
+  payments: { pk: 'id', internal: true, added: 18, cols: {
+    id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], user_id: ['id'], months: ['int', { nn: true }], amount_cents: ['int', { nn: true }],
+    status: ['text', { nn: true }], paymob_id: ['text'], created_at: ['ts', { nn: true }], paid_at: ['ts'] },
+  index: [['pharmacy_id', 'created_at']] },
   // A whole day closed for a branch: the day's totals as they were, the cash counted, and who closed it.
   day_closes: { pk: 'id', added: 9, read: MANAGERS, insert: PAYERS, del: OWNER, audit: true, refs: { branch_id: 'branches' }, cols: {
     id: ['id', { nn: true }], pharmacy_id: ['id', { nn: true }], branch_id: ['id'], day: ['date', { nn: true }], totals: ['json', { nn: true }],
