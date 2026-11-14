@@ -4,7 +4,7 @@ import { backupFingerprint, verifyLocalBackup } from './local-db.js';
 import { mergeBranches, expenseTotals, monthlyFromRecorded, EXPENSE_KINDS, kindLabel, withdrawals, OWNER_LABEL } from './branches-expenses.js';
 import { treasury, CASH_KINDS } from './treasury.js';
 import { pickSupplier, ordersBySupplier, orderMessage, priceChanges, recurringSuggestions, itemKind } from './ordering.js';
-import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton } from './session.js';
+import { getSession, branchAccessChanged, signOut, renderSignIn, renderPharmacyChoice, ROLE_LABEL, rememberSettings, localModeButton, googleReady, googleButton } from './session.js';
 import { arabicError } from './supabase-store.js';
 import { morningReport } from './report.js';
 import { suggestMapping } from './mapping.js';
@@ -2732,6 +2732,21 @@ async function refreshMfa() {
     ? `<div class="grid2"><label>كلمة السر<input id="mfaOffPw" type="password" autocomplete="current-password"></label><label>كود من التطبيق أو كود احتياطي<input id="mfaOffCode" autocomplete="one-time-code" inputmode="numeric" maxlength="12"></label></div>
        <div class="row"><button class="btn" type="button" id="mfaOff">اقفل التحقق بخطوتين</button><span class="note" id="mfaMsg" role="status"></span></div>`
     : `<div class="row"><label>كلمة السر<input id="mfaPw" type="password" autocomplete="current-password"></label><button class="btn primary" type="button" id="mfaStart">شغّل التحقق بخطوتين</button><span class="note" id="mfaMsg" role="status"></span></div>`;
+  $('googleLink').hidden = !googleReady();
+  if (googleReady()) {
+    $('googleState').textContent = r.error ? arabicError(r.error).message : r.data?.user?.google ? 'حساب جوجل مربوط بالفعل.' : 'اربط حساب جوجل بنفس الإيميل علشان تدخل بيه بعد كده.';
+    $('googleLinkForm').hidden = !!r.data?.user?.google;
+    if (!r.data?.user?.google) googleButton($('googleLinkButton'), async (credential, loadingError) => {
+      if (loadingError) { $('googleMsg').textContent = loadingError.message; return; }
+      const password = $('googleLinkPassword').value;
+      if (!password) { $('googleMsg').textContent = 'اكتب كلمة السر الحالية الأول، وبعدها اختار جوجل تاني.'; return; }
+      $('googleMsg').textContent = 'بنربط الحساب…';
+      const result = await SESS.client.auth.linkGoogle(credential, password);
+      $('googleLinkPassword').value = '';
+      $('googleMsg').textContent = result.error ? (result.error.code === 'google_email_mismatch' ? 'اختار حساب جوجل بنفس إيميل Tablix Pharma.' : arabicError(result.error).message) : 'اتربط حساب جوجل.';
+      if (!result.error) refreshMfa();
+    });
+  }
 }
 $('securityBox').addEventListener('toggle', () => { if ($('securityBox').open) refreshMfa(); });
 $('pwForm').addEventListener('submit', async (e) => {

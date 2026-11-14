@@ -124,6 +124,8 @@ export function createCloudflareClient() {
         return { data: { session: s }, error: null };
       },
       async signInWithPassword({ email, password, code }) { return signedIn(await call('/api/auth/signin', { email, password, ...(code ? { code } : {}) })); },
+      async signInWithGoogle({ credential, code }) { return signedIn(await call('/api/auth/google', { credential, ...(code ? { code } : {}) })); },
+      linkGoogle: (credential, currentPassword) => call('/api/auth/google/link', { credential, current_password: currentPassword }),
       // Forgotten password (a link by email) and two-step sign-in (an authenticator app).
       forgot: (email) => call('/api/auth/forgot', { email }),
       async resetPassword(token, password) { const r = await call('/api/auth/reset', { token, password }); if (r.data?.user?.id) write({ user: r.data.user, expires_at: r.data.expires_at }); return r; },

@@ -10,4 +10,4 @@
   Strict-Transport-Security: max-age=31536000
   Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin-allow-popups
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://cdn.sheetjs.com; worker-src 'self'; manifest-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://cdn.sheetjs.com https://accounts.google.com/gsi/; worker-src 'self'; manifest-src 'self'; frame-src 'self' https://accounts.google.com/gsi/; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
