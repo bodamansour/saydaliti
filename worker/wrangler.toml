@@ -75,8 +75,8 @@ binding = "FILES"
 bucket_name = "saydaliti-files-staging"
 
 [env.staging.triggers]
-# Only the backup job on staging (no WhatsApp jobs).
-crons = ["*/30 * * * *"]
+# Backups and hourly audit sealing on synthetic staging data; egress stays blocked.
+crons = ["*/30 * * * *", "15 * * * *"]
 
 [env.staging.observability]
 enabled = true

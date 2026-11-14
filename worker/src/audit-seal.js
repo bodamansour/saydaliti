@@ -328,16 +328,20 @@ export async function sealAudit(env, pharmacyId, { maxRows = 2000 } = {}) {
   return { sealed: n, left: !!(await env.DB.prepare('SELECT 1 FROM audit_log WHERE pharmacy_id = ? AND id > ? LIMIT 1').bind(pharmacyId, lastId).first()), epoch };
 }
 
-// Every pharmacy's new rows, within a total budget per run; what is left waits for the next run.
+// Only pharmacies with new rows need sealing; bound tenant work as well as rows so the Worker
+// stays below Cloudflare's per-invocation service request limit when many pharmacies exist.
 export async function sealAll(env, { budget = 20000 } = {}) {
   const out = { pharmacies: 0, sealed: 0, failed: 0, left: 0, configured: await sealReady(env) };
   if (!out.configured) { console.warn('AUDIT_SEAL_NOT_CONFIGURED: AUDIT_SEAL_KEY is not set, the log is not sealed'); return out; }
-  for (const { pharmacy_id: id } of (await env.DB.prepare('SELECT DISTINCT pharmacy_id FROM audit_log').all()).results) {
-    if (out.sealed >= budget) { out.left++; continue; }
+  const pending = (await env.DB.prepare(`SELECT DISTINCT a.pharmacy_id FROM audit_log a
+    WHERE a.id > COALESCE((SELECT s.upto_id FROM audit_seals s WHERE s.pharmacy_id = a.pharmacy_id
+      ORDER BY s.epoch DESC, s.upto_id DESC LIMIT 1), 0) ORDER BY a.pharmacy_id`).all()).results;
+  for (const { pharmacy_id: id } of pending) {
+    if (out.sealed >= budget || out.pharmacies + out.failed >= 40) { out.left++; continue; }
     try {
       const r = await sealAudit(env, id, { maxRows: budget - out.sealed });
       out.pharmacies++; out.sealed += r.sealed; if (r.left) out.left++;
-    } catch (e) { out.failed++; console.error('AUDIT_SEAL_FAILED', id, e?.message); }
+    } catch (e) { out.failed++; out.left++; console.error('AUDIT_SEAL_FAILED', id, e?.message); }
   }
   if (out.left) console.warn('AUDIT_SEAL_BACKLOG', out.left, 'pharmacies still have unsealed rows; they continue on the next run');
   return out;

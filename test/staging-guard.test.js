@@ -197,13 +197,14 @@ test('a clean tree passes, and a missing wrangler.toml is refused', () => {
 });
 
 // ---------- M2: schedules ----------
-test('config: the staging schedule must be exactly the backup cron, and BACKUP_CRON must match it', () => {
+test('config: staging schedules only backup and hourly sealing, and BACKUP_CRON matches', () => {
   const cases = {
     'no [env.staging.triggers] (would inherit production crons)': staging((p) => p.replace(/\[env\.staging\.triggers\][^[]*/, '')),
-    'production crons': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = ["0 6 * * *", "15 * * * *"]')),
-    'an extra cron': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = ["*/30 * * * *", "15 * * * *"]')),
-    'another cron': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = ["*/15 * * * *"]')),
-    'unparseable crons': staging((p) => p.replace('crons = ["*/30 * * * *"]', 'crons = [\n  "*/30 * * * *",\n]')),
+    'production crons': staging((p) => p.replace('crons = ["*/30 * * * *", "15 * * * *"]', 'crons = ["0 6 * * *", "15 * * * *"]')),
+    'an extra cron': staging((p) => p.replace('crons = ["*/30 * * * *", "15 * * * *"]', 'crons = ["*/30 * * * *", "15 * * * *", "0 6 * * *"]')),
+    'missing seal cron': staging((p) => p.replace('crons = ["*/30 * * * *", "15 * * * *"]', 'crons = ["*/30 * * * *"]')),
+    'another cron': staging((p) => p.replace('crons = ["*/30 * * * *", "15 * * * *"]', 'crons = ["*/15 * * * *", "15 * * * *"]')),
+    'unparseable crons': staging((p) => p.replace('crons = ["*/30 * * * *", "15 * * * *"]', 'crons = [\n  "*/30 * * * *",\n]')),
     'BACKUP_CRON differs': staging((p) => p.replace('BACKUP_CRON = "*/30 * * * *"', 'BACKUP_CRON = "30 1 * * *"')),
     'no BACKUP_CRON': staging((p) => p.replace(/BACKUP_CRON = "\*\/30 \* \* \* \*"\n/, '')),
     'MORNING_CRON equal to the staging cron': staging((p) => p.replace('MORNING_CRON = "0 6 * * *"', 'MORNING_CRON = "*/30 * * * *"')),
