@@ -242,6 +242,17 @@ test('batches: a long log is sealed over several runs within a budget, and check
   assert.equal(v.ok, true); assert.equal(v.rows, 4500); assert.equal(v.seals, 3);
 });
 
+test('hourly sealing advances across many pharmacies without revisiting completed logs', async () => {
+  const { DB, env } = setup(0);
+  const insert = DB.raw.prepare('INSERT INTO audit_log (pharmacy_id, at, user_id, table_name, op, row_id) VALUES (?, ?, ?, ?, ?, ?)');
+  for (let i = 0; i < 45; i++) insert.run(`p-${String(i).padStart(2, '0')}`, new Date().toISOString(), 'u1', 'customers', 'insert', `r${i}`);
+  const first = await sealAll(env(), { budget: 150 });
+  assert.equal(first.sealed, 40); assert.equal(first.left, 5); assert.equal(first.failed, 0);
+  const second = await sealAll(env(), { budget: 150 });
+  assert.equal(second.sealed, 5); assert.equal(second.left, 0); assert.equal(second.failed, 0);
+  assert.equal(DB.raw.prepare('SELECT count(*) AS n FROM audit_seals').get().n, 45);
+});
+
 test('time: sealing and checking 20,000 rows (measured, see the log line)', async () => {
   const { env } = setup(20000);
   const e = env();
