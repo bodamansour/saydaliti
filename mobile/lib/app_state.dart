@@ -164,9 +164,7 @@ class AppState extends ChangeNotifier {
     sync();
   }
 
-  /// A receipt: its number, then to the server at once (so a sale the server refuses, a box the branch no
-  /// longer has, is known before the customer leaves); with no connection it waits in the queue like the
-  /// rest, and the server checks it when it arrives. Returns true when the server has it now.
+  /// Sales can wait for the connection. A refund needs server confirmation before money is handed back.
   Future<bool> sell(Map<String, dynamic> sale) async {
     final m = member!;
     final now = DateTime.now();
@@ -184,14 +182,14 @@ class AppState extends ChangeNotifier {
       'number': await receipts.next(now, held: [for (final x in repo.raw?.sales ?? const <Map<String, dynamic>>[]) x['number']?.toString()], server: server),
       'receipt_device': await receipts.device(),
       'sold_at': nowIso(),
-      'kind': 'sale',
+      'kind': sale['kind'] ?? 'sale',
       'created_by': userId,
     };
     lastReceipt = '${row['number']}';
     try {
       await api.insert('pos_sales', [row]);
     } on ApiError catch (e) {
-      if (!(e.offline || e.status == 429 || e.status >= 500)) rethrow;
+      if (sale['kind'] == 'return' || !(e.offline || e.status == 429 || e.status >= 500)) rethrow;
       await write([Pending.insert('pos_sales', row)]);
       return false;
     }
