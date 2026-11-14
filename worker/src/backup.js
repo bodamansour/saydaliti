@@ -8,6 +8,7 @@
 // Without the BACKUP_KEY secret, no backup is made (and none is stored unencrypted).
 import { TABLES } from './schema.js';
 import { ApiError, nowIso, uuid } from './db.js';
+import { isStaging } from './egress.js';
 
 export const RETAIN = 14; // the newest good backups kept per pharmacy (older files are deleted)
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -153,7 +154,14 @@ async function prune(env, pharmacyId) {
 export async function backupAll(env) {
   if (!env.BACKUP_KEY) { console.error('BACKUP_ALERT', JSON.stringify({ problem: 'BACKUP_KEY not set: no backups are made' })); return { skipped: 'no BACKUP_KEY' }; }
   const out = { ok: 0, failed: 0 };
-  for (const { id } of await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at')) {
+  // shortcut: five tenants per staging run fit the Free plan's service-request cap; revisit if backups exceed 36 hours.
+  const staging = isStaging(env);
+  const pharmacies = staging ? await rowsOf(env, `SELECT p.id FROM pharmacies p
+    LEFT JOIN backups b ON b.pharmacy_id = p.id AND b.source = 'daily'
+    WHERE NOT EXISTS (SELECT 1 FROM backups good WHERE good.pharmacy_id = p.id AND good.status = 'ok' AND good.created_at >= ?)
+    GROUP BY p.id ORDER BY COALESCE(MAX(b.created_at), ''), p.created_at, p.id LIMIT 5`, new Date(Date.now() - 24 * 3600000).toISOString())
+    : await rowsOf(env, 'SELECT id FROM pharmacies ORDER BY created_at');
+  for (const { id } of pharmacies) {
     try { await runBackup(env, id, { source: 'daily' }); out.ok++; } catch { out.failed++; }
   }
   const health = await backupHealth(env);

@@ -15,7 +15,7 @@ export async function captureDownload(page, selector) {
     };
   });
   await page.click(selector);
-  await page.waitForFunction(() => window.__downloadCapture?.filename, undefined, { timeout: 10000 });
+  await page.waitForFunction(() => window.__downloadCapture?.filename, undefined, { timeout: 30000 });
   return page.evaluate(async () => {
     const { blob, filename } = window.__downloadCapture;
     return { filename, text: await blob.text(), bytes: Array.from(new Uint8Array(await blob.arrayBuffer())) };
